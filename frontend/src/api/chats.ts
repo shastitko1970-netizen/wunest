@@ -1,0 +1,182 @@
+import { apiFetch } from '@/api/client'
+
+// ─── Types (kept in sync with Go's internal/chats/types.go) ───────────
+
+export type Role = 'user' | 'assistant' | 'system'
+
+export interface Chat {
+  id: string
+  user_id: string
+  character_id?: string | null
+  character_name?: string
+  name: string
+  chat_metadata?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  last_message_at?: string
+}
+
+export interface Message {
+  id: number
+  chat_id: string
+  role: Role
+  content: string
+  swipes?: string[]
+  swipe_id: number
+  extras?: MessageExtras
+  hidden?: boolean
+  created_at: string
+}
+
+export interface MessageExtras {
+  model?: string
+  reasoning?: string
+  tokens_in?: number
+  tokens_out?: number
+  latency_ms?: number
+  finish_reason?: string
+  error?: string
+}
+
+// ─── HTTP API methods ─────────────────────────────────────────────────
+
+export const chatsApi = {
+  list: () => apiFetch<{ items: Chat[] }>('/api/chats'),
+
+  get: (id: string) => apiFetch<Chat>(`/api/chats/${id}`),
+
+  create: (input: { character_id?: string; name?: string }) =>
+    apiFetch<Chat>('/api/chats', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  rename: (id: string, name: string) =>
+    apiFetch<void>(`/api/chats/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  delete: (id: string) =>
+    apiFetch<void>(`/api/chats/${id}`, { method: 'DELETE' }),
+
+  listMessages: (chatID: string) =>
+    apiFetch<{ items: Message[] }>(`/api/chats/${chatID}/messages`),
+
+  deleteMessage: (chatID: string, messageID: number) =>
+    apiFetch<void>(`/api/chats/${chatID}/messages/${messageID}`, {
+      method: 'DELETE',
+    }),
+}
+
+// ─── Streaming send ───────────────────────────────────────────────────
+
+/** One decoded SSE event emitted by POST /api/chats/:id/messages. */
+export type StreamEvent =
+  | { event: 'user_message'; data: Message }
+  | { event: 'assistant_start'; data: { id: number; model: string } }
+  | { event: 'token'; data: { content: string } }
+  | { event: 'done'; data: {
+        id: number
+        content: string
+        tokens_in: number
+        tokens_out: number
+        latency_ms: number
+        finish_reason?: string
+    } }
+  | { event: 'error'; data: { kind: string; message: string } }
+  | { event: 'raw'; data: unknown }
+
+export interface SendMessageInput {
+  content: string
+  model?: string
+  temperature?: number
+  max_tokens?: number
+}
+
+/**
+ * sendMessage sends a user message and streams the assistant response.
+ *
+ * Yields StreamEvent objects as they arrive. Throws on HTTP errors *before*
+ * the stream starts; in-stream errors come through as `{event: 'error'}`.
+ *
+ * Cancellation: pass an AbortSignal; calling .abort() cuts the upstream too.
+ */
+export async function* sendMessageStream(
+  chatID: string,
+  input: SendMessageInput,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent, void, unknown> {
+  const res = await fetch(`/api/chats/${chatID}/messages`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+    body: JSON.stringify(input),
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(body || `Send failed (${res.status})`)
+  }
+  if (!res.body) {
+    throw new Error('Streaming not supported by this browser')
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  // Parser state for a multi-line SSE block.
+  let currentEvent = ''
+  let currentData = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // Process all complete lines. Last (possibly partial) line stays in buffer.
+      let nl: number
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl)
+        buffer = buffer.slice(nl + 1)
+
+        // Blank line = event terminator.
+        if (line.trim() === '') {
+          if (currentEvent && currentData) {
+            yield decodeEvent(currentEvent, currentData)
+          }
+          currentEvent = ''
+          currentData = ''
+          continue
+        }
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          // A data: line; multi-line data is concatenated with '\n'.
+          currentData = currentData ? currentData + '\n' + line.slice(6) : line.slice(6)
+        }
+        // Ignore other SSE fields (id:, retry:) for now.
+      }
+    }
+    // Flush trailing event without terminating blank line.
+    if (currentEvent && currentData) {
+      yield decodeEvent(currentEvent, currentData)
+    }
+  } finally {
+    try { await reader.cancel() } catch { /* already closed */ }
+  }
+}
+
+function decodeEvent(event: string, data: string): StreamEvent {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(data)
+  } catch {
+    return { event: 'raw', data }
+  }
+  // We trust the server about event types; treat parsed as any-typed payload.
+  return { event: event as StreamEvent['event'], data: parsed } as StreamEvent
+}

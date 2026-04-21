@@ -3,11 +3,13 @@ import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useCharactersStore } from '@/stores/characters'
+import { useChatsStore } from '@/stores/chats'
 import type { Character } from '@/api/characters'
 import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
 
 const store = useCharactersStore()
+const chats = useChatsStore()
 const router = useRouter()
 const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = storeToRefs(store)
 
@@ -25,9 +27,13 @@ function onOpen(c: Character) {
   console.debug('open character', c.id)
 }
 
-function onChat(c: Character) {
-  // TODO: create chat + navigate to /chat/:id in M3.
-  router.push(`/chat?character=${c.id}`)
+async function onChat(c: Character) {
+  try {
+    const chat = await chats.createForCharacter(c.id)
+    router.push(`/chat/${chat.id}`)
+  } catch (e) {
+    console.error('create chat failed', e)
+  }
 }
 
 async function onFavorite(c: Character) {

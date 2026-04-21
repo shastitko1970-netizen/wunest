@@ -1,29 +1,231 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useChatsStore } from '@/stores/chats'
+import { useAuthStore } from '@/stores/auth'
+import ChatList from '@/components/ChatList.vue'
+import MessageBubble from '@/components/MessageBubble.vue'
+import MessageInput from '@/components/MessageInput.vue'
 
 const route = useRoute()
-const characterId = route.query.character as string | undefined
+const router = useRouter()
+const chats = useChatsStore()
+const auth = useAuthStore()
+const { currentChat, messages, messagesLoading, streaming, streamError } = storeToRefs(chats)
+const { profile } = storeToRefs(auth)
+
+const draft = ref('')
+const scroller = ref<HTMLElement | null>(null)
+
+onMounted(async () => {
+  await chats.fetchList()
+  await maybeLoadFromRoute()
+})
+
+watch(() => route.params.id, () => maybeLoadFromRoute())
+
+// Auto-scroll to bottom when new messages arrive or tokens stream in.
+watch([messages, streaming], () => {
+  nextTick(() => {
+    const el = scroller.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}, { deep: true })
+
+async function maybeLoadFromRoute() {
+  const id = route.params.id as string | undefined
+  if (id) {
+    await chats.open(id)
+  }
+}
+
+const characterName = computed(() => currentChat.value?.character_name ?? undefined)
+const userName = computed(() => profile.value?.first_name || profile.value?.username || 'You')
+const hasSelection = computed(() => !!currentChat.value)
+
+async function send() {
+  const text = draft.value.trim()
+  if (!text) return
+  draft.value = ''
+  await chats.send({ content: text })
+}
 </script>
 
 <template>
-  <v-container class="nest-stub">
-    <div class="nest-eyebrow">Chat</div>
-    <h1 class="nest-h1 mt-1">Chat</h1>
-    <v-alert
-      class="mt-6"
-      type="info"
-      variant="tonal"
-      text="Chat UI is the focus of M3. This placeholder confirms routing works."
-    />
-    <p v-if="characterId" class="nest-subtitle mt-4 nest-mono">
-      Requested character: {{ characterId }}
-    </p>
-  </v-container>
+  <div class="nest-chat-layout">
+    <!-- Sidebar with chat list -->
+    <aside class="nest-chat-sidebar">
+      <ChatList />
+    </aside>
+
+    <!-- Main chat panel -->
+    <section class="nest-chat-main">
+      <template v-if="!hasSelection">
+        <div class="nest-chat-empty">
+          <v-icon size="56" color="surface-variant">mdi-forum-outline</v-icon>
+          <h2 class="nest-h2 mt-4">No chat selected</h2>
+          <p class="nest-subtitle mt-2">
+            Pick a chat from the list or start a new one from the Library.
+          </p>
+          <v-btn
+            class="mt-4"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-bookshelf"
+            @click="router.push('/library')"
+          >
+            Open Library
+          </v-btn>
+        </div>
+      </template>
+
+      <template v-else>
+        <!-- Header -->
+        <header class="nest-chat-header">
+          <div class="nest-chat-title">
+            <div class="nest-chat-name">{{ currentChat!.name }}</div>
+            <div v-if="characterName" class="nest-mono nest-chat-char">
+              with {{ characterName }}
+            </div>
+          </div>
+        </header>
+
+        <!-- Scrollable messages -->
+        <div ref="scroller" class="nest-chat-scroll">
+          <div class="nest-chat-messages">
+            <div v-if="messagesLoading" class="nest-state">
+              <v-progress-circular indeterminate size="24" />
+            </div>
+            <template v-else-if="messages.length === 0">
+              <div class="nest-chat-firstturn">
+                <span class="nest-mono text-medium-emphasis">No messages yet — say hi.</span>
+              </div>
+            </template>
+            <template v-else>
+              <MessageBubble
+                v-for="(m, i) in messages"
+                :key="m.id"
+                :message="m"
+                :character-name="characterName"
+                :user-name="userName"
+                :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
+              />
+            </template>
+            <v-alert
+              v-if="streamError"
+              type="error"
+              variant="tonal"
+              density="compact"
+              class="mt-2"
+            >
+              {{ streamError }}
+            </v-alert>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div class="nest-chat-input">
+          <MessageInput
+            v-model="draft"
+            :streaming="streaming"
+            @send="send"
+            @stop="chats.stopStreaming"
+          />
+        </div>
+      </template>
+    </section>
+  </div>
 </template>
 
 <style lang="scss" scoped>
-.nest-stub {
+.nest-chat-layout {
+  height: calc(100vh - var(--nest-header-height));
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  background: var(--nest-bg);
+}
+
+.nest-chat-sidebar {
+  border-right: 1px solid var(--nest-border);
+  background: var(--nest-bg-elevated);
+  overflow: hidden;
+}
+
+.nest-chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* so children with overflow work inside grid */
+}
+
+.nest-chat-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  text-align: center;
+  color: var(--nest-text-muted);
+}
+
+.nest-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--nest-border);
+}
+.nest-chat-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nest-chat-name {
+  font-family: var(--nest-font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--nest-text);
+}
+.nest-chat-char {
+  font-size: 11px;
+  color: var(--nest-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.nest-chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.nest-chat-messages {
   max-width: 820px;
-  padding: 32px 24px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nest-chat-firstturn {
+  padding: 40px;
+  text-align: center;
+}
+
+.nest-chat-input {
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--nest-border);
+  background: var(--nest-bg);
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.nest-state { padding: 40px; display: grid; place-items: center; }
+
+@media (max-width: 960px) {
+  .nest-chat-layout {
+    grid-template-columns: 1fr;
+  }
+  .nest-chat-sidebar { display: none; }
 }
 </style>

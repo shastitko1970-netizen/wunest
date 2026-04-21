@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"time"
 
+	"io"
+
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/chats"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
@@ -30,16 +33,21 @@ type Server struct {
 	deps       Deps
 	users      *users.Resolver
 	characters *characters.Handler
+	chats      *chats.Handler
 }
 
 func New(deps Deps) *Server {
 	resolver := users.NewResolver(deps.Postgres)
+	charRepo := characters.NewRepository(deps.Postgres)
 	return &Server{
-		deps:  deps,
-		users: resolver,
-		characters: &characters.Handler{
-			Repo:  characters.NewRepository(deps.Postgres),
-			Users: resolver,
+		deps:       deps,
+		users:      resolver,
+		characters: &characters.Handler{Repo: charRepo, Users: resolver},
+		chats: &chats.Handler{
+			Repo:       chats.NewRepository(deps.Postgres),
+			Users:      resolver,
+			Characters: charRepo,
+			WuApi:      deps.WuApi,
 		},
 	}
 }
@@ -60,8 +68,12 @@ func (s *Server) Router() http.Handler {
 
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
+	s.chats.Register(mux, authRequired)
 
-	// TODO: /api/chats/*, /api/chats/:id/stream, /api/personas/*, ...
+	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
+	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
+
+	// TODO: /api/personas/*, /api/worlds/*, ...
 
 	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
 	// routes above take priority. Vue Router handles client-side history.
@@ -138,6 +150,30 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		DailyLimit:      u.WuApi.DailyLimit,
 		UsedToday:       u.WuApi.UsedToday,
 	})
+}
+
+// handleModels proxies GET /api/models → WuApi GET /v1/models using the
+// caller's API key. The response is passed through verbatim so the SPA can
+// render whatever WuApi decides to expose (tier-filtered list).
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	apiKey := u.WuApi.APIKey
+	if apiKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+
+	body, resp, err := s.deps.WuApi.GetModels(r.Context(), apiKey)
+	if err != nil {
+		slog.Error("wuapi models", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
 }
 
 // --- helpers ---

@@ -50,7 +50,7 @@ const goldDisplay = computed(() =>
         href="https://wusphere.ru/dashboard"
         target="_blank"
       >
-        Manage on WuSphere
+        Manage in WuApi
       </v-btn>
     </section>
 

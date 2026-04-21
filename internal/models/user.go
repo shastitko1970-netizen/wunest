@@ -29,6 +29,12 @@ type NestUser struct {
 	LastActiveAt time.Time `json:"last_active_at"`
 }
 
+// DisplayName returns a human-readable name for substitution in prompts.
+// Currently a placeholder — future work wires in persona selection and the
+// WuApi first_name fallback. For now it returns "You" which is safer than
+// an empty string inside macro expansion.
+func (u NestUser) DisplayName() string { return "You" }
+
 // SessionUser is the request-scoped view of the authenticated user —
 // combines WuApi's live profile with our local NestUser row.
 //
