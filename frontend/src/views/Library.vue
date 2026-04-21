@@ -8,6 +8,7 @@ import { useChatsStore } from '@/stores/chats'
 import type { Character } from '@/api/characters'
 import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
+import NewCharacterDialog from '@/components/NewCharacterDialog.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
@@ -17,6 +18,7 @@ const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = st
 
 const activeTab = ref<'characters' | 'worlds' | 'presets' | 'personas'>('characters')
 const importOpen = ref(false)
+const createOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 
 onMounted(() => {
@@ -74,7 +76,7 @@ async function confirmDelete() {
         <v-btn
           variant="outlined"
           prepend-icon="mdi-plus"
-          disabled
+          @click="createOpen = true"
         >
           {{ t('library.actions.new') }}
         </v-btn>
@@ -180,6 +182,9 @@ async function confirmDelete() {
 
     <!-- Import dialog -->
     <ImportCharacterDialog v-model="importOpen" />
+
+    <!-- Create-from-scratch dialog -->
+    <NewCharacterDialog v-model="createOpen" />
 
     <!-- Delete confirmation -->
     <v-dialog :model-value="confirmDeleteId !== null" max-width="360" @update:model-value="v => !v && (confirmDeleteId = null)">
