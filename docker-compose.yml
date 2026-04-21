@@ -1,0 +1,43 @@
+# Local development compose.
+#
+# On production we run blue/green (see Makefile). This file is for `make dev`
+# and local iteration only.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wunest
+      POSTGRES_USER: wunest
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-changeme}
+    ports:
+      - "${PG_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--maxclients", "1000"]
+
+  wunest:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    environment:
+      # Overrides for the compose network.
+      DATABASE_URL: postgresql://wunest:${PG_PASSWORD:-changeme}@postgres:5432/wunest
+      REDIS_URL: redis://redis:6379/1
+    ports:
+      - "9090:9090"
+
+volumes:
+  pgdata:

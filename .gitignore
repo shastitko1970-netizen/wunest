@@ -1,0 +1,49 @@
+# ── Secrets ───────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+cookie-secret.txt
+
+# ── Go build ──────────────────────────────────────
+/wunest
+/wunest.exe
+/wunest-linux
+/bin/
+/dist/
+*.test
+*.out
+vendor/
+
+# ── Frontend ──────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/*.log
+
+# ── Deploy state ──────────────────────────────────
+.active
+
+# ── Editor / OS ───────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────
+*.log
+logs/
+access.log
+
+# ── Test & coverage ───────────────────────────────
+coverage.out
+coverage.html
+.coverage/
+
+# ── Docker ────────────────────────────────────────
+# keep Dockerfile & docker-compose.yml — ignore ephemeral
+docker-data/

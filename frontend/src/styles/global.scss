@@ -1,0 +1,143 @@
+// WuNest design tokens.
+// Mirrors WuApi's scss/global.scss so shared components feel the same,
+// then adds a Fraunces serif layer for "editorial" moments (character
+// names, lore, chapter headings — inspired by the Dossier CRM).
+
+@use 'sass:map';
+
+// ── Fonts (Google) ───────────────────────────────────
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+// ── Tokens ───────────────────────────────────────────
+:root {
+  // Fonts
+  --nest-font-display: 'Fraunces', 'Outfit', Georgia, serif;
+  --nest-font-body:    'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --nest-font-mono:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  // Spacing (4px grid)
+  --nest-space-1: 4px;
+  --nest-space-2: 8px;
+  --nest-space-3: 12px;
+  --nest-space-4: 16px;
+  --nest-space-6: 24px;
+  --nest-space-8: 32px;
+  --nest-space-12: 48px;
+  --nest-space-16: 64px;
+
+  // Radii
+  --nest-radius-sm: 6px;
+  --nest-radius:    12px;
+  --nest-radius-lg: 16px;
+  --nest-radius-pill: 100px;
+
+  // Transitions
+  --nest-transition-fast: 0.15s ease;
+  --nest-transition-base: 0.2s ease;
+
+  // Layout
+  --nest-header-height: 64px;
+  --nest-sidebar-width: 260px;
+  --nest-content-max:   820px;
+}
+
+// ── Dark palette (default) ───────────────────────────
+.v-theme--nestDark {
+  --nest-bg:             #080808;
+  --nest-bg-elevated:    #0f0f0f;
+  --nest-surface:        #141414;
+  --nest-border:         #222;
+  --nest-border-subtle:  #1a1a1a;
+  --nest-text:           #f0f0f0;
+  --nest-text-secondary: #999;
+  --nest-text-muted:     #666;
+  --nest-accent:         #ef4444;
+  --nest-gold:           #f7c948;
+  --nest-green:          #22c55e;
+  --nest-blue:           #60a5fa;
+  --nest-ember:          #e0a96d;  // tavern warmth
+}
+
+// ── Light palette (Dossier-inspired) ─────────────────
+.v-theme--nestLight {
+  --nest-bg:             #FAFAF7;
+  --nest-bg-elevated:    #F3F2EC;
+  --nest-surface:        #FFFFFF;
+  --nest-border:         #E2DFD6;
+  --nest-border-subtle:  #EFECE4;
+  --nest-text:           #141412;
+  --nest-text-secondary: #4A4740;
+  --nest-text-muted:     #7A756C;
+  --nest-accent:         #d9734a;  // terracotta
+  --nest-gold:           #b45309;  // bronze
+  --nest-green:          #4c8b4f;
+  --nest-blue:           #1e6fd9;
+  --nest-ember:          #d9734a;
+}
+
+// ── Base elements ────────────────────────────────────
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--nest-font-body);
+  background: var(--nest-bg);
+  color: var(--nest-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// ── Typography classes ───────────────────────────────
+.nest-h1 {
+  font-family: var(--nest-font-display);
+  font-weight: 400;
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--nest-text);
+}
+
+.nest-h2 {
+  font-family: var(--nest-font-display);
+  font-weight: 400;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.nest-subtitle {
+  font-family: var(--nest-font-body);
+  font-size: 1.05rem;
+  color: var(--nest-text-secondary);
+  line-height: 1.55;
+}
+
+.nest-eyebrow {
+  font-family: var(--nest-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
+}
+
+.nest-kpi {
+  font-family: var(--nest-font-display);
+  font-weight: 400;
+  font-size: 2.5rem;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  font-feature-settings: 'tnum' 1;
+  color: var(--nest-text);
+}
+
+.nest-kpi--gold {
+  color: var(--nest-gold);
+}
+
+// ── Monospace utility ────────────────────────────────
+.nest-mono {
+  font-family: var(--nest-font-mono);
+  font-feature-settings: 'tnum' 1;
+}
