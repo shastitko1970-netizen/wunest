@@ -2,12 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useCharactersStore } from '@/stores/characters'
 import { useChatsStore } from '@/stores/chats'
 import type { Character } from '@/api/characters'
 import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
 
+const { t } = useI18n()
 const store = useCharactersStore()
 const chats = useChatsStore()
 const router = useRouter()
@@ -57,8 +59,8 @@ async function confirmDelete() {
     <!-- Header row -->
     <div class="nest-page-head">
       <div>
-        <div class="nest-eyebrow">Library</div>
-        <h1 class="nest-h1 mt-1">Characters & Worlds</h1>
+        <div class="nest-eyebrow">{{ t('library.title') }}</div>
+        <h1 class="nest-h1 mt-1">{{ t('library.headline') }}</h1>
       </div>
       <div class="d-flex ga-2">
         <v-btn
@@ -67,14 +69,14 @@ async function confirmDelete() {
           prepend-icon="mdi-upload"
           @click="importOpen = true"
         >
-          Import PNG
+          {{ t('library.actions.importPng') }}
         </v-btn>
         <v-btn
           variant="outlined"
           prepend-icon="mdi-plus"
           disabled
         >
-          New
+          {{ t('library.actions.new') }}
         </v-btn>
       </div>
     </div>
@@ -87,10 +89,10 @@ async function confirmDelete() {
       class="mt-6"
       :grow="false"
     >
-      <v-tab value="characters">Characters</v-tab>
-      <v-tab value="worlds" disabled>Worlds</v-tab>
-      <v-tab value="presets" disabled>Presets</v-tab>
-      <v-tab value="personas" disabled>Personas</v-tab>
+      <v-tab value="characters">{{ t('library.tabs.characters') }}</v-tab>
+      <v-tab value="worlds" disabled>{{ t('library.tabs.worlds') }}</v-tab>
+      <v-tab value="presets" disabled>{{ t('library.tabs.presets') }}</v-tab>
+      <v-tab value="personas" disabled>{{ t('library.tabs.personas') }}</v-tab>
     </v-tabs>
 
     <v-divider />
@@ -101,7 +103,7 @@ async function confirmDelete() {
         <div class="nest-filterbar">
           <v-text-field
             v-model="query"
-            placeholder="Search characters…"
+            :placeholder="t('library.search')"
             prepend-inner-icon="mdi-magnify"
             hide-details
             density="compact"
@@ -116,7 +118,7 @@ async function confirmDelete() {
             :prepend-icon="favoriteOnly ? 'mdi-star' : 'mdi-star-outline'"
             @click="favoriteOnly = !favoriteOnly"
           >
-            Favorites
+            {{ t('library.favorites') }}
           </v-btn>
         </div>
 
@@ -129,7 +131,7 @@ async function confirmDelete() {
             class="mr-1 mb-1"
             @click="activeTag = null"
           >
-            All
+            {{ t('library.all') }}
           </v-chip>
           <v-chip
             v-for="t in allTags.slice(0, 20)"
@@ -154,12 +156,12 @@ async function confirmDelete() {
         </div>
         <div v-else-if="filtered.length === 0" class="nest-state text-center">
           <v-icon size="48" color="surface-variant">mdi-bookshelf</v-icon>
-          <div class="nest-h2 mt-4">No characters yet</div>
+          <div class="nest-h2 mt-4">{{ t('library.empty.title') }}</div>
           <p class="nest-subtitle mt-2" style="max-width: 360px; margin: 0 auto">
-            Drop a PNG card to import your first character, or create one from scratch.
+            {{ t('library.empty.hint') }}
           </p>
           <v-btn color="primary" class="mt-4" variant="flat" @click="importOpen = true">
-            Import PNG
+            {{ t('library.actions.importPng') }}
           </v-btn>
         </div>
         <div v-else class="nest-grid">
@@ -182,12 +184,12 @@ async function confirmDelete() {
     <!-- Delete confirmation -->
     <v-dialog :model-value="confirmDeleteId !== null" max-width="360" @update:model-value="v => !v && (confirmDeleteId = null)">
       <v-card class="nest-confirm">
-        <v-card-title>Delete character?</v-card-title>
-        <v-card-text>This action cannot be undone.</v-card-text>
+        <v-card-title>{{ t('library.delete.title') }}</v-card-title>
+        <v-card-text>{{ t('library.delete.body') }}</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="confirmDeleteId = null">Cancel</v-btn>
-          <v-btn color="error" variant="flat" @click="confirmDelete">Delete</v-btn>
+          <v-btn variant="text" @click="confirmDeleteId = null">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDelete">{{ t('common.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

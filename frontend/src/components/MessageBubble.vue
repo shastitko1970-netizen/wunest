@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Message } from '@/api/chats'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   message: Message
@@ -19,8 +22,8 @@ const emit = defineEmits<{
 
 const isUser = computed(() => props.message.role === 'user')
 const displayName = computed(() => {
-  if (isUser.value) return props.userName || 'You'
-  return props.characterName || 'Assistant'
+  if (isUser.value) return props.userName || t('chat.you')
+  return props.characterName || t('chat.assistant')
 })
 const timestamp = computed(() => {
   const d = new Date(props.message.created_at)
@@ -127,9 +130,9 @@ function onEditKeydown(e: KeyboardEvent) {
     <details v-if="reasoning && !editing" class="nest-reasoning">
       <summary class="nest-reasoning-summary">
         <v-icon size="14" class="mr-1">mdi-brain</v-icon>
-        <span>Thinking</span>
+        <span>{{ t('chat.thinking.label') }}</span>
         <span class="nest-mono nest-reasoning-meta">
-          {{ reasoning.length }} chars
+          {{ t('chat.thinking.chars', { n: reasoning.length }) }}
         </span>
       </summary>
       <div class="nest-reasoning-body">{{ reasoning }}</div>
@@ -140,7 +143,7 @@ function onEditKeydown(e: KeyboardEvent) {
     <div v-if="streaming && liveSplit.live" class="nest-reasoning nest-reasoning--live">
       <div class="nest-reasoning-summary">
         <v-icon size="14" class="mr-1">mdi-brain</v-icon>
-        <span>Thinking…</span>
+        <span>{{ t('chat.live.thinking') }}</span>
       </div>
       <div class="nest-reasoning-body">{{ liveSplit.live }}<span class="nest-cursor">▍</span></div>
     </div>
@@ -156,15 +159,15 @@ function onEditKeydown(e: KeyboardEvent) {
           @keydown="onEditKeydown"
         />
         <div class="nest-edit-actions">
-          <span class="nest-mono nest-edit-hint">⌘↩ save · Esc cancel</span>
-          <v-btn size="x-small" variant="text" @click="cancelEdit">Cancel</v-btn>
-          <v-btn size="x-small" color="primary" variant="flat" @click="saveEdit">Save</v-btn>
+          <span class="nest-mono nest-edit-hint">{{ t('chat.edit.hint') }}</span>
+          <v-btn size="x-small" variant="text" @click="cancelEdit">{{ t('common.cancel') }}</v-btn>
+          <v-btn size="x-small" color="primary" variant="flat" @click="saveEdit">{{ t('common.save') }}</v-btn>
         </div>
       </template>
       <template v-else-if="hasError">
         <v-icon size="16" color="error" class="mr-1">mdi-alert-circle</v-icon>
         <span class="text-error">
-          Generation failed: {{ message.extras?.error }}
+          {{ t('chat.generationFailed', { error: message.extras?.error ?? '' }) }}
         </span>
       </template>
       <template v-else-if="!message.content && streaming && !liveSplit.live">
@@ -184,21 +187,21 @@ function onEditKeydown(e: KeyboardEvent) {
       <button
         v-if="allowRegenerate"
         class="nest-action-btn"
-        title="Regenerate"
+        :title="t('chat.actions.regenerate')"
         @click="emit('regenerate', message)"
       >
         <v-icon size="14">mdi-reload</v-icon>
       </button>
       <button
         class="nest-action-btn"
-        title="Edit (Ctrl+Enter to save)"
+        :title="t('chat.actions.edit')"
         @click="startEdit"
       >
         <v-icon size="14">mdi-pencil-outline</v-icon>
       </button>
       <button
         class="nest-action-btn nest-action-btn--danger"
-        title="Delete"
+        :title="t('chat.actions.delete')"
         @click="emit('delete', message)"
       >
         <v-icon size="14">mdi-delete-outline</v-icon>

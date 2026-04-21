@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Character } from '@/api/characters'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   character: Character
@@ -85,7 +88,7 @@ const tagline = computed(() => {
           prepend-icon="mdi-forum-outline"
           @click="emit('chat', character)"
         >
-          Chat
+          {{ t('library.card.chat') }}
         </v-btn>
         <v-btn
           size="small"
@@ -98,12 +101,12 @@ const tagline = computed(() => {
             <v-list density="compact">
               <v-list-item
                 prepend-icon="mdi-pencil"
-                title="Edit"
+                :title="t('common.edit')"
                 @click="emit('open', character)"
               />
               <v-list-item
                 prepend-icon="mdi-delete-outline"
-                title="Delete"
+                :title="t('common.delete')"
                 base-color="error"
                 @click="emit('delete', character)"
               />

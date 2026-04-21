@@ -2,12 +2,22 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useChatsStore } from '@/stores/chats'
 import type { Chat } from '@/api/chats'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useChatsStore()
 const { list, currentId, listLoading, listError } = storeToRefs(store)
+
+const GROUP_KEYS = {
+  today: 'chat.list.groupToday',
+  yesterday: 'chat.list.groupYesterday',
+  week: 'chat.list.groupWeek',
+  older: 'chat.list.groupOlder',
+} as const
+type GroupKey = keyof typeof GROUP_KEYS
 
 const grouped = computed(() => groupByDay(list.value))
 
@@ -25,7 +35,7 @@ async function del(c: Chat, ev: Event) {
 <template>
   <div class="nest-chatlist">
     <div class="nest-chatlist-header">
-      <span class="nest-eyebrow">Chats</span>
+      <span class="nest-eyebrow">{{ t('chat.list.title') }}</span>
       <v-btn
         size="x-small"
         variant="text"
@@ -39,7 +49,7 @@ async function del(c: Chat, ev: Event) {
     </div>
     <div v-else-if="listError" class="nest-state text-error">{{ listError }}</div>
     <div v-else-if="list.length === 0" class="nest-empty">
-      <p class="text-medium-emphasis mb-2">No chats yet.</p>
+      <p class="text-medium-emphasis mb-2">{{ t('chat.list.empty') }}</p>
       <v-btn
         size="small"
         variant="tonal"
@@ -47,13 +57,13 @@ async function del(c: Chat, ev: Event) {
         prepend-icon="mdi-bookshelf"
         @click="router.push('/library')"
       >
-        Browse Library
+        {{ t('chat.list.browse') }}
       </v-btn>
     </div>
 
     <template v-else>
-      <div v-for="(group, label) in grouped" :key="label" class="nest-group">
-        <div class="nest-group-label nest-mono">{{ label }}</div>
+      <div v-for="(group, key) in grouped" :key="key" class="nest-group">
+        <div class="nest-group-label nest-mono">{{ t(GROUP_KEYS[key as GroupKey]) }}</div>
         <div
           v-for="c in group"
           :key="c.id"
@@ -79,7 +89,9 @@ async function del(c: Chat, ev: Event) {
 </template>
 
 <script lang="ts">
-function groupByDay(chats: Chat[]): Record<string, Chat[]> {
+// Returns chats bucketed by day-range, keyed by a stable identifier the
+// template translates via t(GROUP_KEYS[key]). Empty groups are omitted.
+function groupByDay(chats: Chat[]): Record<'today' | 'yesterday' | 'week' | 'older', Chat[]> {
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
   const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 7)
@@ -87,15 +99,15 @@ function groupByDay(chats: Chat[]): Record<string, Chat[]> {
   const groups: Record<string, Chat[]> = {}
   for (const c of chats) {
     const ts = new Date(c.last_message_at ?? c.updated_at)
-    let label: string
-    if (ts >= today) label = 'Today'
-    else if (ts >= yesterday) label = 'Yesterday'
-    else if (ts >= weekAgo) label = 'This week'
-    else label = 'Older'
-    if (!groups[label]) groups[label] = []
-    groups[label].push(c)
+    let key: string
+    if (ts >= today) key = 'today'
+    else if (ts >= yesterday) key = 'yesterday'
+    else if (ts >= weekAgo) key = 'week'
+    else key = 'older'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(c)
   }
-  return groups
+  return groups as Record<'today' | 'yesterday' | 'week' | 'older', Chat[]>
 }
 </script>
 

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useCharactersStore } from '@/stores/characters'
+
+const { t } = useI18n()
 
 defineProps<{
   modelValue: boolean
@@ -69,7 +72,7 @@ async function upload() {
   >
     <v-card class="nest-import">
       <v-card-title class="nest-import-title">
-        <span>Import character card</span>
+        <span>{{ t('library.import.title') }}</span>
         <v-btn icon="mdi-close" variant="text" size="small" @click="close" />
       </v-card-title>
 
@@ -91,8 +94,8 @@ async function upload() {
           />
           <template v-if="!selectedFile">
             <v-icon size="36" class="mb-2" color="primary">mdi-image-plus</v-icon>
-            <div class="nest-dz-title">Drop a PNG card here</div>
-            <div class="nest-dz-sub">Supports V2 (chara) and V3 (ccv3) SillyTavern-compatible cards</div>
+            <div class="nest-dz-title">{{ t('library.import.dropHere') }}</div>
+            <div class="nest-dz-sub">{{ t('library.import.supports') }}</div>
             <v-btn
               class="mt-4"
               color="primary"
@@ -100,7 +103,7 @@ async function upload() {
               size="small"
               @click.stop="pickFile"
             >
-              Browse files
+              {{ t('library.import.browse') }}
             </v-btn>
           </template>
           <template v-else>
@@ -115,7 +118,7 @@ async function upload() {
               size="small"
               @click.stop="selectedFile = null"
             >
-              Choose a different file
+              {{ t('library.import.chooseAnother') }}
             </v-btn>
           </template>
         </div>
@@ -133,7 +136,7 @@ async function upload() {
 
       <v-card-actions class="px-6 pb-4">
         <v-spacer />
-        <v-btn variant="text" @click="close" :disabled="busy">Cancel</v-btn>
+        <v-btn variant="text" @click="close" :disabled="busy">{{ t('common.cancel') }}</v-btn>
         <v-btn
           color="primary"
           variant="flat"
@@ -141,7 +144,7 @@ async function upload() {
           :disabled="!selectedFile || busy"
           @click="upload"
         >
-          Import
+          {{ t('library.import.import') }}
         </v-btn>
       </v-card-actions>
     </v-card>

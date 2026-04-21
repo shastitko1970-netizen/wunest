@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
 import { useModelsStore } from '@/stores/models'
@@ -9,6 +10,8 @@ import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import MessageInput from '@/components/MessageInput.vue'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -97,10 +100,8 @@ const lastAssistantId = computed(() => {
       <template v-if="!hasSelection">
         <div class="nest-chat-empty">
           <v-icon size="56" color="surface-variant">mdi-forum-outline</v-icon>
-          <h2 class="nest-h2 mt-4">No chat selected</h2>
-          <p class="nest-subtitle mt-2">
-            Pick a chat from the list or start a new one from the Library.
-          </p>
+          <h2 class="nest-h2 mt-4">{{ t('chat.empty.title') }}</h2>
+          <p class="nest-subtitle mt-2">{{ t('chat.empty.hint') }}</p>
           <v-btn
             class="mt-4"
             color="primary"
@@ -108,7 +109,7 @@ const lastAssistantId = computed(() => {
             prepend-icon="mdi-bookshelf"
             @click="router.push('/library')"
           >
-            Open Library
+            {{ t('chat.empty.openLibrary') }}
           </v-btn>
         </div>
       </template>
@@ -119,7 +120,7 @@ const lastAssistantId = computed(() => {
           <div class="nest-chat-title">
             <div class="nest-chat-name">{{ currentChat!.name }}</div>
             <div v-if="characterName" class="nest-mono nest-chat-char">
-              with {{ characterName }}
+              {{ t('chat.with', { name: characterName }) }}
             </div>
           </div>
         </header>
@@ -132,7 +133,7 @@ const lastAssistantId = computed(() => {
             </div>
             <template v-else-if="messages.length === 0">
               <div class="nest-chat-firstturn">
-                <span class="nest-mono text-medium-emphasis">No messages yet — say hi.</span>
+                <span class="nest-mono text-medium-emphasis">{{ t('chat.sayHi') }}</span>
               </div>
             </template>
             <template v-else>

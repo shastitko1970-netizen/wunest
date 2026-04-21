@@ -1,10 +1,25 @@
 import { createI18n } from 'vue-i18n'
 
+// i18n keys are organised by domain/view so translators (and future us)
+// can scan a single view's copy at a time. Component files should NEVER
+// carry user-facing literal strings — always route through t('namespace.key').
+
 const messages = {
   ru: {
     app: {
       title: 'WuNest',
       loading: 'Загрузка…',
+    },
+    common: {
+      cancel: 'Отмена',
+      save: 'Сохранить',
+      delete: 'Удалить',
+      edit: 'Редактировать',
+      refresh: 'Обновить',
+      loading: 'Загрузка…',
+      new: 'Создать',
+      search: 'Поиск',
+      error: 'Ошибка',
     },
     nav: {
       chat: 'Чат',
@@ -19,10 +34,6 @@ const messages = {
       headline: 'WuNest',
       tagline: 'Современный клиент для ролевой переписки с моделями. Ключи и подписка подтянутся из твоего WuApi-аккаунта.',
       cta: 'Войти через WuApi',
-      signInWith: 'Войти через {provider}',
-      alreadyLogged: 'Уже залогинен на WuApi?',
-      continueSession: 'Продолжить',
-      or: 'или войти заново',
       noAccountHint: 'Нет аккаунта? Зарегистрируйся на wusphere.ru — это бесплатно.',
     },
     settings: {
@@ -40,11 +51,143 @@ const messages = {
       light: 'Светлая',
       toggle: 'Переключить тему',
     },
+    account: {
+      title: 'Личный кабинет',
+      titleFallback: 'Твой кабинет',
+      memberSince: 'В системе с {date}',
+      refresh: 'Обновить',
+      kpi: {
+        gold: 'Баланс золота',
+        goldSub: '≈ $ в wu-gold',
+        topUp: 'Пополнить →',
+        tier: 'Тариф',
+        tierExpires: 'до {date}',
+        tierNoExpiration: 'без срока',
+        manage: 'Управление →',
+        today: 'Сегодня',
+        todayLeft: '{n} запросов осталось',
+        referrals: 'Рефералы',
+        referralsUnit: 'приглашено',
+      },
+      sections: {
+        tokenUsage: 'Использование токенов',
+        topModels: 'Чаще всего',
+        transactions: 'История золота',
+        manageTitle: 'Управление аккаунтом',
+        manageTagline: 'Смена API-ключа, реферальные ссылки, оплаты и смена тарифа — всё в кабинете WuApi.',
+        openWuApi: 'Открыть кабинет WuApi',
+      },
+      periods: {
+        today: 'Сегодня',
+        week: 'Неделя',
+        month: 'Месяц',
+        total: 'Всего',
+      },
+      models: {
+        today: '{n} сегодня',
+        week: '{n} за неделю',
+        total: '{n} всего',
+      },
+    },
+    library: {
+      title: 'Библиотека',
+      headline: 'Персонажи и миры',
+      tabs: {
+        characters: 'Персонажи',
+        worlds: 'Миры',
+        presets: 'Пресеты',
+        personas: 'Персоны',
+      },
+      actions: {
+        importPng: 'Импорт PNG',
+        new: 'Создать',
+      },
+      search: 'Поиск персонажей…',
+      favorites: 'Избранные',
+      all: 'Все',
+      empty: {
+        title: 'Пока нет персонажей',
+        hint: 'Перетащи PNG-карточку, чтобы импортировать, или создай нового с нуля.',
+      },
+      import: {
+        title: 'Импорт карточки персонажа',
+        dropHere: 'Брось сюда PNG',
+        supports: 'Поддерживает V2 (chara) и V3 (ccv3) SillyTavern-совместимые карточки',
+        browse: 'Выбрать файл',
+        chooseAnother: 'Выбрать другой',
+        import: 'Импортировать',
+      },
+      delete: {
+        title: 'Удалить персонажа?',
+        body: 'Это действие нельзя отменить.',
+      },
+      card: {
+        chat: 'Чат',
+      },
+    },
+    chat: {
+      newChat: 'Новый чат',
+      empty: {
+        title: 'Чат не выбран',
+        hint: 'Выбери чат слева или начни новый в Библиотеке.',
+        openLibrary: 'Открыть библиотеку',
+      },
+      with: 'с {name}',
+      sayHi: 'Ещё нет сообщений — напиши привет.',
+      you: 'Ты',
+      assistant: 'Ассистент',
+      generationFailed: 'Генерация прервалась: {error}',
+      live: {
+        thinking: 'Размышляет…',
+      },
+      thinking: {
+        label: 'Размышление',
+        chars: '{n} симв.',
+      },
+      edit: {
+        hint: '⌘↩ сохранить · Esc отмена',
+      },
+      actions: {
+        regenerate: 'Перегенерировать',
+        edit: 'Редактировать (Ctrl+Enter — сохранить)',
+        delete: 'Удалить',
+      },
+      input: {
+        placeholder: 'Напиши сообщение… (Enter — отправить, Shift+Enter — новая строка)',
+        send: 'Отправить',
+        stop: 'Остановить',
+      },
+      list: {
+        title: 'Чаты',
+        groupToday: 'Сегодня',
+        groupYesterday: 'Вчера',
+        groupWeek: 'На этой неделе',
+        groupOlder: 'Раньше',
+        empty: 'Пока нет чатов.',
+        browse: 'Открыть библиотеку',
+      },
+    },
+    studio: {
+      title: 'Studio',
+      tagline: 'Продвинутые инструменты (regex отладчик, макросы, сырые промпты, логи).',
+      coming: 'Появится в v2.',
+    },
   },
   en: {
     app: {
       title: 'WuNest',
       loading: 'Loading…',
+    },
+    common: {
+      cancel: 'Cancel',
+      save: 'Save',
+      delete: 'Delete',
+      edit: 'Edit',
+      refresh: 'Refresh',
+      loading: 'Loading…',
+      new: 'New',
+      search: 'Search',
+      error: 'Error',
     },
     nav: {
       chat: 'Chat',
@@ -59,10 +202,6 @@ const messages = {
       headline: 'WuNest',
       tagline: 'A modern client for roleplay with LLMs. Keys and subscription come from your WuApi account.',
       cta: 'Sign in with WuApi',
-      signInWith: 'Sign in with {provider}',
-      alreadyLogged: 'Already signed in on WuApi?',
-      continueSession: 'Continue',
-      or: 'or sign in fresh',
       noAccountHint: "Don't have an account? Sign up at wusphere.ru — it's free.",
     },
     settings: {
@@ -79,6 +218,127 @@ const messages = {
       dark: 'Dark',
       light: 'Light',
       toggle: 'Toggle theme',
+    },
+    account: {
+      title: 'Account',
+      titleFallback: 'Your cabinet',
+      memberSince: 'Member since {date}',
+      refresh: 'Refresh',
+      kpi: {
+        gold: 'Gold balance',
+        goldSub: '≈ $ in wu-gold',
+        topUp: 'Top up →',
+        tier: 'Tier',
+        tierExpires: 'expires {date}',
+        tierNoExpiration: 'no expiration',
+        manage: 'Manage →',
+        today: 'Today',
+        todayLeft: '{n} requests left',
+        referrals: 'Referrals',
+        referralsUnit: 'invited',
+      },
+      sections: {
+        tokenUsage: 'Token usage',
+        topModels: 'Top models',
+        transactions: 'Recent gold activity',
+        manageTitle: 'Manage account',
+        manageTagline: 'API key rotation, referral links, payments and plan changes — all live in WuApi\'s own dashboard.',
+        openWuApi: 'Open WuApi dashboard',
+      },
+      periods: {
+        today: 'Today',
+        week: 'Week',
+        month: 'Month',
+        total: 'Total',
+      },
+      models: {
+        today: '{n} today',
+        week: '{n} this week',
+        total: '{n} total',
+      },
+    },
+    library: {
+      title: 'Library',
+      headline: 'Characters & Worlds',
+      tabs: {
+        characters: 'Characters',
+        worlds: 'Worlds',
+        presets: 'Presets',
+        personas: 'Personas',
+      },
+      actions: {
+        importPng: 'Import PNG',
+        new: 'New',
+      },
+      search: 'Search characters…',
+      favorites: 'Favorites',
+      all: 'All',
+      empty: {
+        title: 'No characters yet',
+        hint: 'Drop a PNG card to import your first character, or create one from scratch.',
+      },
+      import: {
+        title: 'Import character card',
+        dropHere: 'Drop a PNG card here',
+        supports: 'Supports V2 (chara) and V3 (ccv3) SillyTavern-compatible cards',
+        browse: 'Browse files',
+        chooseAnother: 'Choose a different file',
+        import: 'Import',
+      },
+      delete: {
+        title: 'Delete character?',
+        body: 'This action cannot be undone.',
+      },
+      card: {
+        chat: 'Chat',
+      },
+    },
+    chat: {
+      newChat: 'New chat',
+      empty: {
+        title: 'No chat selected',
+        hint: 'Pick a chat from the list or start a new one from the Library.',
+        openLibrary: 'Open Library',
+      },
+      with: 'with {name}',
+      sayHi: 'No messages yet — say hi.',
+      you: 'You',
+      assistant: 'Assistant',
+      generationFailed: 'Generation failed: {error}',
+      live: {
+        thinking: 'Thinking…',
+      },
+      thinking: {
+        label: 'Thinking',
+        chars: '{n} chars',
+      },
+      edit: {
+        hint: '⌘↩ save · Esc cancel',
+      },
+      actions: {
+        regenerate: 'Regenerate',
+        edit: 'Edit (Ctrl+Enter to save)',
+        delete: 'Delete',
+      },
+      input: {
+        placeholder: 'Write a message… (Enter to send, Shift+Enter for newline)',
+        send: 'Send',
+        stop: 'Stop',
+      },
+      list: {
+        title: 'Chats',
+        groupToday: 'Today',
+        groupYesterday: 'Yesterday',
+        groupWeek: 'This week',
+        groupOlder: 'Older',
+        empty: 'No chats yet.',
+        browse: 'Browse Library',
+      },
+    },
+    studio: {
+      title: 'Studio',
+      tagline: 'Power tools (regex debugger, macros playground, raw prompt view, logs).',
+      coming: 'Coming in v2.',
     },
   },
 }

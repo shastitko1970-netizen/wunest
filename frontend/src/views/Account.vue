@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useAccountStore } from '@/stores/account'
 
+const { t } = useI18n()
 const account = useAccountStore()
 const {
   profile, stats, transactions,
@@ -39,12 +41,12 @@ function formatDate(iso: string): string {
 
 function kindChipColor(kind: string): string {
   switch (kind) {
-    case 'purchase':   return 'secondary'
-    case 'spend':      return ''
-    case 'refund':     return 'success'
+    case 'purchase':    return 'secondary'
+    case 'spend':       return ''
+    case 'refund':      return 'success'
     case 'admin_grant': return 'info'
-    case 'promo':      return 'info'
-    default:           return ''
+    case 'promo':       return 'info'
+    default:            return ''
   }
 }
 </script>
@@ -54,12 +56,12 @@ function kindChipColor(kind: string): string {
     <!-- Header -->
     <div class="nest-account-head">
       <div>
-        <div class="nest-eyebrow">Account</div>
+        <div class="nest-eyebrow">{{ t('account.title') }}</div>
         <h1 class="nest-h1 mt-1">
-          {{ profile?.first_name || profile?.username || 'Your cabinet' }}
+          {{ profile?.first_name || profile?.username || t('account.titleFallback') }}
         </h1>
         <p v-if="memberSince" class="nest-subtitle mt-1">
-          Member since {{ memberSince }}
+          {{ t('account.memberSince', { date: memberSince }) }}
         </p>
       </div>
       <v-btn
@@ -68,7 +70,7 @@ function kindChipColor(kind: string): string {
         prepend-icon="mdi-refresh"
         @click="account.refreshAll()"
       >
-        Refresh
+        {{ t('account.refresh') }}
       </v-btn>
     </div>
 
@@ -76,40 +78,40 @@ function kindChipColor(kind: string): string {
     <div class="nest-kpi-grid">
       <!-- Gold -->
       <v-card class="nest-kpi-card nest-kpi-card--gold pa-5">
-        <div class="nest-kpi-label">Gold balance</div>
+        <div class="nest-kpi-label">{{ t('account.kpi.gold') }}</div>
         <div class="nest-kpi-value nest-mono">{{ goldDisplay }}</div>
-        <div class="nest-kpi-unit">≈ $ wu-gold</div>
+        <div class="nest-kpi-unit">{{ t('account.kpi.goldSub') }}</div>
         <a
           class="nest-kpi-action"
           href="https://wusphere.ru/dashboard"
           target="_blank"
           rel="noopener"
         >
-          Top up →
+          {{ t('account.kpi.topUp') }}
         </a>
       </v-card>
 
       <!-- Tier -->
       <v-card class="nest-kpi-card pa-5">
-        <div class="nest-kpi-label">Tier</div>
+        <div class="nest-kpi-label">{{ t('account.kpi.tier') }}</div>
         <div class="nest-kpi-value">{{ profile?.tier ?? '—' }}</div>
         <div v-if="tierExpiresDisplay" class="nest-kpi-unit">
-          expires {{ tierExpiresDisplay }}
+          {{ t('account.kpi.tierExpires', { date: tierExpiresDisplay }) }}
         </div>
-        <div v-else class="nest-kpi-unit">no expiration</div>
+        <div v-else class="nest-kpi-unit">{{ t('account.kpi.tierNoExpiration') }}</div>
         <a
           class="nest-kpi-action"
           href="https://wusphere.ru/dashboard"
           target="_blank"
           rel="noopener"
         >
-          Manage →
+          {{ t('account.kpi.manage') }}
         </a>
       </v-card>
 
       <!-- Today quota -->
       <v-card class="nest-kpi-card pa-5">
-        <div class="nest-kpi-label">Today</div>
+        <div class="nest-kpi-label">{{ t('account.kpi.today') }}</div>
         <div class="nest-kpi-value nest-mono">
           <template v-if="profile && profile.daily_limit">
             {{ profile.used_today }} <span class="nest-kpi-unit-inline">/ {{ profile.daily_limit }}</span>
@@ -117,38 +119,36 @@ function kindChipColor(kind: string): string {
           <template v-else>—</template>
         </div>
         <div v-if="quotaRemaining !== null" class="nest-kpi-unit">
-          {{ quotaRemaining }} requests left
+          {{ t('account.kpi.todayLeft', { n: quotaRemaining }) }}
         </div>
       </v-card>
 
       <!-- Referrals -->
       <v-card class="nest-kpi-card pa-5">
-        <div class="nest-kpi-label">Referrals</div>
-        <div class="nest-kpi-value nest-mono">
-          {{ profile?.referral_count ?? 0 }}
-        </div>
-        <div class="nest-kpi-unit">invited</div>
+        <div class="nest-kpi-label">{{ t('account.kpi.referrals') }}</div>
+        <div class="nest-kpi-value nest-mono">{{ profile?.referral_count ?? 0 }}</div>
+        <div class="nest-kpi-unit">{{ t('account.kpi.referralsUnit') }}</div>
       </v-card>
     </div>
 
     <!-- Token usage -->
     <section v-if="stats?.tokens" class="nest-section">
-      <h2 class="nest-h2">Token usage</h2>
+      <h2 class="nest-h2">{{ t('account.sections.tokenUsage') }}</h2>
       <div class="nest-token-grid">
         <div class="nest-token-cell">
-          <div class="nest-token-label">Today</div>
+          <div class="nest-token-label">{{ t('account.periods.today') }}</div>
           <div class="nest-token-value nest-mono">{{ stats.tokens.day.toLocaleString() }}</div>
         </div>
         <div class="nest-token-cell">
-          <div class="nest-token-label">Week</div>
+          <div class="nest-token-label">{{ t('account.periods.week') }}</div>
           <div class="nest-token-value nest-mono">{{ stats.tokens.week.toLocaleString() }}</div>
         </div>
         <div class="nest-token-cell">
-          <div class="nest-token-label">Month</div>
+          <div class="nest-token-label">{{ t('account.periods.month') }}</div>
           <div class="nest-token-value nest-mono">{{ stats.tokens.month.toLocaleString() }}</div>
         </div>
         <div class="nest-token-cell">
-          <div class="nest-token-label">Total</div>
+          <div class="nest-token-label">{{ t('account.periods.total') }}</div>
           <div class="nest-token-value nest-mono">{{ stats.tokens.total.toLocaleString() }}</div>
         </div>
       </div>
@@ -156,16 +156,16 @@ function kindChipColor(kind: string): string {
 
     <!-- Top models -->
     <section v-if="topModels.length" class="nest-section">
-      <h2 class="nest-h2">Top models</h2>
+      <h2 class="nest-h2">{{ t('account.sections.topModels') }}</h2>
       <div class="nest-models-list">
         <div v-for="m in topModels" :key="m.model" class="nest-models-row">
           <div class="nest-models-name nest-mono">{{ m.model }}</div>
           <div class="nest-models-metrics nest-mono">
-            <span>{{ m.day }} today</span>
+            <span>{{ t('account.models.today', { n: m.day }) }}</span>
             <span>·</span>
-            <span>{{ m.week }} this week</span>
+            <span>{{ t('account.models.week', { n: m.week }) }}</span>
             <span>·</span>
-            <span>{{ m.total }} total</span>
+            <span>{{ t('account.models.total', { n: m.total }) }}</span>
           </div>
         </div>
       </div>
@@ -173,35 +173,35 @@ function kindChipColor(kind: string): string {
 
     <!-- Gold transactions -->
     <section v-if="transactions.length" class="nest-section">
-      <h2 class="nest-h2">Recent gold activity</h2>
+      <h2 class="nest-h2">{{ t('account.sections.transactions') }}</h2>
       <div class="nest-txn-list">
-        <div v-for="t in transactions" :key="t.id" class="nest-txn-row">
-          <div class="nest-txn-when nest-mono">{{ formatDate(t.createdAt) }}</div>
+        <div v-for="t2 in transactions" :key="t2.id" class="nest-txn-row">
+          <div class="nest-txn-when nest-mono">{{ formatDate(t2.createdAt) }}</div>
           <div class="nest-txn-kind">
             <v-chip
               size="x-small"
-              :color="kindChipColor(t.kind)"
+              :color="kindChipColor(t2.kind)"
               variant="tonal"
               class="nest-mono"
             >
-              {{ t.kind }}
+              {{ t2.kind }}
             </v-chip>
           </div>
           <div class="nest-txn-model nest-mono text-truncate">
-            {{ t.model || t.description || '—' }}
+            {{ t2.model || t2.description || '—' }}
           </div>
           <div class="nest-txn-tokens nest-mono">
-            <template v-if="t.inputTokens || t.outputTokens">
-              {{ t.inputTokens }}/{{ t.outputTokens }}
+            <template v-if="t2.inputTokens || t2.outputTokens">
+              {{ t2.inputTokens }}/{{ t2.outputTokens }}
             </template>
             <template v-else>—</template>
           </div>
-          <div class="nest-txn-cost nest-mono">{{ formatCost(t.costUSD) }}</div>
+          <div class="nest-txn-cost nest-mono">{{ formatCost(t2.costUSD) }}</div>
           <div
             class="nest-txn-delta nest-mono"
-            :class="{ 'is-negative': t.deltaNano < 0, 'is-positive': t.deltaNano > 0 }"
+            :class="{ 'is-negative': t2.deltaNano < 0, 'is-positive': t2.deltaNano > 0 }"
           >
-            {{ formatNano(t.deltaNano) }}
+            {{ formatNano(t2.deltaNano) }}
           </div>
         </div>
       </div>
@@ -209,11 +209,8 @@ function kindChipColor(kind: string): string {
 
     <!-- External link -->
     <section class="nest-section">
-      <h2 class="nest-h2">Manage account</h2>
-      <p class="nest-subtitle">
-        API key rotation, referral links, payment details, plan changes —
-        all live in WuApi's own dashboard.
-      </p>
+      <h2 class="nest-h2">{{ t('account.sections.manageTitle') }}</h2>
+      <p class="nest-subtitle">{{ t('account.sections.manageTagline') }}</p>
       <v-btn
         class="mt-3"
         variant="outlined"
@@ -222,7 +219,7 @@ function kindChipColor(kind: string): string {
         target="_blank"
         rel="noopener"
       >
-        Open WuApi dashboard
+        {{ t('account.sections.openWuApi') }}
       </v-btn>
     </section>
   </v-container>
@@ -407,8 +404,6 @@ function kindChipColor(kind: string): string {
 @media (max-width: 720px) {
   .nest-account { padding: 20px 12px 60px; }
 
-  // Collapse the transaction row to two visual tiers on small screens —
-  // meta on top, delta on bottom.
   .nest-txn-row {
     grid-template-columns: 1fr auto;
     grid-template-areas:

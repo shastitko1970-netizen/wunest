@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { useModelsStore } from '@/stores/models'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: string
@@ -63,7 +66,7 @@ function onKeydown(e: KeyboardEvent) {
       ref="textarea"
       class="nest-input"
       :value="modelValue"
-      :placeholder="placeholder ?? 'Write a message… (Enter to send, Shift+Enter for newline)'"
+      :placeholder="placeholder ?? t('chat.input.placeholder')"
       :disabled="disabled"
       rows="1"
       @input="onInput"
@@ -102,7 +105,7 @@ function onKeydown(e: KeyboardEvent) {
         prepend-icon="mdi-stop-circle-outline"
         @click="emit('stop')"
       >
-        Stop
+        {{ t('chat.input.stop') }}
       </v-btn>
       <v-btn
         v-else
@@ -113,7 +116,7 @@ function onKeydown(e: KeyboardEvent) {
         append-icon="mdi-send"
         @click="emit('send')"
       >
-        Send
+        {{ t('chat.input.send') }}
       </v-btn>
     </div>
   </div>

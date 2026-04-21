@@ -1,12 +1,15 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+</script>
 
 <template>
   <v-container class="nest-stub text-center">
     <v-icon size="48" color="surface-variant">mdi-wrench-outline</v-icon>
-    <h1 class="nest-h1 mt-4">Studio</h1>
+    <h1 class="nest-h1 mt-4">{{ t('studio.title') }}</h1>
     <p class="nest-subtitle mt-2">
-      Power tools (regex debugger, macros playground, raw prompt view, logs).<br />
-      Coming in v2.
+      {{ t('studio.tagline') }}<br />
+      {{ t('studio.coming') }}
     </p>
   </v-container>
 </template>
