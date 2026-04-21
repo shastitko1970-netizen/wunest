@@ -1,0 +1,217 @@
+package characters
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/shastitko1970-netizen/wunest/internal/db"
+)
+
+// ErrNotFound is returned by the repository when a character row is absent.
+var ErrNotFound = errors.New("character not found")
+
+type Repository struct {
+	pg *db.Postgres
+}
+
+func NewRepository(pg *db.Postgres) *Repository {
+	return &Repository{pg: pg}
+}
+
+// CreateInput captures the subset of fields a caller can supply when
+// creating a character. Server-side fields (id, timestamps) are not part of
+// the input.
+type CreateInput struct {
+	UserID    uuid.UUID
+	Name      string
+	Data      CharacterData
+	AvatarURL string
+	Tags      []string
+	Favorite  bool
+	Spec      string
+	SourceURL string
+}
+
+// UpdatePatch is the sparse subset of fields that can be changed on an
+// existing character. nil = leave as-is.
+type UpdatePatch struct {
+	Name      *string
+	Data      *CharacterData
+	AvatarURL *string
+	Tags      *[]string
+	Favorite  *bool
+	SourceURL *string
+}
+
+// List returns all characters owned by the given user, newest-first.
+func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Character, error) {
+	const q = `
+		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		       created_at, updated_at
+		  FROM nest_characters
+		 WHERE user_id = $1
+		 ORDER BY favorite DESC, updated_at DESC
+	`
+	rows, err := r.pg.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list characters: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Character, 0)
+	for rows.Next() {
+		var c Character
+		var dataBytes []byte
+		if err := rows.Scan(
+			&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
+			&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan character: %w", err)
+		}
+		if err := json.Unmarshal(dataBytes, &c.Data); err != nil {
+			return nil, fmt.Errorf("unmarshal data: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// Get returns a single character by id, scoped to the given user.
+func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character, error) {
+	const q = `
+		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		       created_at, updated_at
+		  FROM nest_characters
+		 WHERE user_id = $1 AND id = $2
+	`
+	var c Character
+	var dataBytes []byte
+	err := r.pg.QueryRow(ctx, q, userID, id).Scan(
+		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
+		&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get character: %w", err)
+	}
+	if err := json.Unmarshal(dataBytes, &c.Data); err != nil {
+		return nil, fmt.Errorf("unmarshal data: %w", err)
+	}
+	return &c, nil
+}
+
+// Create inserts a new character row and returns the hydrated model.
+func (r *Repository) Create(ctx context.Context, in CreateInput) (*Character, error) {
+	dataBytes, err := json.Marshal(in.Data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal data: %w", err)
+	}
+	if in.Spec == "" {
+		in.Spec = "chara_card_v3"
+	}
+	if in.Tags == nil {
+		in.Tags = []string{}
+	}
+
+	const q = `
+		INSERT INTO nest_characters (user_id, name, data, avatar_url, tags, favorite, spec, source_url)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, NULLIF($8, ''))
+		RETURNING id, created_at, updated_at
+	`
+	var (
+		id        uuid.UUID
+		createdAt time.Time
+		updatedAt time.Time
+	)
+	err = r.pg.QueryRow(ctx, q,
+		in.UserID, in.Name, dataBytes, in.AvatarURL, in.Tags, in.Favorite, in.Spec, in.SourceURL,
+	).Scan(&id, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert character: %w", err)
+	}
+
+	return &Character{
+		ID:        id,
+		Name:      in.Name,
+		Data:      in.Data,
+		AvatarURL: in.AvatarURL,
+		Tags:      in.Tags,
+		Favorite:  in.Favorite,
+		Spec:      in.Spec,
+		SourceURL: in.SourceURL,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}, nil
+}
+
+// Update applies a sparse patch to an existing character row.
+func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch UpdatePatch) (*Character, error) {
+	// Load current row so we can merge and re-save.
+	cur, err := r.Get(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if patch.Name != nil {
+		cur.Name = *patch.Name
+	}
+	if patch.Data != nil {
+		cur.Data = *patch.Data
+	}
+	if patch.AvatarURL != nil {
+		cur.AvatarURL = *patch.AvatarURL
+	}
+	if patch.Tags != nil {
+		cur.Tags = *patch.Tags
+	}
+	if patch.Favorite != nil {
+		cur.Favorite = *patch.Favorite
+	}
+	if patch.SourceURL != nil {
+		cur.SourceURL = *patch.SourceURL
+	}
+
+	dataBytes, err := json.Marshal(cur.Data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal data: %w", err)
+	}
+
+	const q = `
+		UPDATE nest_characters
+		   SET name = $3, data = $4,
+		       avatar_url = NULLIF($5, ''), tags = $6, favorite = $7,
+		       source_url = NULLIF($8, ''), updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+		 RETURNING updated_at
+	`
+	err = r.pg.QueryRow(ctx, q, userID, id,
+		cur.Name, dataBytes, cur.AvatarURL, cur.Tags, cur.Favorite, cur.SourceURL,
+	).Scan(&cur.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update character: %w", err)
+	}
+	return cur, nil
+}
+
+// Delete removes a character row.
+func (r *Repository) Delete(ctx context.Context, userID, id uuid.UUID) error {
+	const q = `DELETE FROM nest_characters WHERE user_id = $1 AND id = $2`
+	tag, err := r.pg.Exec(ctx, q, userID, id)
+	if err != nil {
+		return fmt.Errorf("delete character: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+

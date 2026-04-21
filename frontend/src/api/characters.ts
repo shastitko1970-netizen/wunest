@@ -1,0 +1,99 @@
+import { apiFetch } from '@/api/client'
+
+// ─── Types (kept in sync with Go's internal/characters/types.go) ──────
+
+export interface CharacterData {
+  name: string
+  description?: string
+  personality?: string
+  scenario?: string
+  first_mes?: string
+  mes_example?: string
+  creator_notes?: string
+  system_prompt?: string
+  post_history_instructions?: string
+  alternate_greetings?: string[]
+  tags?: string[]
+  creator?: string
+  character_version?: string
+  character_book?: CharacterBook
+  extensions?: Record<string, unknown>
+  // V3-specific
+  nickname?: string
+  creator_notes_multilingual?: Record<string, string>
+  source?: string[]
+  group_only_greetings?: string[]
+}
+
+export interface CharacterBook {
+  name?: string
+  description?: string
+  entries?: CharacterBookEntry[]
+  extensions?: Record<string, unknown>
+}
+
+export interface CharacterBookEntry {
+  keys: string[]
+  content: string
+  enabled: boolean
+  insertion_order: number
+  selective?: boolean
+  constant?: boolean
+  priority?: number
+  comment?: string
+  extensions?: Record<string, unknown>
+}
+
+export interface Character {
+  id: string
+  name: string
+  data: CharacterData
+  avatar_url?: string
+  tags: string[]
+  favorite: boolean
+  spec: string
+  source_url?: string
+  created_at: string
+  updated_at: string
+}
+
+// ─── API methods ──────────────────────────────────────────────────────
+
+export const charactersApi = {
+  list: () => apiFetch<{ items: Character[] }>('/api/characters'),
+
+  get: (id: string) => apiFetch<Character>(`/api/characters/${id}`),
+
+  create: (input: Partial<Character>) =>
+    apiFetch<Character>('/api/characters', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  update: (id: string, patch: Partial<Character>) =>
+    apiFetch<Character>(`/api/characters/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  delete: (id: string) =>
+    apiFetch<void>(`/api/characters/${id}`, { method: 'DELETE' }),
+
+  // Multipart upload — bypasses the default JSON content-type in apiFetch.
+  importPNG: async (file: File, sourceURL?: string): Promise<Character> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (sourceURL) fd.append('source_url', sourceURL)
+
+    const res = await fetch('/api/characters/import', {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(body || `Import failed (${res.status})`)
+    }
+    return res.json() as Promise<Character>
+  },
+}

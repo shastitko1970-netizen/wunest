@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
+	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
+	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
@@ -24,11 +26,21 @@ type Deps struct {
 }
 
 type Server struct {
-	deps Deps
+	deps       Deps
+	users      *users.Resolver
+	characters *characters.Handler
 }
 
 func New(deps Deps) *Server {
-	return &Server{deps: deps}
+	resolver := users.NewResolver(deps.Postgres)
+	return &Server{
+		deps:  deps,
+		users: resolver,
+		characters: &characters.Handler{
+			Repo:  characters.NewRepository(deps.Postgres),
+			Users: resolver,
+		},
+	}
 }
 
 // Router builds the application http.Handler.
@@ -45,8 +57,10 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("GET /api/auth/check", authOptional(http.HandlerFunc(s.handleAuthCheck)))
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
 
-	// TODO: /api/characters/*, /api/chats/*, /api/chats/:id/stream, /api/personas/*, ...
-	// Will be registered as feature packages come online.
+	// Feature packages register their own routes.
+	s.characters.Register(mux, authRequired)
+
+	// TODO: /api/chats/*, /api/chats/:id/stream, /api/personas/*, ...
 
 	return withRequestLogger(s.deps.Logger, mux)
 }
@@ -96,6 +110,9 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 // Passes through key fields from WuApi; does NOT include the api_key.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
+
+	// Ensure the local nest_users row exists (upsert) and bump last_active.
+	_, _ = s.users.Resolve(r.Context(), u.WuApi.ID)
 
 	type resp struct {
 		ID              int64  `json:"wuapi_user_id"`

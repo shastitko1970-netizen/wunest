@@ -30,12 +30,15 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vuetify: ['vuetify'],
-          'vue-i18n': ['vue-i18n'],
-          'vue-router': ['vue-router'],
-          pinia: ['pinia'],
-          mdi: ['@mdi/font'],
+        // Vite 8 / rolldown requires a function form for manualChunks.
+        // Split vendor bundles by package to keep initial payload small.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('vuetify')) return 'vuetify'
+          if (id.includes('vue-i18n')) return 'vue-i18n'
+          if (id.includes('vue-router')) return 'vue-router'
+          if (id.includes('pinia')) return 'pinia'
+          if (id.includes('@mdi/font')) return 'mdi'
         },
       },
     },

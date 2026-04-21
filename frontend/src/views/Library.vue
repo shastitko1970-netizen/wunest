@@ -1,0 +1,241 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRouter } from 'vue-router'
+import { useCharactersStore } from '@/stores/characters'
+import type { Character } from '@/api/characters'
+import CharacterCard from '@/components/CharacterCard.vue'
+import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
+
+const store = useCharactersStore()
+const router = useRouter()
+const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = storeToRefs(store)
+
+const activeTab = ref<'characters' | 'worlds' | 'presets' | 'personas'>('characters')
+const importOpen = ref(false)
+const confirmDeleteId = ref<string | null>(null)
+
+onMounted(() => {
+  store.fetchAll()
+})
+
+function onOpen(c: Character) {
+  // TODO: navigate to /library/character/:id detail page in a later PR.
+  // For now — noop-log until the detail view exists.
+  console.debug('open character', c.id)
+}
+
+function onChat(c: Character) {
+  // TODO: create chat + navigate to /chat/:id in M3.
+  router.push(`/chat?character=${c.id}`)
+}
+
+async function onFavorite(c: Character) {
+  await store.toggleFavorite(c)
+}
+
+function askDelete(c: Character) {
+  confirmDeleteId.value = c.id
+}
+
+async function confirmDelete() {
+  if (confirmDeleteId.value) {
+    await store.remove(confirmDeleteId.value)
+    confirmDeleteId.value = null
+  }
+}
+</script>
+
+<template>
+  <v-container class="nest-library" fluid>
+    <!-- Header row -->
+    <div class="nest-page-head">
+      <div>
+        <div class="nest-eyebrow">Library</div>
+        <h1 class="nest-h1 mt-1">Characters & Worlds</h1>
+      </div>
+      <div class="d-flex ga-2">
+        <v-btn
+          color="primary"
+          variant="flat"
+          prepend-icon="mdi-upload"
+          @click="importOpen = true"
+        >
+          Import PNG
+        </v-btn>
+        <v-btn
+          variant="outlined"
+          prepend-icon="mdi-plus"
+          disabled
+        >
+          New
+        </v-btn>
+      </div>
+    </div>
+
+    <!-- Tab bar -->
+    <v-tabs
+      v-model="activeTab"
+      color="primary"
+      density="compact"
+      class="mt-6"
+      :grow="false"
+    >
+      <v-tab value="characters">Characters</v-tab>
+      <v-tab value="worlds" disabled>Worlds</v-tab>
+      <v-tab value="presets" disabled>Presets</v-tab>
+      <v-tab value="personas" disabled>Personas</v-tab>
+    </v-tabs>
+
+    <v-divider />
+
+    <v-window v-model="activeTab" class="mt-4">
+      <v-window-item value="characters">
+        <!-- Filter bar -->
+        <div class="nest-filterbar">
+          <v-text-field
+            v-model="query"
+            placeholder="Search characters…"
+            prepend-inner-icon="mdi-magnify"
+            hide-details
+            density="compact"
+            single-line
+            clearable
+            style="max-width: 320px"
+          />
+          <v-btn
+            :variant="favoriteOnly ? 'tonal' : 'text'"
+            :color="favoriteOnly ? 'secondary' : undefined"
+            size="small"
+            :prepend-icon="favoriteOnly ? 'mdi-star' : 'mdi-star-outline'"
+            @click="favoriteOnly = !favoriteOnly"
+          >
+            Favorites
+          </v-btn>
+        </div>
+
+        <!-- Tag chips -->
+        <div v-if="allTags.length" class="nest-tagbar">
+          <v-chip
+            :variant="activeTag === null ? 'tonal' : 'outlined'"
+            :color="activeTag === null ? 'primary' : undefined"
+            size="small"
+            class="mr-1 mb-1"
+            @click="activeTag = null"
+          >
+            All
+          </v-chip>
+          <v-chip
+            v-for="t in allTags.slice(0, 20)"
+            :key="t.tag"
+            :variant="activeTag === t.tag ? 'tonal' : 'outlined'"
+            :color="activeTag === t.tag ? 'primary' : undefined"
+            size="small"
+            class="mr-1 mb-1"
+            @click="activeTag = activeTag === t.tag ? null : t.tag"
+          >
+            {{ t.tag }}
+            <span class="nest-mono ml-1 text-medium-emphasis">{{ t.count }}</span>
+          </v-chip>
+        </div>
+
+        <!-- Content -->
+        <div v-if="loading" class="nest-state">
+          <v-progress-circular indeterminate color="primary" size="28" />
+        </div>
+        <div v-else-if="error" class="nest-state">
+          <v-alert type="error" variant="tonal">{{ error }}</v-alert>
+        </div>
+        <div v-else-if="filtered.length === 0" class="nest-state text-center">
+          <v-icon size="48" color="surface-variant">mdi-bookshelf</v-icon>
+          <div class="nest-h2 mt-4">No characters yet</div>
+          <p class="nest-subtitle mt-2" style="max-width: 360px; margin: 0 auto">
+            Drop a PNG card to import your first character, or create one from scratch.
+          </p>
+          <v-btn color="primary" class="mt-4" variant="flat" @click="importOpen = true">
+            Import PNG
+          </v-btn>
+        </div>
+        <div v-else class="nest-grid">
+          <CharacterCard
+            v-for="c in filtered"
+            :key="c.id"
+            :character="c"
+            @open="onOpen"
+            @chat="onChat"
+            @favorite="onFavorite"
+            @delete="askDelete"
+          />
+        </div>
+      </v-window-item>
+    </v-window>
+
+    <!-- Import dialog -->
+    <ImportCharacterDialog v-model="importOpen" />
+
+    <!-- Delete confirmation -->
+    <v-dialog :model-value="confirmDeleteId !== null" max-width="360" @update:model-value="v => !v && (confirmDeleteId = null)">
+      <v-card class="nest-confirm">
+        <v-card-title>Delete character?</v-card-title>
+        <v-card-text>This action cannot be undone.</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="confirmDeleteId = null">Cancel</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDelete">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </v-container>
+</template>
+
+<style lang="scss" scoped>
+.nest-library {
+  max-width: 1200px;
+  padding: 32px 24px;
+}
+
+.nest-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.nest-filterbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 0;
+  flex-wrap: wrap;
+}
+
+.nest-tagbar {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.nest-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.nest-state {
+  padding: 80px 24px;
+  display: grid;
+  place-items: center;
+  color: var(--nest-text-muted);
+}
+
+.nest-confirm {
+  background: var(--nest-surface) !important;
+  border: 1px solid var(--nest-border);
+}
+
+@media (max-width: 600px) {
+  .nest-library { padding: 20px 12px; }
+  .nest-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
+</style>

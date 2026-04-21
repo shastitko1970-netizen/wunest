@@ -6,13 +6,19 @@ const messages = {
       title: 'WuNest',
       loading: 'Загрузка…',
     },
-    home: {
-      greeting: 'Привет, {name}!',
-      anonymous: 'Добро пожаловать в WuNest',
-      loginCta: 'Войти через WuSphere',
-      tierLabel: 'Тариф',
-      goldLabel: 'Золото',
-      quotaLabel: 'Сегодня',
+    nav: {
+      chat: 'Чат',
+      library: 'Библиотека',
+      settings: 'Настройки',
+      studio: 'Studio',
+      manageAccount: 'Аккаунт на WuSphere',
+      byWusphere: 'by WuSphere',
+    },
+    login: {
+      headline: 'WuNest',
+      tagline: 'Современный клиент для ролевой переписки с моделями. Ключи и подписка подтянутся из WuSphere.',
+      cta: 'Войти через WuSphere',
+      noAccountHint: 'Нет аккаунта? Зарегистрируйся на wusphere.ru — это бесплатно.',
     },
   },
   en: {
@@ -20,13 +26,19 @@ const messages = {
       title: 'WuNest',
       loading: 'Loading…',
     },
-    home: {
-      greeting: 'Hello, {name}!',
-      anonymous: 'Welcome to WuNest',
-      loginCta: 'Sign in via WuSphere',
-      tierLabel: 'Tier',
-      goldLabel: 'Gold',
-      quotaLabel: 'Today',
+    nav: {
+      chat: 'Chat',
+      library: 'Library',
+      settings: 'Settings',
+      studio: 'Studio',
+      manageAccount: 'Account on WuSphere',
+      byWusphere: 'by WuSphere',
+    },
+    login: {
+      headline: 'WuNest',
+      tagline: 'A modern client for roleplay with LLMs. Keys and subscription come from your WuSphere account.',
+      cta: 'Sign in via WuSphere',
+      noAccountHint: "Don't have an account? Sign up at wusphere.ru — it's free.",
     },
   },
 }
