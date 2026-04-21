@@ -1,0 +1,5 @@
+# The placeholder index.html is committed, but the real Vite output
+# (built during Docker multi-stage build) is not.
+*
+!.gitignore
+!index.html

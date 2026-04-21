@@ -15,7 +15,8 @@ RUN go mod download || true
 COPY . .
 
 # Embed the frontend bundle into the binary (via //go:embed).
-COPY --from=frontend /app/frontend/dist ./frontend/dist
+# Overwrites the placeholder index.html that lives in internal/spa/dist.
+COPY --from=frontend /app/frontend/dist/. ./internal/spa/dist/
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \

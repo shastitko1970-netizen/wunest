@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WuNest — frontend not built</title>
+  <style>
+    body { background:#080808; color:#f0f0f0; font:14px/1.5 system-ui,sans-serif;
+           display:grid; place-items:center; min-height:100vh; margin:0; }
+    .card { max-width:520px; padding:32px; border:1px solid #222;
+            border-radius:12px; background:#141414; }
+    h1 { margin:0 0 12px; font-size:18px; color:#ef4444; }
+    code { background:#0a0a0a; padding:2px 6px; border-radius:4px;
+           font-family:"JetBrains Mono",Consolas,monospace; font-size:12px; }
+    p { color:#999; margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Frontend bundle not built</h1>
+    <p>This is the placeholder index.html committed to <code>internal/spa/dist/</code>.</p>
+    <p>It only appears if you are running the Go binary without the Vite build step.</p>
+    <p>For local dev, run the frontend dev server:</p>
+    <pre><code>cd frontend &amp;&amp; npm run dev</code></pre>
+    <p>For production the Docker build copies the Vite output over this file.</p>
+  </div>
+</body>
+</html>

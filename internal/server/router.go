@@ -11,6 +11,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
+	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
@@ -61,6 +62,10 @@ func (s *Server) Router() http.Handler {
 	s.characters.Register(mux, authRequired)
 
 	// TODO: /api/chats/*, /api/chats/:id/stream, /api/personas/*, ...
+
+	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
+	// routes above take priority. Vue Router handles client-side history.
+	mux.Handle("/", spa.Handler())
 
 	return withRequestLogger(s.deps.Logger, mux)
 }
