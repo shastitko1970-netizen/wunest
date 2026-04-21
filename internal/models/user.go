@@ -46,14 +46,21 @@ type SessionUser struct {
 
 // WuApiProfile is the subset of WuApi's /api/me response we care about.
 // Mirrors wuapi.MeResponse but lives here to keep the domain pure.
+//
+// Field naming matches our own convention (snake_case on the wire for our
+// API, PascalCase here in Go); the JSON→struct decode happens in the
+// wuapi package where the camelCase JSON tags are attached.
 type WuApiProfile struct {
 	ID              int64
 	Username        string
 	FirstName       string
 	APIKey          string
 	Tier            Tier
+	TierExpiresAt   *time.Time
 	GoldBalanceNano int64
+	ReferralCount   int
 	DailyLimit      int
 	UsedToday       int
+	CreatedAt       time.Time
 	Blocked         bool
 }

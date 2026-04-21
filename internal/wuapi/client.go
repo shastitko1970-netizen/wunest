@@ -1,11 +1,12 @@
 // Package wuapi is an HTTP client for the sibling WuApi service.
 //
 // WuApi (api.wusphere.ru) owns user identity, API-key issuance, and the
-// upstream LLM proxy. WuNest calls it for two things:
+// upstream LLM proxy. WuNest calls it for three things:
 //
 //  1. Resolve a session cookie into a user profile (GET /api/me)
 //  2. Forward chat-completion requests as the authenticated user
 //     (POST /v1/chat/completions — streamed)
+//  3. Pass-through stats / gold-transaction queries for the Cabinet view
 //
 // Routing strategy:
 //
@@ -15,8 +16,6 @@
 //     blue/green deploy has just swapped ports while our .env still points
 //     at the old color), the request is transparently retried against
 //     BaseURL, and subsequent requests use BaseURL until a cooldown passes.
-//     This keeps WuNest working across WuApi deploys without a deploy of
-//     its own.
 //   - If InternalURL is empty, every request goes to BaseURL.
 package wuapi
 
@@ -70,22 +69,26 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
-// MeResponse is the payload returned by WuApi's GET /api/me.
+// MeResponse mirrors WuApi's userJSON struct (see auth.go).
 //
-// Only the fields WuNest actually needs are modelled here; the rest are
-// ignored. If WuApi adds required fields in the future, update this struct.
+// NOTE: WuApi returns camelCase JSON keys, not snake_case. Tags must match.
+// If you see zero-valued fields here in practice, the first thing to verify
+// is that the JSON tag still matches WuApi's wire format.
 type MeResponse struct {
-	ID              int64   `json:"id"`
-	TelegramID      *int64  `json:"telegram_id,omitempty"`
-	Username        string  `json:"username,omitempty"`
-	FirstName       string  `json:"first_name,omitempty"`
-	APIKey          string  `json:"api_key"`
-	Tier            string  `json:"tier"`
-	TierExpiresAt   *string `json:"tier_expires_at,omitempty"`
-	GoldBalanceNano int64   `json:"gold_balance_nano"`
-	DailyLimit      int     `json:"daily_limit,omitempty"`
-	UsedToday       int     `json:"used_today,omitempty"`
-	Blocked         bool    `json:"blocked,omitempty"`
+	ID              int64      `json:"id"`
+	Username        string     `json:"username"`
+	FirstName       string     `json:"firstName"`
+	Tier            string     `json:"tier"`
+	TierExpiresAt   *time.Time `json:"tierExpiresAt"`
+	APIKey          string     `json:"apiKey"`
+	GoldBalanceNano int64      `json:"goldBalanceNano"`
+	ReferralCount   int        `json:"referralCount"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UsedToday       int64      `json:"usedToday"`
+	DailyLimit      int        `json:"dailyLimit"`
+	// Blocked isn't exposed by /api/me today — if WuApi ever adds it here
+	// as `blocked`, update the tag.
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 // Me resolves a session cookie (the wu-API-key that WuApi stores in the
@@ -115,6 +118,17 @@ func (c *Client) Me(ctx context.Context, sessionKey string) (*MeResponse, error)
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, fmt.Errorf("wuapi /api/me returned %d: %s", resp.StatusCode, string(body))
 	}
+}
+
+// Proxy issues a GET to an arbitrary path on WuApi with the caller's
+// Bearer token and returns the raw body for pipe-through. Used by stats /
+// gold-transactions handlers. Caller must Close the body.
+func (c *Client) Proxy(ctx context.Context, path, sessionKey string) (io.ReadCloser, *http.Response, error) {
+	resp, err := c.doGET(ctx, path, sessionKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp.Body, resp, nil
 }
 
 // ErrUnauthorized is returned when WuApi rejects the session key.
@@ -211,8 +225,6 @@ func isDialRefused(err error) bool {
 			return true
 		}
 	}
-	// Fallback: string-match for platforms where the error tree doesn't
-	// surface *net.OpError (rare, but defensive).
 	return strings.Contains(err.Error(), "connection refused")
 }
 

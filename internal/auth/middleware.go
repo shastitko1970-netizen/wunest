@@ -75,9 +75,12 @@ func Middleware(cfg *config.Config, pg *db.Postgres, wu *wuapi.Client, require b
 					FirstName:       profile.FirstName,
 					APIKey:          profile.APIKey,
 					Tier:            models.Tier(profile.Tier),
+					TierExpiresAt:   profile.TierExpiresAt,
 					GoldBalanceNano: profile.GoldBalanceNano,
+					ReferralCount:   profile.ReferralCount,
 					DailyLimit:      profile.DailyLimit,
-					UsedToday:       profile.UsedToday,
+					UsedToday:       int(profile.UsedToday),
+					CreatedAt:       profile.CreatedAt,
 					Blocked:         profile.Blocked,
 				},
 			}

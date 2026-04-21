@@ -65,6 +65,8 @@ func (s *Server) Router() http.Handler {
 
 	mux.Handle("GET /api/auth/check", authOptional(http.HandlerFunc(s.handleAuthCheck)))
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
+	mux.Handle("GET /api/me/stats", authRequired(http.HandlerFunc(s.handleMeStats)))
+	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
 
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
@@ -124,7 +126,9 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMe returns the current user profile as WuNest understands it.
-// Passes through key fields from WuApi; does NOT include the api_key.
+// Pass-through of WuApi's /api/me plus our local wuapi_user_id. Does NOT
+// include the API key — that's private to the session cookie and server-
+// side code, never travels to the browser.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 
@@ -132,13 +136,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.users.Resolve(r.Context(), u.WuApi.ID)
 
 	type resp struct {
-		ID              int64  `json:"wuapi_user_id"`
-		Username        string `json:"username"`
-		FirstName       string `json:"first_name"`
-		Tier            string `json:"tier"`
-		GoldBalanceNano int64  `json:"gold_balance_nano"`
-		DailyLimit      int    `json:"daily_limit"`
-		UsedToday       int    `json:"used_today"`
+		ID              int64      `json:"wuapi_user_id"`
+		Username        string     `json:"username"`
+		FirstName       string     `json:"first_name"`
+		Tier            string     `json:"tier"`
+		TierExpiresAt   *time.Time `json:"tier_expires_at,omitempty"`
+		GoldBalanceNano int64      `json:"gold_balance_nano"`
+		ReferralCount   int        `json:"referral_count"`
+		DailyLimit      int        `json:"daily_limit"`
+		UsedToday       int        `json:"used_today"`
+		CreatedAt       time.Time  `json:"created_at"`
 	}
 
 	writeJSON(w, http.StatusOK, resp{
@@ -146,10 +153,58 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		Username:        u.WuApi.Username,
 		FirstName:       u.WuApi.FirstName,
 		Tier:            string(u.WuApi.Tier),
+		TierExpiresAt:   u.WuApi.TierExpiresAt,
 		GoldBalanceNano: u.WuApi.GoldBalanceNano,
+		ReferralCount:   u.WuApi.ReferralCount,
 		DailyLimit:      u.WuApi.DailyLimit,
 		UsedToday:       u.WuApi.UsedToday,
+		CreatedAt:       u.WuApi.CreatedAt,
 	})
+}
+
+// handleMeStats proxies GET /api/me/stats from WuApi using the caller's
+// Bearer token. Response shape is WuApi's responsibility — we pass-through
+// so WuApi can evolve the payload without forcing a WuNest release.
+func (s *Server) handleMeStats(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	if u.WuApi.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	body, resp, err := s.deps.WuApi.Proxy(r.Context(), "/api/me/stats", u.WuApi.APIKey)
+	if err != nil {
+		slog.Error("wuapi stats proxy", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
+}
+
+// handleGoldTransactions proxies GET /api/me/gold/transactions. The
+// `limit` and `offset` query params pass through as-is.
+func (s *Server) handleGoldTransactions(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	if u.WuApi.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	upstream := "/api/me/gold/transactions"
+	if q := r.URL.RawQuery; q != "" {
+		upstream += "?" + q
+	}
+	body, resp, err := s.deps.WuApi.Proxy(r.Context(), upstream, u.WuApi.APIKey)
+	if err != nil {
+		slog.Error("wuapi gold transactions proxy", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
 }
 
 // handleModels proxies GET /api/models → WuApi GET /v1/models using the

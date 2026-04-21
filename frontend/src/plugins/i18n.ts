@@ -9,6 +9,7 @@ const messages = {
     nav: {
       chat: 'Чат',
       library: 'Библиотека',
+      account: 'Аккаунт',
       settings: 'Настройки',
       studio: 'Studio',
       manageAccount: 'Аккаунт в WuApi',
@@ -24,6 +25,21 @@ const messages = {
       or: 'или войти заново',
       noAccountHint: 'Нет аккаунта? Зарегистрируйся на wusphere.ru — это бесплатно.',
     },
+    settings: {
+      title: 'Настройки',
+      theme: 'Тема',
+      language: 'Язык',
+      byok: {
+        title: 'BYOK (свои ключи провайдеров)',
+        tagline: 'Используй свои собственные API-ключи вместо тех, что даёт WuApi. Полезно если у тебя уже оплачен OpenAI / Claude.',
+        coming: 'Управление BYOK появится в следующей итерации.',
+      },
+    },
+    theme: {
+      dark: 'Тёмная',
+      light: 'Светлая',
+      toggle: 'Переключить тему',
+    },
   },
   en: {
     app: {
@@ -33,6 +49,7 @@ const messages = {
     nav: {
       chat: 'Chat',
       library: 'Library',
+      account: 'Account',
       settings: 'Settings',
       studio: 'Studio',
       manageAccount: 'WuApi account',
@@ -47,6 +64,21 @@ const messages = {
       continueSession: 'Continue',
       or: 'or sign in fresh',
       noAccountHint: "Don't have an account? Sign up at wusphere.ru — it's free.",
+    },
+    settings: {
+      title: 'Settings',
+      theme: 'Theme',
+      language: 'Language',
+      byok: {
+        title: 'BYOK (bring your own keys)',
+        tagline: 'Use your own provider API keys instead of WuApi. Useful if you already have an OpenAI or Claude plan.',
+        coming: 'BYOK management is coming in a next iteration.',
+      },
+    },
+    theme: {
+      dark: 'Dark',
+      light: 'Light',
+      toggle: 'Toggle theme',
     },
   },
 }
