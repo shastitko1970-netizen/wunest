@@ -254,3 +254,46 @@ func (r *Repository) DeleteMessage(ctx context.Context, chatID uuid.UUID, messag
 	}
 	return nil
 }
+
+// EditMessageContent updates just the content field of a message, leaving
+// role, extras, swipes, timestamps untouched. Use for user-driven edits
+// from the UI; `UpdateMessageContent` is for stream-finalisation.
+func (r *Repository) EditMessageContent(ctx context.Context, chatID uuid.UUID, messageID int64, content string) error {
+	const q = `UPDATE nest_messages SET content = $3 WHERE chat_id = $1 AND id = $2`
+	tag, err := r.pg.Exec(ctx, q, chatID, messageID, content)
+	if err != nil {
+		return fmt.Errorf("edit message: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LastAssistantMessage returns the most recent assistant message in a chat,
+// or ErrNotFound if the chat has none yet. Used by the regenerate endpoint.
+func (r *Repository) LastAssistantMessage(ctx context.Context, chatID uuid.UUID) (*Message, error) {
+	const q = `
+		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, created_at
+		  FROM nest_messages
+		 WHERE chat_id = $1 AND role = 'assistant' AND hidden = FALSE
+		 ORDER BY id DESC
+		 LIMIT 1
+	`
+	var m Message
+	var swipes, extras []byte
+	var role string
+	err := r.pg.QueryRow(ctx, q, chatID).Scan(
+		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("last assistant: %w", err)
+	}
+	m.Role = Role(role)
+	m.Swipes = swipes
+	m.Extras = extras
+	return &m, nil
+}

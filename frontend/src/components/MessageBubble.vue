@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { Message } from '@/api/chats'
 
 const props = defineProps<{
@@ -7,10 +7,14 @@ const props = defineProps<{
   characterName?: string
   userName?: string
   streaming?: boolean
+  // Only the last assistant message gets a Regenerate action in V1.
+  allowRegenerate?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'delete', m: Message): void
+  (e: 'regenerate', m: Message): void
+  (e: 'edit', m: Message, newContent: string): void
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -30,6 +34,85 @@ const tokensInfo = computed(() => {
   const ms = ex.latency_ms ?? 0
   return `${ex.tokens_out} tok · ${(ms / 1000).toFixed(1)}s · ${ex.model}`
 })
+
+// Reasoning (thinking) content from <think>…</think> extraction.
+// Shown as a collapsible block above the main content. Auto-collapses
+// once streaming is done (opens while thinking is happening if we had
+// per-token reasoning events — for now we just show the persisted value).
+const reasoning = computed(() => props.message.extras?.reasoning || '')
+
+// During streaming, the raw content may still contain <think>…</think>
+// tags that the server hasn't extracted yet. Render them as a distinct
+// "live" thinking block without mutating the source.
+const liveSplit = computed(() => {
+  if (!props.streaming || !props.message.content) {
+    return { live: '', rest: props.message.content }
+  }
+  const open = props.message.content.indexOf('<think>')
+  if (open === -1) return { live: '', rest: props.message.content }
+  const close = props.message.content.indexOf('</think>', open + 7)
+  if (close === -1) {
+    // Unclosed — everything after <think> is reasoning so far.
+    return {
+      live: props.message.content.slice(open + 7),
+      rest: props.message.content.slice(0, open),
+    }
+  }
+  return {
+    live: props.message.content.slice(open + 7, close),
+    rest: props.message.content.slice(0, open) + props.message.content.slice(close + 8),
+  }
+})
+
+// ─── Edit mode ─────────────────────────────────────────────────────
+const editing = ref(false)
+const draft = ref('')
+const editArea = ref<HTMLTextAreaElement | null>(null)
+
+function startEdit() {
+  draft.value = props.message.content
+  editing.value = true
+  nextTick(() => {
+    const el = editArea.value
+    if (el) {
+      el.focus()
+      el.selectionStart = el.selectionEnd = el.value.length
+      autosizeEdit()
+    }
+  })
+}
+
+function cancelEdit() {
+  editing.value = false
+  draft.value = ''
+}
+
+function saveEdit() {
+  const next = draft.value.trim()
+  if (next !== props.message.content) {
+    emit('edit', props.message, next)
+  }
+  editing.value = false
+}
+
+function autosizeEdit() {
+  const el = editArea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 400) + 'px'
+}
+
+watch(draft, () => nextTick(autosizeEdit))
+
+function onEditKeydown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault()
+    saveEdit()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEdit()
+  }
+}
 </script>
 
 <template>
@@ -38,28 +121,95 @@ const tokensInfo = computed(() => {
       <span class="nest-msg-name">{{ displayName }}</span>
       <span class="nest-msg-time nest-mono">{{ timestamp }}</span>
     </div>
+
+    <!-- Persisted reasoning from server (after stream completes).
+         <details> handles its own open/close state natively on summary click. -->
+    <details v-if="reasoning && !editing" class="nest-reasoning">
+      <summary class="nest-reasoning-summary">
+        <v-icon size="14" class="mr-1">mdi-brain</v-icon>
+        <span>Thinking</span>
+        <span class="nest-mono nest-reasoning-meta">
+          {{ reasoning.length }} chars
+        </span>
+      </summary>
+      <div class="nest-reasoning-body">{{ reasoning }}</div>
+    </details>
+
+    <!-- Live <think> block while streaming — rendered even before server
+         extracts it at end-of-stream. -->
+    <div v-if="streaming && liveSplit.live" class="nest-reasoning nest-reasoning--live">
+      <div class="nest-reasoning-summary">
+        <v-icon size="14" class="mr-1">mdi-brain</v-icon>
+        <span>Thinking…</span>
+      </div>
+      <div class="nest-reasoning-body">{{ liveSplit.live }}<span class="nest-cursor">▍</span></div>
+    </div>
+
     <div class="nest-msg-body" :class="{ 'is-error': hasError }">
-      <template v-if="hasError">
+      <template v-if="editing">
+        <textarea
+          ref="editArea"
+          v-model="draft"
+          class="nest-edit-area"
+          rows="3"
+          @input="autosizeEdit"
+          @keydown="onEditKeydown"
+        />
+        <div class="nest-edit-actions">
+          <span class="nest-mono nest-edit-hint">⌘↩ save · Esc cancel</span>
+          <v-btn size="x-small" variant="text" @click="cancelEdit">Cancel</v-btn>
+          <v-btn size="x-small" color="primary" variant="flat" @click="saveEdit">Save</v-btn>
+        </div>
+      </template>
+      <template v-else-if="hasError">
         <v-icon size="16" color="error" class="mr-1">mdi-alert-circle</v-icon>
         <span class="text-error">
           Generation failed: {{ message.extras?.error }}
         </span>
       </template>
-      <template v-else-if="!message.content && streaming">
+      <template v-else-if="!message.content && streaming && !liveSplit.live">
         <span class="nest-thinking">▍</span>
       </template>
       <template v-else>
-        <div class="nest-msg-content">{{ message.content }}<span v-if="streaming" class="nest-cursor">▍</span></div>
+        <div class="nest-msg-content">{{ streaming ? liveSplit.rest : message.content }}<span v-if="streaming" class="nest-cursor">▍</span></div>
       </template>
     </div>
+
     <div v-if="tokensInfo && !streaming" class="nest-msg-footer nest-mono">
       {{ tokensInfo }}
+    </div>
+
+    <!-- Action row: shown on hover/focus, hidden while editing/streaming. -->
+    <div v-if="!editing && !streaming" class="nest-msg-actions">
+      <button
+        v-if="allowRegenerate"
+        class="nest-action-btn"
+        title="Regenerate"
+        @click="emit('regenerate', message)"
+      >
+        <v-icon size="14">mdi-reload</v-icon>
+      </button>
+      <button
+        class="nest-action-btn"
+        title="Edit (Ctrl+Enter to save)"
+        @click="startEdit"
+      >
+        <v-icon size="14">mdi-pencil-outline</v-icon>
+      </button>
+      <button
+        class="nest-action-btn nest-action-btn--danger"
+        title="Delete"
+        @click="emit('delete', message)"
+      >
+        <v-icon size="14">mdi-delete-outline</v-icon>
+      </button>
     </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
 .nest-msg {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -72,6 +222,11 @@ const tokensInfo = computed(() => {
   &.is-user {
     background: var(--nest-bg-elevated);
     border-color: var(--nest-border);
+  }
+
+  &:hover .nest-msg-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -127,5 +282,122 @@ const tokensInfo = computed(() => {
 
 .is-error {
   color: var(--nest-accent);
+}
+
+// ── Reasoning (thinking) collapsible ────────────────────────────────
+.nest-reasoning {
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  padding: 8px 12px;
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--nest-text-secondary);
+
+  &[open] .nest-reasoning-summary {
+    margin-bottom: 6px;
+  }
+}
+.nest-reasoning--live {
+  // Streaming live block — slightly brighter so the user sees the model
+  // thinking in real time.
+  border-color: var(--nest-border);
+}
+.nest-reasoning-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--nest-font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--nest-text-muted);
+  list-style: none;
+
+  &::-webkit-details-marker { display: none; }
+}
+.nest-reasoning-meta {
+  margin-left: auto;
+  color: var(--nest-text-muted);
+  opacity: 0.6;
+}
+.nest-reasoning-body {
+  font-family: var(--nest-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--nest-text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+// ── Inline edit mode ────────────────────────────────────────────────
+.nest-edit-area {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--nest-accent);
+  border-radius: var(--nest-radius-sm);
+  background: var(--nest-bg);
+  color: var(--nest-text);
+  font: 15px/1.55 var(--nest-font-body);
+  padding: 8px 10px;
+  outline: none;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.nest-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.nest-edit-hint {
+  flex: 1;
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+}
+
+// ── Action icons row ────────────────────────────────────────────────
+.nest-msg-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--nest-transition-fast);
+}
+.nest-action-btn {
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  color: var(--nest-text-muted);
+  padding: 4px;
+  cursor: pointer;
+  transition: color var(--nest-transition-fast), border-color var(--nest-transition-fast), background var(--nest-transition-fast);
+
+  &:hover {
+    color: var(--nest-text);
+    border-color: var(--nest-border);
+    background: var(--nest-surface);
+  }
+  &.nest-action-btn--danger:hover {
+    color: var(--nest-accent);
+    border-color: var(--nest-accent);
+  }
+}
+
+// Mobile: actions always visible (no hover affordance).
+@media (hover: none) {
+  .nest-msg-actions {
+    opacity: 1;
+    pointer-events: auto;
+    position: static;
+    margin-top: 4px;
+    justify-content: flex-end;
+  }
 }
 </style>

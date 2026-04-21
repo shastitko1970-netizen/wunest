@@ -18,6 +18,188 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
+// streamChatRegen re-streams an assistant turn without saving a new user
+// message. Used by POST /chats/:id/regenerate after the previous assistant
+// message has already been deleted.
+//
+// Shares all stages of streamChat except the "persist user message" step.
+func (h *Handler) streamChatRegen(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	chatID uuid.UUID,
+	charID *uuid.UUID,
+	apiKey string,
+	userName string,
+	personaDesc string,
+	in SendMessageInput,
+) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+
+	// Load character (optional).
+	var ch *characters.Character
+	if charID != nil {
+		if c, err := h.Characters.Get(ctx, userID, *charID); err == nil {
+			ch = c
+		}
+	}
+
+	// Load history (already without the deleted assistant message).
+	history, err := h.Repo.ListMessages(ctx, chatID, false)
+	if err != nil {
+		writeSSEError(w, flusher, "load_history", err)
+		return
+	}
+
+	model := in.Model
+	if model == "" {
+		model = defaultModel
+	}
+
+	// Inline the pipeline: prompt → placeholder → upstream → pipe.
+	promptMsgs := Build(PromptInput{
+		Character: ch,
+		History:   history,
+		UserName:  userName,
+		UserDesc:  personaDesc,
+	})
+	up := make([]map[string]any, 0, len(promptMsgs))
+	for _, m := range promptMsgs {
+		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
+	}
+
+	placeholder, err := h.Repo.AppendMessage(ctx, chatID, RoleAssistant, "", &MessageExtras{Model: model})
+	if err != nil {
+		writeSSEError(w, flusher, "save_placeholder", err)
+		return
+	}
+	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model})
+
+	h.pipeStream(w, flusher, ctx, placeholder, model, apiKey, in, up)
+}
+
+// pipeStream runs the upstream WuApi call + SSE pass-through + persistence.
+// Extracted so streamChat and streamChatRegen share the same hot loop.
+func (h *Handler) pipeStream(
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	ctx context.Context,
+	placeholder *Message,
+	model string,
+	apiKey string,
+	in SendMessageInput,
+	up []map[string]any,
+) {
+	started := time.Now()
+
+	req := wuapi.ChatCompletionRequest{
+		Model:       model,
+		Messages:    up,
+		Temperature: in.Temperature,
+		MaxTokens:   in.MaxTokens,
+		Extra:       in.Overrides,
+	}
+
+	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
+	if err != nil {
+		finalizeError(ctx, h, placeholder.ID, model, err)
+		writeSSEError(w, flusher, "upstream_connect", err)
+		return
+	}
+	defer body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(body, 4096))
+		upErr := fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		finalizeError(ctx, h, placeholder.ID, model, upErr)
+		writeSSEError(w, flusher, "upstream_status", upErr)
+		return
+	}
+
+	var (
+		accumulator          strings.Builder
+		finishReason         string
+		tokensIn, tokensOut  int
+	)
+	scanner := bufio.NewScanner(body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		if data == "[DONE]" {
+			break
+		}
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			writeSSERaw(w, flusher, "raw", data)
+			continue
+		}
+		for _, ch := range event.Choices {
+			if ch.Delta.Content != "" {
+				accumulator.WriteString(ch.Delta.Content)
+				writeSSE(w, flusher, "token", map[string]any{"content": ch.Delta.Content})
+			}
+			if ch.FinishReason != "" {
+				finishReason = ch.FinishReason
+			}
+		}
+		if event.Usage.PromptTokens > 0 {
+			tokensIn = event.Usage.PromptTokens
+		}
+		if event.Usage.CompletionTokens > 0 {
+			tokensOut = event.Usage.CompletionTokens
+		}
+	}
+
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("chats stream scanner", "err", err)
+	}
+
+	final := accumulator.String()
+	cleanContent, reasoning := ExtractThinking(final)
+	extras := &MessageExtras{
+		Model:        model,
+		Reasoning:    reasoning,
+		TokensIn:     tokensIn,
+		TokensOut:    tokensOut,
+		LatencyMs:    int(time.Since(started).Milliseconds()),
+		FinishReason: finishReason,
+	}
+	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
+		slog.Error("update placeholder", "err", err, "id", placeholder.ID)
+	}
+	writeSSE(w, flusher, "done", map[string]any{
+		"id":            placeholder.ID,
+		"content":       cleanContent,
+		"reasoning":     reasoning,
+		"tokens_in":     tokensIn,
+		"tokens_out":    tokensOut,
+		"latency_ms":    extras.LatencyMs,
+		"finish_reason": finishReason,
+	})
+}
+
 // streamChat runs the full send-and-stream cycle for one user turn:
 //
 //  1. Save the user message.
@@ -200,21 +382,28 @@ func (h *Handler) streamChat(
 	}
 
 	// 8. Persist final content + metadata.
+	// Split <think>...</think> reasoning blocks from user-visible content so
+	// the UI can render them collapsibly. If the model didn't emit any, the
+	// content is unchanged and reasoning is empty.
 	final := accumulator.String()
+	cleanContent, reasoning := ExtractThinking(final)
+
 	extras := &MessageExtras{
 		Model:        model,
+		Reasoning:    reasoning,
 		TokensIn:     tokensIn,
 		TokensOut:    tokensOut,
 		LatencyMs:    int(time.Since(started).Milliseconds()),
 		FinishReason: finishReason,
 	}
-	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, final, extras); err != nil {
+	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
 		slog.Error("update placeholder", "err", err, "id", placeholder.ID)
 	}
 
 	writeSSE(w, flusher, "done", map[string]any{
 		"id":            placeholder.ID,
-		"content":       final,
+		"content":       cleanContent,
+		"reasoning":     reasoning,
 		"tokens_in":     tokensIn,
 		"tokens_out":    tokensOut,
 		"latency_ms":    extras.LatencyMs,

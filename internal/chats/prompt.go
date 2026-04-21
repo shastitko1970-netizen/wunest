@@ -141,7 +141,67 @@ var (
 	macroRandom = regexp.MustCompile(`\{\{random::([^}]*)\}\}`)
 	macroPick   = regexp.MustCompile(`\{\{pick::([^}]*)\}\}`)
 	macroRoll   = regexp.MustCompile(`\{\{roll::([^}]*)\}\}`)
+
+	// thinkBlock matches OpenAI o1 / Claude thinking / DeepSeek-R1 style
+	// reasoning blocks. Dotall-ish via (?s). Captures are greedy within
+	// a single <think>…</think> pair but non-greedy across multiple pairs.
+	thinkBlock = regexp.MustCompile(`(?s)<think>(.*?)</think>`)
 )
+
+// ExtractThinking separates <think>...</think> blocks from visible content.
+// Returns (cleanContent, concatenatedReasoning).
+//
+// Handles multiple blocks (concatenated with a newline), unbalanced open tag
+// (unclosed <think>... through end of text → reasoning), and empty input.
+// Surrounding whitespace from removed blocks is collapsed to one newline.
+func ExtractThinking(raw string) (content, reasoning string) {
+	if raw == "" {
+		return "", ""
+	}
+
+	// Collect all <think>...</think> payloads in order, then strip them.
+	matches := thinkBlock.FindAllStringSubmatchIndex(raw, -1)
+	if len(matches) > 0 {
+		var reasons []string
+		var b strings.Builder
+		prev := 0
+		for _, m := range matches {
+			// m[0]:m[1] is the whole <think>...</think>, m[2]:m[3] is the inner.
+			b.WriteString(raw[prev:m[0]])
+			reasons = append(reasons, strings.TrimSpace(raw[m[2]:m[3]]))
+			prev = m[1]
+		}
+		b.WriteString(raw[prev:])
+		content = collapseGaps(b.String())
+		reasoning = strings.Join(reasons, "\n\n")
+	} else {
+		content = raw
+	}
+
+	// Handle unclosed <think> that extends to end-of-text (happens with
+	// truncated streams or models that forget the closing tag).
+	if open := strings.Index(content, "<think>"); open >= 0 {
+		unclosed := strings.TrimSpace(content[open+len("<think>"):])
+		if unclosed != "" {
+			if reasoning != "" {
+				reasoning += "\n\n"
+			}
+			reasoning += unclosed
+		}
+		content = strings.TrimSpace(content[:open])
+	}
+
+	return content, reasoning
+}
+
+// collapseGaps replaces runs of 3+ newlines (which happen after stripping a
+// block surrounded by blank lines) with just two newlines. Cosmetic only.
+func collapseGaps(s string) string {
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(s)
+}
 
 func expandRandom(match string) string {
 	// Strip "{{random::" or "{{pick::" prefix and "}}" suffix.

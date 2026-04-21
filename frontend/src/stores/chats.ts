@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { chatsApi, sendMessageStream, type Chat, type Message, type SendMessageInput } from '@/api/chats'
+import {
+  chatsApi,
+  regenerateStream,
+  sendMessageStream,
+  type Chat,
+  type Message,
+  type SendMessageInput,
+  type StreamEvent,
+} from '@/api/chats'
 
 // The chats store is intentionally simple:
 //   - A flat list of chats (sidebar).
@@ -84,10 +92,6 @@ export const useChatsStore = defineStore('chats', () => {
   async function send(input: SendMessageInput) {
     if (!currentId.value || streaming.value) return
 
-    streaming.value = true
-    streamError.value = null
-    streamAbort = new AbortController()
-
     // Optimistic: append a temporary user row that'll be swapped for the
     // persisted one once the `user_message` event arrives.
     const optimistic: Message = {
@@ -100,15 +104,51 @@ export const useChatsStore = defineStore('chats', () => {
     }
     messages.value = [...messages.value, optimistic]
 
-    let assistantId: number | null = null
+    await runStream(
+      () => sendMessageStream(currentId.value!, input, streamAbort!.signal),
+      optimistic,
+    )
+  }
 
+  /** Drop the last assistant reply and stream a fresh one. */
+  async function regenerate(input: Partial<SendMessageInput> = {}) {
+    if (!currentId.value || streaming.value) return
+
+    // Remove the last assistant message locally so the UI reflects the
+    // pending regen before the stream even starts. Server does the DB delete.
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i]!.role === 'assistant') {
+        messages.value.splice(i, 1)
+        break
+      }
+    }
+
+    await runStream(
+      () => regenerateStream(currentId.value!, input, streamAbort!.signal),
+      null,
+    )
+  }
+
+  // runStream is the shared driver for the generator-based SSE flows
+  // (send + regenerate). Centralises the streaming state lifecycle.
+  async function runStream(
+    gen: () => AsyncGenerator<StreamEvent, void, unknown>,
+    optimistic: Message | null,
+  ) {
+    streaming.value = true
+    streamError.value = null
+    streamAbort = new AbortController()
+
+    let assistantId: number | null = null
     try {
-      for await (const ev of sendMessageStream(currentId.value, input, streamAbort.signal)) {
+      for await (const ev of gen()) {
         switch (ev.event) {
           case 'user_message': {
-            // Replace optimistic row by id match on position.
-            const idx = messages.value.indexOf(optimistic)
-            if (idx >= 0) messages.value.splice(idx, 1, ev.data)
+            // Replace optimistic user row with persisted one (send only).
+            if (optimistic) {
+              const idx = messages.value.indexOf(optimistic)
+              if (idx >= 0) messages.value.splice(idx, 1, ev.data)
+            }
             break
           }
           case 'assistant_start': {
@@ -139,6 +179,7 @@ export const useChatsStore = defineStore('chats', () => {
               row.content = ev.data.content
               row.extras = {
                 ...(row.extras ?? {}),
+                reasoning: ev.data.reasoning,
                 tokens_in: ev.data.tokens_in,
                 tokens_out: ev.data.tokens_out,
                 latency_ms: ev.data.latency_ms,
@@ -167,11 +208,28 @@ export const useChatsStore = defineStore('chats', () => {
     if (streamAbort) streamAbort.abort()
   }
 
+  /** Edit a message's content in place (no re-stream). */
+  async function editMessage(message: Message, newContent: string) {
+    if (!currentId.value) return
+    await chatsApi.editMessage(currentId.value, message.id, newContent)
+    const row = messages.value.find(m => m.id === message.id)
+    if (row) row.content = newContent
+  }
+
+  /** Delete one message from the current chat. */
+  async function deleteMessage(message: Message) {
+    if (!currentId.value) return
+    await chatsApi.deleteMessage(currentId.value, message.id)
+    messages.value = messages.value.filter(m => m.id !== message.id)
+  }
+
   return {
     list, listLoading, listError,
     currentId, currentChat, messages, messagesLoading,
     streaming, streamError,
     currentCharacterId,
-    fetchList, open, createForCharacter, remove, rename, send, stopStreaming,
+    fetchList, open, createForCharacter, remove, rename,
+    send, regenerate, stopStreaming,
+    editMessage, deleteMessage,
   }
 })

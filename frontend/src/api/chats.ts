@@ -63,6 +63,12 @@ export const chatsApi = {
   listMessages: (chatID: string) =>
     apiFetch<{ items: Message[] }>(`/api/chats/${chatID}/messages`),
 
+  editMessage: (chatID: string, messageID: number, content: string) =>
+    apiFetch<void>(`/api/chats/${chatID}/messages/${messageID}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    }),
+
   deleteMessage: (chatID: string, messageID: number) =>
     apiFetch<void>(`/api/chats/${chatID}/messages/${messageID}`, {
       method: 'DELETE',
@@ -79,6 +85,7 @@ export type StreamEvent =
   | { event: 'done'; data: {
         id: number
         content: string
+        reasoning?: string
         tokens_in: number
         tokens_out: number
         latency_ms: number
@@ -107,11 +114,28 @@ export async function* sendMessageStream(
   input: SendMessageInput,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
-  const res = await fetch(`/api/chats/${chatID}/messages`, {
+  yield* streamSSE(`/api/chats/${chatID}/messages`, input, signal)
+}
+
+/** Regenerate — drops the last assistant message, re-streams a reply. */
+export async function* regenerateStream(
+  chatID: string,
+  input: Partial<SendMessageInput> = {},
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent, void, unknown> {
+  yield* streamSSE(`/api/chats/${chatID}/regenerate`, input, signal)
+}
+
+async function* streamSSE(
+  url: string,
+  body: unknown,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent, void, unknown> {
+  const res = await fetch(url, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
     signal,
   })
 

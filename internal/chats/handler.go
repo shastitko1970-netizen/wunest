@@ -31,8 +31,10 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
+	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
 	mux.Handle("POST /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.sendMessage)))
+	mux.Handle("PATCH /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.editMessage)))
 	mux.Handle("DELETE /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.deleteMessage)))
 }
 
@@ -283,6 +285,104 @@ func (h *Handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// editMessageRequest is the JSON body for PATCH /messages/:mid.
+type editMessageRequest struct {
+	Content string `json:"content"`
+}
+
+// editMessage patches the content of a user OR assistant message in place.
+// Does NOT touch swipes or extras; use for typo corrections / manual rewrites.
+// For re-generating an assistant turn use POST /regenerate.
+func (h *Handler) editMessage(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	var mid int64
+	if _, err := fmt.Sscan(r.PathValue("mid"), &mid); err != nil || mid <= 0 {
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, chatID); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	var req editMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.EditMessageContent(r.Context(), chatID, mid, req.Content); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// regenerate drops the most recent assistant message and streams a fresh
+// completion for the same conversation state. Body accepts an optional
+// `model` / `temperature` / `max_tokens` override. Response is SSE in the
+// same shape as POST /messages.
+//
+// V1 semantics: one assistant reply is visible at a time. When swipes
+// land (future), this will append a new swipe to an existing placeholder
+// instead of deleting it.
+func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.Users.Resolve(r.Context(), session.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.Repo.GetChat(r.Context(), user.ID, chatID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	var in SendMessageInput
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = json.NewDecoder(r.Body).Decode(&in)
+	}
+
+	// Drop the latest assistant message so streamChatRegen builds the
+	// prompt from the preceding user turn.
+	if last, err := h.Repo.LastAssistantMessage(r.Context(), chatID); err == nil {
+		if err := h.Repo.DeleteMessage(r.Context(), chatID, last.ID); err != nil {
+			slog.Warn("regenerate: delete last assistant failed", "err", err, "id", last.ID)
+		}
+	}
+
+	apiKey := session.WuApi.APIKey
+	if apiKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	userName := session.WuApi.FirstName
+	if userName == "" {
+		userName = session.WuApi.Username
+	}
+
+	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, "", in)
 }
 
 // --- helpers ---

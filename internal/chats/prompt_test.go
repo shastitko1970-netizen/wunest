@@ -97,6 +97,60 @@ func TestBuild_ComposesSystemAndHistory(t *testing.T) {
 	}
 }
 
+func TestExtractThinking_SingleBlock(t *testing.T) {
+	in := "<think>let me think about this carefully</think>Hello, world!"
+	content, reasoning := ExtractThinking(in)
+	if content != "Hello, world!" {
+		t.Errorf("content = %q, want 'Hello, world!'", content)
+	}
+	if reasoning != "let me think about this carefully" {
+		t.Errorf("reasoning = %q", reasoning)
+	}
+}
+
+func TestExtractThinking_MultipleBlocks(t *testing.T) {
+	in := "<think>first thought</think>Hi <think>second thought</think>there."
+	content, reasoning := ExtractThinking(in)
+	if !strings.Contains(content, "Hi") || !strings.Contains(content, "there") {
+		t.Errorf("content missing fragments: %q", content)
+	}
+	if !strings.Contains(reasoning, "first") || !strings.Contains(reasoning, "second") {
+		t.Errorf("reasoning missing fragments: %q", reasoning)
+	}
+}
+
+func TestExtractThinking_NoBlocks(t *testing.T) {
+	content, reasoning := ExtractThinking("Just a plain reply.")
+	if content != "Just a plain reply." {
+		t.Errorf("content = %q", content)
+	}
+	if reasoning != "" {
+		t.Errorf("reasoning should be empty, got %q", reasoning)
+	}
+}
+
+func TestExtractThinking_UnclosedTag(t *testing.T) {
+	in := "<think>stream was truncated here"
+	content, reasoning := ExtractThinking(in)
+	if content != "" {
+		t.Errorf("content should be empty for unclosed tag, got %q", content)
+	}
+	if !strings.Contains(reasoning, "truncated") {
+		t.Errorf("reasoning = %q", reasoning)
+	}
+}
+
+func TestExtractThinking_MultilineBlock(t *testing.T) {
+	in := "<think>step 1: foo\nstep 2: bar\nstep 3: baz</think>\nFinal answer."
+	content, reasoning := ExtractThinking(in)
+	if content != "Final answer." {
+		t.Errorf("content = %q", content)
+	}
+	if !strings.Contains(reasoning, "step 1") || !strings.Contains(reasoning, "step 3") {
+		t.Errorf("reasoning missing steps: %q", reasoning)
+	}
+}
+
 func TestBuild_EmptyHistory(t *testing.T) {
 	in := PromptInput{
 		Character: &characters.Character{

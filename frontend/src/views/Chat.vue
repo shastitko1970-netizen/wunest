@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
+import { useModelsStore } from '@/stores/models'
+import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import MessageInput from '@/components/MessageInput.vue'
@@ -12,8 +14,10 @@ const route = useRoute()
 const router = useRouter()
 const chats = useChatsStore()
 const auth = useAuthStore()
+const models = useModelsStore()
 const { currentChat, messages, messagesLoading, streaming, streamError } = storeToRefs(chats)
 const { profile } = storeToRefs(auth)
+const { selected: selectedModel } = storeToRefs(models)
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
@@ -48,8 +52,37 @@ async function send() {
   const text = draft.value.trim()
   if (!text) return
   draft.value = ''
-  await chats.send({ content: text })
+  await chats.send({ content: text, model: selectedModel.value })
 }
+
+async function regenerate(_m: Message) {
+  await chats.regenerate({ model: selectedModel.value })
+}
+
+async function onEditMessage(m: Message, newContent: string) {
+  try {
+    await chats.editMessage(m, newContent)
+  } catch (e) {
+    console.error('edit failed', e)
+  }
+}
+
+async function onDeleteMessage(m: Message) {
+  try {
+    await chats.deleteMessage(m)
+  } catch (e) {
+    console.error('delete failed', e)
+  }
+}
+
+// Only the most recent assistant message can be regenerated in V1.
+const lastAssistantId = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const m = messages.value[i]
+    if (m && m.role === 'assistant') return m.id
+  }
+  return null
+})
 </script>
 
 <template>
@@ -110,6 +143,10 @@ async function send() {
                 :character-name="characterName"
                 :user-name="userName"
                 :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
+                :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
+                @regenerate="regenerate"
+                @edit="onEditMessage"
+                @delete="onDeleteMessage"
               />
             </template>
             <v-alert
