@@ -164,3 +164,97 @@ func TestBuild_EmptyHistory(t *testing.T) {
 		t.Errorf("expected single system message, got %+v", msgs)
 	}
 }
+
+// ── Author's Note (M11) ─────────────────────────────────────────────
+
+// Depth 0 → note lands at the very end (right before the next model reply).
+func TestBuild_AuthorsNote_DepthZero(t *testing.T) {
+	in := PromptInput{
+		Character: &characters.Character{
+			Name: "A", Data: characters.CharacterData{Name: "A", Description: "x"},
+		},
+		UserName: "U",
+		History: []Message{
+			{Role: RoleUser, Content: "Hi"},
+			{Role: RoleAssistant, Content: "Hello"},
+		},
+		AuthorsNote: &AuthorsNote{Content: "Remember: rain falls.", Depth: 0, Role: "system"},
+	}
+	msgs := Build(in)
+	if got := msgs[len(msgs)-1]; got.Role != "system" || got.Content != "Remember: rain falls." {
+		t.Fatalf("note should be last at depth=0, got %+v", msgs)
+	}
+}
+
+// Depth 1 → note lands before the last message.
+func TestBuild_AuthorsNote_DepthOne(t *testing.T) {
+	in := PromptInput{
+		Character: &characters.Character{
+			Name: "A", Data: characters.CharacterData{Name: "A", Description: "x"},
+		},
+		UserName: "U",
+		History: []Message{
+			{Role: RoleUser, Content: "Hi"},
+			{Role: RoleAssistant, Content: "Hello"},
+		},
+		AuthorsNote: &AuthorsNote{Content: "Note.", Depth: 1, Role: "system"},
+	}
+	msgs := Build(in)
+	// Expected: [system, user, note, assistant]
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages, got %d: %+v", len(msgs), msgs)
+	}
+	if msgs[2].Content != "Note." {
+		t.Fatalf("note not at depth=1: %+v", msgs)
+	}
+}
+
+// Massive depth clamps after the system prompt — never inserted before it.
+func TestBuild_AuthorsNote_DepthClampsAfterSystem(t *testing.T) {
+	in := PromptInput{
+		Character: &characters.Character{
+			Name: "A", Data: characters.CharacterData{Name: "A", Description: "x"},
+		},
+		UserName:    "U",
+		History:     []Message{{Role: RoleUser, Content: "Hi"}},
+		AuthorsNote: &AuthorsNote{Content: "Big.", Depth: 99},
+	}
+	msgs := Build(in)
+	if msgs[0].Role != "system" {
+		t.Fatalf("system must stay at index 0, got %+v", msgs)
+	}
+	if msgs[1].Content != "Big." {
+		t.Fatalf("note must land at index 1 (right after system): %+v", msgs)
+	}
+}
+
+// Empty note is a no-op.
+func TestBuild_AuthorsNote_EmptyIgnored(t *testing.T) {
+	in := PromptInput{
+		Character:   &characters.Character{Name: "A", Data: characters.CharacterData{Name: "A"}},
+		UserName:    "U",
+		History:     []Message{{Role: RoleUser, Content: "Hi"}},
+		AuthorsNote: &AuthorsNote{Content: "   ", Depth: 0},
+	}
+	msgs := Build(in)
+	for _, m := range msgs {
+		if m.Content == "   " {
+			t.Fatalf("whitespace note leaked into prompt: %+v", msgs)
+		}
+	}
+}
+
+// Role override — user/assistant instead of default system.
+func TestBuild_AuthorsNote_RoleOverride(t *testing.T) {
+	in := PromptInput{
+		Character:   &characters.Character{Name: "A", Data: characters.CharacterData{Name: "A"}},
+		UserName:    "U",
+		History:     []Message{{Role: RoleUser, Content: "Hi"}},
+		AuthorsNote: &AuthorsNote{Content: "Hi from narrator.", Depth: 0, Role: "assistant"},
+	}
+	msgs := Build(in)
+	last := msgs[len(msgs)-1]
+	if last.Role != "assistant" {
+		t.Fatalf("expected assistant role override, got %+v", last)
+	}
+}
