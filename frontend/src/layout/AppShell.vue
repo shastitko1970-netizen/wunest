@@ -16,10 +16,10 @@ const { profile: accountProfile } = storeToRefs(account)
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
 
-// Viewport detection via raw matchMedia — previously we relied on Vuetify's
-// useDisplay() but it was returning stale/incorrect values for some users,
-// leaving the persistent sidebar unmounted on real desktops. matchMedia is
-// a browser primitive; if it's wrong, nothing downstream can fix it.
+// Viewport detection via raw matchMedia. The previous v-navigation-drawer
+// permanent-mode wasn't rendering reliably across setups, so on desktop we
+// put nav directly in the topbar and drop the sidebar altogether. Mobile
+// keeps the classic burger → overlay drawer; that path is battle-tested.
 const isDesktop = ref(typeof window !== 'undefined'
   ? window.matchMedia('(min-width: 960px)').matches
   : true)
@@ -33,8 +33,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => mql?.removeEventListener('change', handleMQ))
 
-// Mobile-only overlay state. On desktop the drawer is `permanent` and this
-// v-model is ignored, so we keep it false to avoid an overlay flash.
+// Mobile overlay drawer state; hidden entirely on desktop.
 const drawerOpen = ref(false)
 
 // Topbar pulls from the account store because that view has the fullest
@@ -46,7 +45,14 @@ onMounted(() => {
 
 const displayProfile = computed(() => accountProfile.value ?? profile.value)
 
-const navItems = computed(() => [
+interface NavItem {
+  to: string
+  icon: string
+  label: string
+  disabled?: boolean
+}
+
+const navItems = computed<NavItem[]>(() => [
   { to: '/chat', icon: 'mdi-forum-outline', label: t('nav.chat') },
   { to: '/library', icon: 'mdi-bookshelf', label: t('nav.library') },
   { to: '/presets', icon: 'mdi-tune-variant', label: t('nav.presets') },
@@ -55,11 +61,23 @@ const navItems = computed(() => [
   { to: '/studio', icon: 'mdi-wrench-outline', label: t('nav.studio'), disabled: true },
 ])
 
+// Subset of navItems shown directly in the topbar on desktop. We keep
+// Account/Settings out of this strip because they live under the avatar
+// menu — fewer items = more room for the core three (Chat/Library/Presets).
+const topbarNav = computed<NavItem[]>(() =>
+  navItems.value.filter(i => ['/chat', '/library', '/presets'].includes(i.to)),
+)
+
 const goldDisplay = computed(() =>
   displayProfile.value
     ? ((displayProfile.value as any).gold_balance_nano / 1_000_000_000).toFixed(2)
     : '—',
 )
+
+function isNavActive(to: string): boolean {
+  if (to === '/chat') return route.path === '/chat' || route.path.startsWith('/chat/')
+  return route.path === to || route.path.startsWith(to + '/')
+}
 
 // ─── Theme toggle ───────────────────────────────────────────
 const isDark = computed(() => vTheme.global.name.value === 'nestDark')
@@ -94,15 +112,32 @@ const localeLabel = (code: string) => {
       class="nest-topbar px-2"
       height="56"
     >
+      <!-- Mobile burger: opens the overlay drawer. -->
       <v-app-bar-nav-icon
         v-if="!isDesktop"
         variant="text"
         @click="drawerOpen = !drawerOpen"
       />
-      <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/')">
+
+      <!-- Logo → /chat -->
+      <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/chat')">
         <div class="nest-logo-mark">▲</div>
         <div class="nest-logo-text">WuNest</div>
       </div>
+
+      <!-- Desktop nav strip — between logo and right-side controls. -->
+      <nav v-if="isDesktop" class="nest-topnav">
+        <button
+          v-for="item in topbarNav"
+          :key="item.to"
+          class="nest-topnav-item"
+          :class="{ active: isNavActive(item.to) }"
+          @click="router.push(item.to)"
+        >
+          <v-icon size="18" class="mr-1">{{ item.icon }}</v-icon>
+          {{ item.label }}
+        </button>
+      </nav>
 
       <v-spacer />
 
@@ -127,7 +162,7 @@ const localeLabel = (code: string) => {
         </v-chip>
       </template>
 
-      <!-- Theme toggle: sun/moon flip depending on current mode. -->
+      <!-- Theme toggle. -->
       <v-btn
         :icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'"
         variant="text"
@@ -136,8 +171,7 @@ const localeLabel = (code: string) => {
         @click="toggleTheme"
       />
 
-      <!-- Language picker: shows the current locale as a label, opens a
-           menu of supported locales. Much clearer than a plain icon. -->
+      <!-- Language picker. -->
       <v-menu location="bottom end" offset="4">
         <template #activator="{ props: menuProps }">
           <v-btn
@@ -162,8 +196,8 @@ const localeLabel = (code: string) => {
         </v-list>
       </v-menu>
 
-      <!-- Avatar / account menu -->
-      <v-menu v-if="displayProfile">
+      <!-- Avatar / account menu — holds Settings + Account + external link. -->
+      <v-menu v-if="displayProfile" location="bottom end" offset="4">
         <template #activator="{ props: menuProps }">
           <v-btn icon v-bind="menuProps" size="small" variant="text">
             <v-avatar size="32" color="primary">
@@ -173,7 +207,7 @@ const localeLabel = (code: string) => {
             </v-avatar>
           </v-btn>
         </template>
-        <v-list density="compact">
+        <v-list density="compact" min-width="220">
           <v-list-item
             :title="(displayProfile as any).first_name || (displayProfile as any).username"
             :subtitle="(displayProfile as any).tier"
@@ -185,6 +219,11 @@ const localeLabel = (code: string) => {
             @click="router.push('/account')"
           />
           <v-list-item
+            :title="t('nav.settings')"
+            prepend-icon="mdi-cog-outline"
+            @click="router.push('/settings')"
+          />
+          <v-list-item
             :title="t('nav.manageAccount')"
             prepend-icon="mdi-open-in-new"
             href="https://wusphere.ru/dashboard"
@@ -194,12 +233,13 @@ const localeLabel = (code: string) => {
       </v-menu>
     </v-app-bar>
 
-    <!-- Sidebar nav -->
+    <!-- Mobile-only overlay drawer. Not rendered on desktop at all so there's
+         nothing to "get stuck hidden" in that layout. -->
     <v-navigation-drawer
+      v-if="!isDesktop"
       v-model="drawerOpen"
-      :permanent="isDesktop"
-      :temporary="!isDesktop"
-      width="240"
+      temporary
+      width="260"
       class="nest-sidebar"
       :elevation="0"
     >
@@ -211,9 +251,10 @@ const localeLabel = (code: string) => {
           :prepend-icon="item.icon"
           :title="item.label"
           :disabled="item.disabled"
-          :active="route.path.startsWith(item.to)"
+          :active="isNavActive(item.to)"
           rounded="lg"
           class="mb-1"
+          @click="drawerOpen = false"
         />
       </v-list>
       <template #append>
@@ -266,6 +307,39 @@ const localeLabel = (code: string) => {
   color: var(--nest-text);
 }
 
+// Desktop topbar navigation — three primary destinations as pill buttons
+// aligned horizontally after the logo. Lives in the app-bar itself, so
+// there's no dependence on v-navigation-drawer for desktop layouts.
+.nest-topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 24px;
+  height: 100%;
+}
+.nest-topnav-item {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--nest-radius-sm);
+  font-family: var(--nest-font-body);
+  font-size: 13.5px;
+  color: var(--nest-text-secondary);
+  cursor: pointer;
+  transition: background var(--nest-transition-fast), color var(--nest-transition-fast);
+
+  &:hover {
+    background: var(--nest-bg-elevated);
+    color: var(--nest-text);
+  }
+  &.active {
+    color: var(--nest-text);
+    background: var(--nest-bg-elevated);
+    box-shadow: inset 0 -2px 0 var(--nest-accent);
+  }
+}
+
 .nest-sidebar {
   background: var(--nest-bg-elevated) !important;
   border-right: 1px solid var(--nest-border) !important;
@@ -296,5 +370,14 @@ const localeLabel = (code: string) => {
 .nest-fade-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+// Hide the in-bar nav earlier than 960px, since chips take a lot of space
+// between 960-1100. They collapse into the avatar menu item on mobile.
+@media (max-width: 1100px) {
+  .nest-topnav-item {
+    padding: 6px 8px;
+    font-size: 12.5px;
+  }
 }
 </style>
