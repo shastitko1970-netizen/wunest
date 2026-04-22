@@ -63,10 +63,11 @@ func (h *Handler) streamChatRegen(
 
 	// Inline the pipeline: prompt → placeholder → upstream → pipe.
 	promptMsgs := Build(PromptInput{
-		Character: ch,
-		History:   history,
-		UserName:  userName,
-		UserDesc:  personaDesc,
+		Character:            ch,
+		History:              history,
+		UserName:             userName,
+		UserDesc:             personaDesc,
+		SystemPromptOverride: in.SystemPromptOverride,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
@@ -98,11 +99,14 @@ func (h *Handler) pipeStream(
 	started := time.Now()
 
 	req := wuapi.ChatCompletionRequest{
-		Model:       model,
-		Messages:    up,
-		Temperature: in.Temperature,
-		MaxTokens:   in.MaxTokens,
-		Extra:       in.Overrides,
+		Model:            model,
+		Messages:         up,
+		Temperature:      in.Temperature,
+		TopP:             in.TopP,
+		MaxTokens:        in.MaxTokens,
+		FrequencyPenalty: in.FrequencyPenalty,
+		PresencePenalty:  in.PresencePenalty,
+		Extra:            in.Overrides,
 	}
 
 	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
@@ -263,10 +267,11 @@ func (h *Handler) streamChat(
 
 	// 4. Build prompt.
 	promptMsgs := Build(PromptInput{
-		Character: ch,
-		History:   history,
-		UserName:  userName,
-		UserDesc:  personaDesc,
+		Character:            ch,
+		History:              history,
+		UserName:             userName,
+		UserDesc:             personaDesc,
+		SystemPromptOverride: in.SystemPromptOverride,
 	})
 
 	// Convert to the loose map[string]any that wuapi expects.
@@ -284,11 +289,14 @@ func (h *Handler) streamChat(
 	}
 
 	req := wuapi.ChatCompletionRequest{
-		Model:       model,
-		Messages:    up,
-		Temperature: in.Temperature,
-		MaxTokens:   in.MaxTokens,
-		Extra:       in.Overrides,
+		Model:            model,
+		Messages:         up,
+		Temperature:      in.Temperature,
+		TopP:             in.TopP,
+		MaxTokens:        in.MaxTokens,
+		FrequencyPenalty: in.FrequencyPenalty,
+		PresencePenalty:  in.PresencePenalty,
+		Extra:            in.Overrides,
 	}
 
 	// 5. Insert empty assistant placeholder with the model chosen.

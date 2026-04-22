@@ -10,10 +10,24 @@ export interface Chat {
   character_id?: string | null
   character_name?: string
   name: string
-  chat_metadata?: Record<string, unknown>
+  chat_metadata?: {
+    sampler?: ChatSamplerMetadata
+    [key: string]: unknown
+  }
   created_at: string
   updated_at: string
   last_message_at?: string
+}
+
+/** Mirror of Go's internal/chats/types.go ChatSamplerMetadata. */
+export interface ChatSamplerMetadata {
+  temperature?: number | null
+  top_p?: number | null
+  max_tokens?: number | null
+  frequency_penalty?: number | null
+  presence_penalty?: number | null
+  system_prompt?: string | null
+  preset_id?: string | null
 }
 
 export interface Message {
@@ -55,6 +69,12 @@ export const chatsApi = {
     apiFetch<void>(`/api/chats/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
+    }),
+
+  setSampler: (id: string, sampler: ChatSamplerMetadata) =>
+    apiFetch<void>(`/api/chats/${id}/sampler`, {
+      method: 'PUT',
+      body: JSON.stringify(sampler),
     }),
 
   delete: (id: string) =>

@@ -12,12 +12,14 @@ import (
 // ChatCompletionRequest is the subset of the OpenAI-compatible payload that
 // WuApi accepts. Additional fields survive via Extra (preserved verbatim).
 type ChatCompletionRequest struct {
-	Model       string           `json:"model"`
-	Messages    []map[string]any `json:"messages"`
-	Temperature *float64         `json:"temperature,omitempty"`
-	MaxTokens   *int             `json:"max_tokens,omitempty"`
-	Stream      bool             `json:"stream"`
-	TopP        *float64         `json:"top_p,omitempty"`
+	Model            string           `json:"model"`
+	Messages         []map[string]any `json:"messages"`
+	Temperature      *float64         `json:"temperature,omitempty"`
+	TopP             *float64         `json:"top_p,omitempty"`
+	MaxTokens        *int             `json:"max_tokens,omitempty"`
+	FrequencyPenalty *float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float64         `json:"presence_penalty,omitempty"`
+	Stream           bool             `json:"stream"`
 	// Extra holds unknown/user-supplied fields so the caller can pass through
 	// model-specific knobs (tool_choice, response_format, etc.) without this
 	// struct growing every release.

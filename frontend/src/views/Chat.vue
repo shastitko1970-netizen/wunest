@@ -10,6 +10,7 @@ import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import MessageInput from '@/components/MessageInput.vue'
+import GenerationSettings from '@/components/GenerationSettings.vue'
 
 const { t } = useI18n()
 
@@ -24,6 +25,7 @@ const { selected: selectedModel } = storeToRefs(models)
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
+const settingsOpen = ref(false)
 
 onMounted(async () => {
   await chats.fetchList()
@@ -123,6 +125,15 @@ const lastAssistantId = computed(() => {
               {{ t('chat.with', { name: characterName }) }}
             </div>
           </div>
+          <div class="nest-chat-tools">
+            <v-btn
+              variant="text"
+              size="small"
+              :title="t('chat.sampler.title')"
+              icon="mdi-tune-variant"
+              @click="settingsOpen = true"
+            />
+          </div>
         </header>
 
         <!-- Scrollable messages -->
@@ -173,6 +184,9 @@ const lastAssistantId = computed(() => {
         </div>
       </template>
     </section>
+
+    <!-- Generation settings drawer — lazily mounts sampler form. -->
+    <GenerationSettings v-model="settingsOpen" />
   </div>
 </template>
 
@@ -216,6 +230,11 @@ const lastAssistantId = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.nest-chat-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .nest-chat-name {
   font-family: var(--nest-font-display);

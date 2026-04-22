@@ -14,6 +14,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/chats"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
+	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
@@ -34,6 +35,7 @@ type Server struct {
 	users      *users.Resolver
 	characters *characters.Handler
 	chats      *chats.Handler
+	presets    *presets.Handler
 }
 
 func New(deps Deps) *Server {
@@ -48,6 +50,10 @@ func New(deps Deps) *Server {
 			Users:      resolver,
 			Characters: charRepo,
 			WuApi:      deps.WuApi,
+		},
+		presets: &presets.Handler{
+			Repo:  presets.NewRepository(deps.Postgres),
+			Users: resolver,
 		},
 	}
 }
@@ -71,6 +77,7 @@ func (s *Server) Router() http.Handler {
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
 	s.chats.Register(mux, authRequired)
+	s.presets.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))

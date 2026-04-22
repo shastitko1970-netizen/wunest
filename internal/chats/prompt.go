@@ -19,10 +19,11 @@ type ChatMessage struct {
 
 // PromptInput bundles everything needed to assemble the outbound messages[].
 type PromptInput struct {
-	Character     *characters.Character // may be nil for character-less chats
-	History       []Message             // chronological, hidden already filtered
-	UserName      string                // persona or WuApi first_name fallback
-	UserDesc      string                // persona description, may be empty
+	Character            *characters.Character // may be nil for character-less chats
+	History              []Message             // chronological, hidden already filtered
+	UserName             string                // persona or WuApi first_name fallback
+	UserDesc             string                // persona description, may be empty
+	SystemPromptOverride string                // if non-empty, replaces the character-derived system message entirely
 }
 
 // Build returns the OpenAI-compatible messages[] to send to WuApi.
@@ -44,7 +45,15 @@ type PromptInput struct {
 func Build(in PromptInput) []ChatMessage {
 	out := make([]ChatMessage, 0, len(in.History)+1)
 
-	if sys := buildSystem(in); sys != "" {
+	// SystemPromptOverride wins over everything else. Comes from the chat's
+	// sampler preset, for when a user wants to wipe the character's default
+	// system message (e.g. strict-style or stripped-down prompts).
+	if override := strings.TrimSpace(in.SystemPromptOverride); override != "" {
+		out = append(out, ChatMessage{
+			Role:    "system",
+			Content: SubstituteMacros(override, in),
+		})
+	} else if sys := buildSystem(in); sys != "" {
 		out = append(out, ChatMessage{Role: "system", Content: sys})
 	}
 

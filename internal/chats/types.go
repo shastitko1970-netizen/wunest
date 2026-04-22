@@ -76,13 +76,36 @@ type CreateChatInput struct {
 
 // SendMessageInput is the body accepted by POST /api/chats/:id/messages.
 //
-// When `Model` is empty the handler picks a sensible default (see handler.go).
-// `BYOK` is reserved for a future bring-your-own-key path.
+// When Model is empty the handler picks a sensible default (see handler.go).
+// Sampler fields are optional per-request overrides that take precedence
+// over chat_metadata.sampler. `SystemPromptOverride` is NOT accepted from
+// the client body (it's computed server-side from chat_metadata.sampler)
+// — the `-` json tag keeps it out of the wire format.
 type SendMessageInput struct {
-	Content     string         `json:"content"`
-	Model       string         `json:"model,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	PersonaID   *uuid.UUID     `json:"persona_id,omitempty"`
-	Overrides   map[string]any `json:"overrides,omitempty"`
+	Content              string         `json:"content"`
+	Model                string         `json:"model,omitempty"`
+	Temperature          *float64       `json:"temperature,omitempty"`
+	TopP                 *float64       `json:"top_p,omitempty"`
+	MaxTokens            *int           `json:"max_tokens,omitempty"`
+	FrequencyPenalty     *float64       `json:"frequency_penalty,omitempty"`
+	PresencePenalty      *float64       `json:"presence_penalty,omitempty"`
+	PersonaID            *uuid.UUID     `json:"persona_id,omitempty"`
+	Overrides            map[string]any `json:"overrides,omitempty"`
+	SystemPromptOverride string         `json:"-"`
+}
+
+// ChatSamplerMetadata is the shape of chat_metadata.sampler. Stored as
+// JSONB; the chat handler hydrates it before each generation and uses
+// its values as defaults (overridable by per-request SendMessageInput).
+type ChatSamplerMetadata struct {
+	Temperature          *float64 `json:"temperature,omitempty"`
+	TopP                 *float64 `json:"top_p,omitempty"`
+	MaxTokens            *int     `json:"max_tokens,omitempty"`
+	FrequencyPenalty     *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty      *float64 `json:"presence_penalty,omitempty"`
+	SystemPromptOverride string   `json:"system_prompt,omitempty"`
+	// PresetID is informational — identifies the template that was most
+	// recently applied. Not a foreign key (the preset may be deleted or
+	// edited after; we copy values at apply-time).
+	PresetID *uuid.UUID `json:"preset_id,omitempty"`
 }

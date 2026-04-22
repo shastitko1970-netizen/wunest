@@ -30,6 +30,7 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("POST /api/chats", authRequired(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
+	mux.Handle("PUT /api/chats/{id}/sampler", authRequired(http.HandlerFunc(h.setSampler)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
 	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
@@ -139,6 +140,32 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 
 type renameRequest struct {
 	Name string `json:"name"`
+}
+
+// setSampler overwrites chat_metadata.sampler. Body is ChatSamplerMetadata
+// JSON; nil fields mean "unset, fall back to server default at generation
+// time". Response is 204 No Content on success.
+func (h *Handler) setSampler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req ChatSamplerMetadata
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetSampler(r.Context(), user.ID, id, req); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
@@ -256,8 +283,47 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		userName = session.WuApi.Username
 	}
 
+	// Apply chat_metadata.sampler as the baseline; explicit fields in the
+	// request body override (common pattern: drawer sliders set chat
+	// defaults once, per-turn overrides are rare).
+	in = applyChatSampler(in, readSampler(chat.Metadata))
+
 	// Stream.
 	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, "", in)
+}
+
+// applyChatSampler merges ChatSamplerMetadata defaults into SendMessageInput
+// fields that were left unset by the caller. Explicit in.X wins if set.
+func applyChatSampler(in SendMessageInput, s ChatSamplerMetadata) SendMessageInput {
+	if in.Temperature == nil && s.Temperature != nil {
+		in.Temperature = s.Temperature
+	}
+	if in.TopP == nil && s.TopP != nil {
+		in.TopP = s.TopP
+	}
+	if in.MaxTokens == nil && s.MaxTokens != nil {
+		in.MaxTokens = s.MaxTokens
+	}
+	if in.FrequencyPenalty == nil && s.FrequencyPenalty != nil {
+		in.FrequencyPenalty = s.FrequencyPenalty
+	}
+	if in.PresencePenalty == nil && s.PresencePenalty != nil {
+		in.PresencePenalty = s.PresencePenalty
+	}
+	if in.SystemPromptOverride == "" && s.SystemPromptOverride != "" {
+		in.SystemPromptOverride = s.SystemPromptOverride
+	}
+	return in
+}
+
+// readSamplerFromChat surfaces the chat's stored sampler metadata so
+// streamChat/regen can consult it for the system-prompt override. Named
+// distinctly from readSampler (the repo helper) just to avoid a cycle.
+func readSamplerFromChat(c *Chat) ChatSamplerMetadata {
+	if c == nil {
+		return ChatSamplerMetadata{}
+	}
+	return readSampler(c.Metadata)
 }
 
 func (h *Handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
@@ -381,6 +447,10 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	if userName == "" {
 		userName = session.WuApi.Username
 	}
+
+	// Same sampler merge as sendMessage so a regenerate honours the same
+	// drawer-saved defaults.
+	in = applyChatSampler(in, readSamplerFromChat(chat))
 
 	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, "", in)
 }

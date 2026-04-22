@@ -131,6 +131,46 @@ func (r *Repository) RenameChat(ctx context.Context, userID, id uuid.UUID, name 
 	return nil
 }
 
+// SetSampler merges sampler settings into a chat's chat_metadata JSONB
+// without touching any other metadata fields. Uses jsonb_set so sibling
+// keys (world info state, author's note, etc.) survive untouched.
+func (r *Repository) SetSampler(ctx context.Context, userID, id uuid.UUID, sampler ChatSamplerMetadata) error {
+	samplerJSON, err := json.Marshal(sampler)
+	if err != nil {
+		return fmt.Errorf("marshal sampler: %w", err)
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{sampler}', $3::jsonb, true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, string(samplerJSON))
+	if err != nil {
+		return fmt.Errorf("set sampler: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// readSampler extracts chat_metadata.sampler if present. Returns a zero
+// value (no fields set) when missing/invalid — callers treat that as
+// "use server defaults".
+func readSampler(raw json.RawMessage) ChatSamplerMetadata {
+	if len(raw) == 0 {
+		return ChatSamplerMetadata{}
+	}
+	var envelope struct {
+		Sampler ChatSamplerMetadata `json:"sampler"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return ChatSamplerMetadata{}
+	}
+	return envelope.Sampler
+}
+
 func (r *Repository) DeleteChat(ctx context.Context, userID, id uuid.UUID) error {
 	const q = `DELETE FROM nest_chats WHERE user_id = $1 AND id = $2`
 	tag, err := r.pg.Exec(ctx, q, userID, id)

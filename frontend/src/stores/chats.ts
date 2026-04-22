@@ -5,6 +5,7 @@ import {
   regenerateStream,
   sendMessageStream,
   type Chat,
+  type ChatSamplerMetadata,
   type Message,
   type SendMessageInput,
   type StreamEvent,
@@ -208,6 +209,18 @@ export const useChatsStore = defineStore('chats', () => {
     if (streamAbort) streamAbort.abort()
   }
 
+  /** Persist sampler settings into the current chat's chat_metadata. */
+  async function setSampler(sampler: ChatSamplerMetadata) {
+    if (!currentId.value) return
+    await chatsApi.setSampler(currentId.value, sampler)
+    if (currentChat.value) {
+      currentChat.value.chat_metadata = {
+        ...(currentChat.value.chat_metadata ?? {}),
+        sampler,
+      }
+    }
+  }
+
   /** Edit a message's content in place (no re-stream). */
   async function editMessage(message: Message, newContent: string) {
     if (!currentId.value) return
@@ -231,5 +244,6 @@ export const useChatsStore = defineStore('chats', () => {
     fetchList, open, createForCharacter, remove, rename,
     send, regenerate, stopStreaming,
     editMessage, deleteMessage,
+    setSampler,
   }
 })
