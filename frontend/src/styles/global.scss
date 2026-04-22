@@ -81,10 +81,14 @@
 }
 
 // ── Base elements ────────────────────────────────────
+// Using `min-height` not `height` so long pages (Settings, Library panels,
+// Account transactions) can overflow and scroll the document. Chat is
+// immune — it uses position:fixed to pin itself to viewport edges
+// independently of document height.
 html, body, #app {
   margin: 0;
   padding: 0;
-  height: 100%;
+  min-height: 100%;
   font-family: var(--nest-font-body);
   background: var(--nest-bg);
   color: var(--nest-text);
