@@ -15,6 +15,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
@@ -31,6 +32,7 @@ type Handler struct {
 	Presets    *presets.Repository
 	Worlds     *worldinfo.Repository
 	Personas   *personas.Repository
+	BYOK       *byok.Repository
 	WuApi      *wuapi.Client
 }
 
@@ -42,6 +44,7 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("PUT /api/chats/{id}/sampler", authRequired(http.HandlerFunc(h.setSampler)))
 	mux.Handle("PUT /api/chats/{id}/persona", authRequired(http.HandlerFunc(h.setPersona)))
 	mux.Handle("PUT /api/chats/{id}/authors-note", authRequired(http.HandlerFunc(h.setAuthorsNote)))
+	mux.Handle("PUT /api/chats/{id}/byok", authRequired(http.HandlerFunc(h.setBYOK)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
 	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
@@ -283,6 +286,40 @@ func (h *Handler) setAuthorsNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// setBYOK writes or clears chat_metadata.byok_id. Body: {"byok_id": "uuid" | null}.
+// When set, the chat's stream path uses the referenced BYOK key for upstream
+// calls instead of the user's WuApi key. Ownership on the BYOK key is
+// validated via Repo.Reveal at send time — this endpoint only checks chat
+// ownership to keep the write cheap.
+func (h *Handler) setBYOK(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		BYOKID *uuid.UUID `json:"byok_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	target := uuid.Nil
+	if req.BYOKID != nil {
+		target = *req.BYOKID
+	}
+	if err := h.Repo.SetBYOK(r.Context(), user.ID, id, target); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
@@ -387,7 +424,7 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey := session.WuApi.APIKey
+	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
 	if apiKey == "" {
 		http.Error(w, "no api key available", http.StatusPreconditionFailed)
 		return
@@ -404,6 +441,30 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Stream.
 	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
+}
+
+// resolveAPIKey picks the upstream auth key for a chat turn. Order:
+//
+//  1. chat_metadata.byok_id present AND repo can decrypt it → BYOK plaintext.
+//  2. Otherwise → the user's session WuApi key.
+//
+// When a BYOK reveal fails (deleted row, bad nonce, rotated SECRETS_KEY)
+// we log and fall back to the WuApi key silently — an opaque auth error
+// from the upstream is less confusing for the user than a silent 502.
+func (h *Handler) resolveAPIKey(ctx context.Context, userID uuid.UUID, metadata []byte, wuapiKey string) string {
+	if h.BYOK == nil {
+		return wuapiKey
+	}
+	byokID := readBYOKID(metadata)
+	if byokID == uuid.Nil {
+		return wuapiKey
+	}
+	plain, err := h.BYOK.Reveal(ctx, userID, byokID)
+	if err != nil {
+		slog.Warn("byok: reveal failed, falling back to wuapi key", "err", err, "byok_id", byokID)
+		return wuapiKey
+	}
+	return plain
 }
 
 // applyUserDefaults populates SendMessageInput fields from per-user settings
@@ -947,7 +1008,7 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey := session.WuApi.APIKey
+	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
 	if apiKey == "" {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return
@@ -1047,7 +1108,7 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	apiKey := session.WuApi.APIKey
+	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
 	if apiKey == "" {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return

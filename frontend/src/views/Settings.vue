@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import AppearancePanel from '@/components/AppearancePanel.vue'
+import BYOKPanel from '@/components/BYOKPanel.vue'
 import { useModelsStore } from '@/stores/models'
 import { apiFetch } from '@/api/client'
 
@@ -125,11 +126,7 @@ async function saveDefaultModel(v: string) {
     </section>
 
     <section class="nest-section">
-      <h2 class="nest-h2">{{ t('settings.byok.title') }}</h2>
-      <p class="nest-subtitle">{{ t('settings.byok.tagline') }}</p>
-      <v-alert type="info" variant="tonal" density="compact" class="mt-3">
-        {{ t('settings.byok.coming') }}
-      </v-alert>
+      <BYOKPanel />
     </section>
   </v-container>
 </template>

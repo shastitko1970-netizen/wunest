@@ -262,6 +262,63 @@ func readAuthorsNote(raw json.RawMessage) *AuthorsNote {
 	return envelope.AuthorsNote
 }
 
+// SetBYOK writes or clears chat_metadata.byok_id. uuid.Nil clears the key;
+// otherwise the chat's stream path will use the corresponding BYOK key
+// instead of the user's WuApi key. Ownership check stays with the handler.
+func (r *Repository) SetBYOK(ctx context.Context, userID, id, byokID uuid.UUID) error {
+	if byokID == uuid.Nil {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'byok_id',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear byok_id: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{byok_id}', to_jsonb($3::text), true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, byokID.String())
+	if err != nil {
+		return fmt.Errorf("set byok_id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// readBYOKID extracts chat_metadata.byok_id, or uuid.Nil when missing.
+func readBYOKID(raw json.RawMessage) uuid.UUID {
+	if len(raw) == 0 {
+		return uuid.Nil
+	}
+	var env struct {
+		BYOKID string `json:"byok_id"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return uuid.Nil
+	}
+	if env.BYOKID == "" {
+		return uuid.Nil
+	}
+	id, err := uuid.Parse(env.BYOKID)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
+}
+
 // readPersonaID extracts chat_metadata.persona_id if present. Returns uuid.Nil
 // when missing/invalid so callers can treat "no override" uniformly.
 func readPersonaID(raw json.RawMessage) uuid.UUID {

@@ -13,6 +13,7 @@ export interface Chat {
   chat_metadata?: {
     sampler?: ChatSamplerMetadata
     persona_id?: string | null
+    byok_id?: string | null
     authors_note?: AuthorsNote | null
     [key: string]: unknown
   }

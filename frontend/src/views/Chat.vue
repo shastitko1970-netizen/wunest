@@ -12,6 +12,7 @@ import MessageBubble from '@/components/MessageBubble.vue'
 import MessageInput from '@/components/MessageInput.vue'
 import GenerationSettings from '@/components/GenerationSettings.vue'
 import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
+import BYOKPickerDialog from '@/components/BYOKPickerDialog.vue'
 import { usePersonasStore } from '@/stores/personas'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
 import { chatsApi } from '@/api/chats'
@@ -31,6 +32,15 @@ const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const settingsOpen = ref(false)
 const personaPickerOpen = ref(false)
+const byokPickerOpen = ref(false)
+
+// Tiny derived flag: chat has a BYOK pin in its metadata. Used to tint
+// the header icon so at a glance the user knows a personal key is in
+// flight for this chat.
+const hasBYOKPin = computed(() => {
+  const id = currentChat.value?.chat_metadata?.byok_id
+  return typeof id === 'string' && id.length > 0
+})
 
 const personas = usePersonasStore()
 onMounted(() => personas.fetchAll())
@@ -193,6 +203,14 @@ const lastAssistantId = computed(() => {
             <v-btn
               variant="text"
               size="small"
+              :color="hasBYOKPin ? 'primary' : undefined"
+              :title="t('byok.picker.title')"
+              icon="mdi-key-variant"
+              @click="byokPickerOpen = true"
+            />
+            <v-btn
+              variant="text"
+              size="small"
               :title="t('chat.export.btn')"
               icon="mdi-download-outline"
               @click="exportCurrentChat"
@@ -264,6 +282,12 @@ const lastAssistantId = computed(() => {
     <!-- Persona picker for the current chat. -->
     <PersonaPickerDialog
       v-model="personaPickerOpen"
+      :chat="currentChat ?? null"
+    />
+
+    <!-- BYOK picker — per-chat override for the upstream provider key. -->
+    <BYOKPickerDialog
+      v-model="byokPickerOpen"
       :chat="currentChat ?? null"
     />
   </div>

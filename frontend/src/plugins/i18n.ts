@@ -50,10 +50,40 @@ const messages = {
         serverFallback: '— серверный дефолт —',
         saved: 'сохранено ✓',
       },
-      byok: {
-        title: 'BYOK (свои ключи провайдеров)',
-        tagline: 'Используй свои собственные API-ключи вместо тех, что даёт WuApi. Полезно если у тебя уже оплачен OpenAI / Claude.',
-        coming: 'Управление BYOK появится в следующей итерации.',
+    },
+    byok: {
+      eyebrow: 'BYOK',
+      title: 'Свои ключи провайдеров',
+      tagline: 'Используй собственные API-ключи вместо тех, что даёт WuApi. Полезно если у тебя уже оплачен OpenAI / Claude. Ключ шифруется на сервере (AES-GCM) и никогда не возвращается клиенту.',
+      add: 'Добавить ключ',
+      empty: 'Пока ни одного ключа. Добавь первый — потом пришпилишь к любому чату.',
+      unnamed: 'Без метки',
+      addDialog: {
+        title: 'Новый ключ провайдера',
+        safety: 'Ключ шифруется AES-GCM мастер-ключом сервера и хранится только в зашифрованном виде. В списке показывается маска вида «sk-…6411». Расшифровка происходит только в момент запроса к провайдеру.',
+      },
+      form: {
+        provider: 'Провайдер',
+        label: 'Метка',
+        labelHint: 'опционально',
+        labelPlaceholder: 'Например: личный Anthropic',
+        key: 'API-ключ',
+        keyPlaceholder: 'sk-...',
+        save: 'Сохранить ключ',
+      },
+      errors: {
+        keyRequired: 'Поле ключа обязательно',
+      },
+      delete: {
+        title: 'Удалить ключ?',
+        body: 'Ключ будет удалён без возможности восстановления. Чаты, где он пришпилен, откатятся на ключ из WuApi.',
+      },
+      picker: {
+        title: 'Ключ для этого чата',
+        hint: 'Запросы пойдут через выбранный ключ напрямую к провайдеру. Счёт тарифицируется у провайдера, WuApi только пропускает трафик.',
+        useDefault: 'Использовать ключ WuApi',
+        useDefaultHint: 'По умолчанию — счёт идёт в wu-gold по твоему тарифу.',
+        emptyHint: 'Нет ни одного BYOK-ключа. Добавь в Настройках → BYOK.',
       },
     },
     appearance: {
@@ -554,10 +584,40 @@ const messages = {
         serverFallback: '— server default —',
         saved: 'saved ✓',
       },
-      byok: {
-        title: 'BYOK (bring your own keys)',
-        tagline: 'Use your own provider API keys instead of WuApi. Useful if you already have an OpenAI or Claude plan.',
-        coming: 'BYOK management is coming in a next iteration.',
+    },
+    byok: {
+      eyebrow: 'BYOK',
+      title: 'Bring your own provider keys',
+      tagline: 'Use your own provider API keys instead of WuApi. Useful if you already have an OpenAI or Claude plan. Keys are encrypted on the server (AES-GCM) and never round-trip back to the client.',
+      add: 'Add key',
+      empty: 'No keys yet. Add one — then pin it to any chat.',
+      unnamed: 'Unnamed',
+      addDialog: {
+        title: 'New provider key',
+        safety: 'The key is encrypted with the server\'s AES-GCM master key and stored only as ciphertext. The list shows a masked preview like "sk-…6411". Decryption happens only at call time, for the upstream provider.',
+      },
+      form: {
+        provider: 'Provider',
+        label: 'Label',
+        labelHint: 'optional',
+        labelPlaceholder: 'e.g. personal Anthropic',
+        key: 'API key',
+        keyPlaceholder: 'sk-...',
+        save: 'Save key',
+      },
+      errors: {
+        keyRequired: 'Key is required',
+      },
+      delete: {
+        title: 'Delete key?',
+        body: 'This cannot be undone. Chats pinned to it fall back to the WuApi key.',
+      },
+      picker: {
+        title: 'Key for this chat',
+        hint: 'Requests will use the selected key directly against the provider. Billing happens on the provider side; WuApi just proxies.',
+        useDefault: 'Use the WuApi key',
+        useDefaultHint: 'Default — billed in wu-gold on your plan.',
+        emptyHint: 'No BYOK keys yet. Add one in Settings → BYOK.',
       },
     },
     appearance: {

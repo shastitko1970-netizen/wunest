@@ -15,6 +15,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/chats"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
+	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/library"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
@@ -43,6 +44,8 @@ type Server struct {
 	library    *library.Handler
 	worlds     *worldinfo.Handler
 	personas   *personas.Handler
+	byok       *byok.Handler
+	byokRepo   *byok.Repository // stream hot path calls Reveal directly
 }
 
 func New(deps Deps) *Server {
@@ -51,6 +54,14 @@ func New(deps Deps) *Server {
 	presetRepo := presets.NewRepository(deps.Postgres)
 	worldsRepo := worldinfo.NewRepository(deps.Postgres)
 	personasRepo := personas.NewRepository(deps.Postgres)
+	// BYOK repo refuses to init with a wrong-sized key — makes a
+	// mis-configured deploy die at startup rather than silently writing
+	// unreadable rows.
+	byokRepo, err := byok.NewRepository(deps.Postgres, deps.Config.SecretsKey)
+	if err != nil {
+		deps.Logger.Error("byok: failed to init repo; keys will be unavailable", "err", err)
+		byokRepo = nil
+	}
 	// Adapter fulfils characters.BookExtractor by creating a Lorebook via
 	// worldinfo.Repository and attaching it to the new character. Lives
 	// here instead of inside characters/ to keep that package free of a
@@ -67,6 +78,7 @@ func New(deps Deps) *Server {
 			Presets:    presetRepo,
 			Worlds:     worldsRepo,
 			Personas:   personasRepo,
+			BYOK:       byokRepo, // may be nil if init failed; resolveAPIKey handles that
 			WuApi:      deps.WuApi,
 		},
 		presets: &presets.Handler{
@@ -88,6 +100,11 @@ func New(deps Deps) *Server {
 			Repo:  personasRepo,
 			Users: resolver,
 		},
+		byok: &byok.Handler{
+			Repo:  byokRepo,
+			Users: resolver,
+		},
+		byokRepo: byokRepo,
 	}
 }
 
@@ -120,6 +137,9 @@ func (s *Server) Router() http.Handler {
 	s.library.Register(mux, authRequired)
 	s.worlds.Register(mux, authRequired)
 	s.personas.Register(mux, authRequired)
+	if s.byok != nil && s.byok.Repo != nil {
+		s.byok.Register(mux, authRequired)
+	}
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
