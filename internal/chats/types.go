@@ -98,6 +98,9 @@ type SendMessageInput struct {
 	PersonaID            *uuid.UUID     `json:"persona_id,omitempty"`
 	Overrides            map[string]any `json:"overrides,omitempty"`
 	SystemPromptOverride string         `json:"-"`
+	// Server-populated from chat_metadata.authors_note right before the
+	// prompt is built; not accepted from the wire body.
+	AuthorsNote *AuthorsNote `json:"-"`
 }
 
 // ChatSamplerMetadata is the shape of chat_metadata.sampler. Stored as

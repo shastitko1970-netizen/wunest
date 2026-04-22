@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
@@ -39,6 +41,7 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
 	mux.Handle("PUT /api/chats/{id}/sampler", authRequired(http.HandlerFunc(h.setSampler)))
 	mux.Handle("PUT /api/chats/{id}/persona", authRequired(http.HandlerFunc(h.setPersona)))
+	mux.Handle("PUT /api/chats/{id}/authors-note", authRequired(http.HandlerFunc(h.setAuthorsNote)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
 	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
@@ -235,6 +238,48 @@ func (h *Handler) setPersona(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// setAuthorsNote writes (or clears) chat_metadata.authors_note. Body is the
+// AuthorsNote JSON; an explicit null clears the key.
+func (h *Handler) setAuthorsNote(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	// Accept either a plain object (set) or `null` (clear). We test the raw
+	// body because json.Decoder's defaults would turn null into an empty
+	// struct, which is indistinguishable from a legitimate empty note.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	var note *AuthorsNote
+	if trimmed := strings.TrimSpace(string(body)); trimmed != "" && trimmed != "null" {
+		var n AuthorsNote
+		if err := json.Unmarshal(body, &n); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		// Empty content also clears — nothing to inject.
+		if strings.TrimSpace(n.Content) == "" {
+			note = nil
+		} else {
+			note = &n
+		}
+	}
+	if err := h.Repo.SetAuthorsNote(r.Context(), user.ID, id, note); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
@@ -351,6 +396,7 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	// request body override (common pattern: drawer sliders set chat
 	// defaults once, per-turn overrides are rare).
 	in = applyChatSampler(in, readSampler(chat.Metadata))
+	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 
 	// Stream.
 	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
@@ -610,6 +656,7 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 	in = applyChatSampler(in, readSamplerFromChat(chat))
+	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 
 	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, apiKey, userName, userDesc, mid, newSwipeID, in)
 }
@@ -706,6 +753,7 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	// Same sampler merge as sendMessage so a regenerate honours the same
 	// drawer-saved defaults.
 	in = applyChatSampler(in, readSamplerFromChat(chat))
+	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 
 	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
 }

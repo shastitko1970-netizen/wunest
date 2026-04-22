@@ -13,11 +13,20 @@ export interface Chat {
   chat_metadata?: {
     sampler?: ChatSamplerMetadata
     persona_id?: string | null
+    authors_note?: AuthorsNote | null
     [key: string]: unknown
   }
   created_at: string
   updated_at: string
   last_message_at?: string
+}
+
+/** Author's Note — prose block injected at `depth` from history's end.
+ *  Mirrors SillyTavern's semantics; `role` defaults to "system". */
+export interface AuthorsNote {
+  content: string
+  depth: number
+  role?: 'system' | 'user' | 'assistant'
 }
 
 /** Mirror of Go's internal/chats/types.go ChatSamplerMetadata. */
@@ -82,6 +91,13 @@ export const chatsApi = {
     apiFetch<void>(`/api/chats/${id}/sampler`, {
       method: 'PUT',
       body: JSON.stringify(sampler),
+    }),
+
+  /** Set or clear the chat's Author's Note. Pass null to clear. */
+  setAuthorsNote: (id: string, note: AuthorsNote | null) =>
+    apiFetch<void>(`/api/chats/${id}/authors-note`, {
+      method: 'PUT',
+      body: JSON.stringify(note),
     }),
 
   delete: (id: string) =>

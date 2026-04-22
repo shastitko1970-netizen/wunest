@@ -74,6 +74,7 @@ func (h *Handler) streamChatRegen(
 		UserDesc:             personaDesc,
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
+		AuthorsNote:          in.AuthorsNote,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
@@ -287,6 +288,7 @@ func (h *Handler) streamChat(
 		UserDesc:             personaDesc,
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
+		AuthorsNote:          in.AuthorsNote,
 	})
 
 	// Convert to the loose map[string]any that wuapi expects.
@@ -588,6 +590,7 @@ func (h *Handler) streamChatSwipe(
 		UserDesc:             personaDesc,
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
+		AuthorsNote:          in.AuthorsNote,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {

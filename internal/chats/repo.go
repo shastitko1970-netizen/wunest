@@ -210,6 +210,60 @@ func (r *Repository) SetPersona(ctx context.Context, userID, id uuid.UUID, perso
 	return nil
 }
 
+// SetAuthorsNote writes or clears chat_metadata.authors_note. Pass nil to
+// remove the key entirely. Sibling metadata (sampler, persona_id) stays put.
+func (r *Repository) SetAuthorsNote(ctx context.Context, userID, id uuid.UUID, note *AuthorsNote) error {
+	if note == nil {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'authors_note',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear authors_note: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+	noteJSON, err := json.Marshal(note)
+	if err != nil {
+		return fmt.Errorf("marshal authors_note: %w", err)
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{authors_note}', $3::jsonb, true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, noteJSON)
+	if err != nil {
+		return fmt.Errorf("set authors_note: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// readAuthorsNote extracts chat_metadata.authors_note or nil. The pointer
+// shape lets callers distinguish "unset" from "explicitly empty".
+func readAuthorsNote(raw json.RawMessage) *AuthorsNote {
+	if len(raw) == 0 {
+		return nil
+	}
+	var envelope struct {
+		AuthorsNote *AuthorsNote `json:"authors_note"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil
+	}
+	return envelope.AuthorsNote
+}
+
 // readPersonaID extracts chat_metadata.persona_id if present. Returns uuid.Nil
 // when missing/invalid so callers can treat "no override" uniformly.
 func readPersonaID(raw json.RawMessage) uuid.UUID {

@@ -26,6 +26,17 @@ type PromptInput struct {
 	UserDesc             string                // persona description, may be empty
 	SystemPromptOverride string                // if non-empty, replaces the character-derived system message entirely
 	Worlds               []*worldinfo.World    // lorebooks attached to this chat/character
+	AuthorsNote          *AuthorsNote          // optional mid-history injection
+}
+
+// AuthorsNote is a block of prose injected into the prompt at a specific
+// `Depth` from the end of history. Depth 0 = after the last message (so
+// right before the model's next reply). Depth 1 = before the last message.
+// Mirrors SillyTavern's semantics. Role defaults to "system" when empty.
+type AuthorsNote struct {
+	Content string `json:"content"`
+	Depth   int    `json:"depth"`
+	Role    string `json:"role,omitempty"` // "system" | "user" | "assistant"
 }
 
 // Build returns the OpenAI-compatible messages[] to send to WuApi.
@@ -71,6 +82,35 @@ func Build(in PromptInput) []ChatMessage {
 			Role:    string(m.Role),
 			Content: content,
 		})
+	}
+
+	// Author's Note — inject at `Depth` positions from the end. Depth 0 means
+	// append after the last turn; depth 1 means "one turn back"; depth ≥ len
+	// clamps to right after the initial system message. We splice rather than
+	// prepend so the injection is actually mid-history, matching ST's model.
+	if in.AuthorsNote != nil && strings.TrimSpace(in.AuthorsNote.Content) != "" {
+		role := in.AuthorsNote.Role
+		if role == "" {
+			role = "system"
+		}
+		note := ChatMessage{
+			Role:    role,
+			Content: SubstituteMacros(in.AuthorsNote.Content, in),
+		}
+		// Insert position is counted from the END of the messages slice. With
+		// a leading system turn, guarantee the note lands at or after index 1
+		// (never before the sys prompt). Clamp to [0, len(out)].
+		insertAt := len(out) - in.AuthorsNote.Depth
+		if insertAt < 0 {
+			insertAt = 0
+		}
+		if insertAt > len(out) {
+			insertAt = len(out)
+		}
+		if len(out) > 0 && out[0].Role == "system" && insertAt < 1 {
+			insertAt = 1
+		}
+		out = append(out[:insertAt], append([]ChatMessage{note}, out[insertAt:]...)...)
 	}
 
 	return out

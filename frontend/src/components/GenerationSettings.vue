@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useChatsStore } from '@/stores/chats'
 import { usePresetsStore } from '@/stores/presets'
-import type { ChatSamplerMetadata } from '@/api/chats'
+import type { AuthorsNote, ChatSamplerMetadata } from '@/api/chats'
 import type { Preset, SamplerData } from '@/api/presets'
 
 // Drawer that edits chat_metadata.sampler (per-chat) with preset
@@ -63,6 +63,13 @@ const saving = ref(false)
 const savedHint = ref(false)
 const showAdvanced = ref(false)
 
+// Author's Note is sibling to the sampler — same drawer because users
+// tweak both at the same moment. State is its own since it doesn't
+// round-trip through a preset.
+const note = ref<AuthorsNote>({ content: '', depth: 4, role: 'system' })
+const noteSaving = ref(false)
+const noteSavedHint = ref(false)
+
 // Save-as dialog state
 const saveAsOpen = ref(false)
 const saveAsName = ref('')
@@ -80,27 +87,33 @@ watch(
 )
 
 function hydrateFromChat() {
-  const s = chats.currentChat?.chat_metadata?.sampler
+  const meta = chats.currentChat?.chat_metadata
+  const s = meta?.sampler
   if (!s) {
     form.value = defaultForm()
     selectedPresetId.value = null
-    return
+  } else {
+    form.value = {
+      temperature: s.temperature ?? 1.0,
+      top_p: s.top_p ?? 1.0,
+      top_k: s.top_k ?? null,
+      min_p: s.min_p ?? null,
+      max_tokens: s.max_tokens ?? null,
+      frequency_penalty: s.frequency_penalty ?? null,
+      presence_penalty: s.presence_penalty ?? null,
+      repetition_penalty: s.repetition_penalty ?? null,
+      seed: s.seed ?? null,
+      stop: s.stop ? [...s.stop] : [],
+      reasoning_enabled: s.reasoning_enabled ?? null,
+      system_prompt: s.system_prompt ?? '',
+    }
+    selectedPresetId.value = s.preset_id ?? null
   }
-  form.value = {
-    temperature: s.temperature ?? 1.0,
-    top_p: s.top_p ?? 1.0,
-    top_k: s.top_k ?? null,
-    min_p: s.min_p ?? null,
-    max_tokens: s.max_tokens ?? null,
-    frequency_penalty: s.frequency_penalty ?? null,
-    presence_penalty: s.presence_penalty ?? null,
-    repetition_penalty: s.repetition_penalty ?? null,
-    seed: s.seed ?? null,
-    stop: s.stop ? [...s.stop] : [],
-    reasoning_enabled: s.reasoning_enabled ?? null,
-    system_prompt: s.system_prompt ?? '',
-  }
-  selectedPresetId.value = s.preset_id ?? null
+  // Author's Note hydrates independently from chat_metadata.authors_note.
+  const an = meta?.authors_note
+  note.value = an
+    ? { content: an.content, depth: an.depth ?? 4, role: an.role ?? 'system' }
+    : { content: '', depth: 4, role: 'system' }
 }
 
 function applyPreset(id: string | null) {
@@ -154,6 +167,26 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function saveNote() {
+  if (!chats.currentChat) return
+  noteSaving.value = true
+  noteSavedHint.value = false
+  try {
+    const content = note.value.content.trim()
+    await chats.setAuthorsNote(content ? { ...note.value, content } : null)
+    noteSavedHint.value = true
+    setTimeout(() => (noteSavedHint.value = false), 1500)
+  } finally {
+    noteSaving.value = false
+  }
+}
+
+async function clearNote() {
+  if (!chats.currentChat) return
+  note.value = { content: '', depth: 4, role: 'system' }
+  await chats.setAuthorsNote(null)
 }
 
 function reset() {
@@ -341,6 +374,64 @@ function close() {
           rows="4" auto-grow hide-details density="compact"
         />
         <div class="nest-field-hint">{{ t('chat.sampler.systemPromptHint') }}</div>
+      </div>
+
+      <!-- Author's Note — mid-history injection -->
+      <div class="nest-authors-note">
+        <div class="nest-field">
+          <label class="nest-field-label">
+            {{ t('chat.authorsNote.label') }}
+            <span v-if="noteSavedHint" class="nest-mono nest-saving-hint">
+              {{ t('chat.authorsNote.saved') }}
+            </span>
+          </label>
+          <v-textarea
+            v-model="note.content"
+            :placeholder="t('chat.authorsNote.placeholder')"
+            rows="3" auto-grow hide-details density="compact"
+          />
+          <div class="nest-field-hint">{{ t('chat.authorsNote.hint') }}</div>
+        </div>
+        <div class="nest-field-row">
+          <div class="nest-field nest-field-half">
+            <label class="nest-field-label">
+              {{ t('chat.authorsNote.depth') }}
+              <span class="nest-mono nest-field-hint-inline">
+                {{ t('chat.authorsNote.depthHint') }}
+              </span>
+            </label>
+            <v-text-field
+              v-model.number="note.depth"
+              type="number" :min="0" :max="20"
+              hide-details density="compact"
+            />
+          </div>
+          <div class="nest-field nest-field-half">
+            <label class="nest-field-label">{{ t('chat.authorsNote.role') }}</label>
+            <v-select
+              v-model="note.role"
+              :items="[
+                { value: 'system', title: t('chat.authorsNote.roleSystem') },
+                { value: 'user', title: t('chat.authorsNote.roleUser') },
+                { value: 'assistant', title: t('chat.authorsNote.roleAssistant') },
+              ]"
+              density="compact" hide-details
+            />
+          </div>
+        </div>
+        <div class="d-flex ga-2 justify-end">
+          <v-btn size="small" variant="text" @click="clearNote">
+            {{ t('chat.authorsNote.clear') }}
+          </v-btn>
+          <v-btn
+            size="small" color="primary" variant="flat"
+            :loading="noteSaving"
+            prepend-icon="mdi-content-save"
+            @click="saveNote"
+          >
+            {{ t('common.save') }}
+          </v-btn>
+        </div>
       </div>
 
       <!-- Advanced — collapsed by default -->
@@ -593,5 +684,20 @@ function close() {
 .nest-saveas {
   background: var(--nest-surface) !important;
   border: 1px solid var(--nest-border);
+}
+
+.nest-authors-note {
+  padding: 12px;
+  border: 1px dashed var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  background: var(--nest-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nest-saving-hint {
+  font-size: 10.5px;
+  color: var(--nest-green);
+  letter-spacing: 0.05em;
 }
 </style>

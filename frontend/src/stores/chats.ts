@@ -5,6 +5,7 @@ import {
   regenerateStream,
   sendMessageStream,
   swipeMessageStream,
+  type AuthorsNote,
   type Chat,
   type ChatSamplerMetadata,
   type Message,
@@ -276,6 +277,18 @@ export const useChatsStore = defineStore('chats', () => {
     }
   }
 
+  /** Persist (or clear) Author's Note on the current chat. */
+  async function setAuthorsNote(note: AuthorsNote | null) {
+    if (!currentId.value) return
+    await chatsApi.setAuthorsNote(currentId.value, note)
+    if (currentChat.value) {
+      currentChat.value.chat_metadata = {
+        ...(currentChat.value.chat_metadata ?? {}),
+        authors_note: note,
+      }
+    }
+  }
+
   /** Edit a message's content in place (no re-stream). */
   async function editMessage(message: Message, newContent: string) {
     if (!currentId.value) return
@@ -299,6 +312,6 @@ export const useChatsStore = defineStore('chats', () => {
     fetchList, open, createForCharacter, remove, rename,
     send, regenerate, swipe, selectSwipe, stopStreaming,
     editMessage, deleteMessage,
-    setSampler,
+    setSampler, setAuthorsNote,
   }
 })
