@@ -11,18 +11,27 @@ import (
 
 // ChatCompletionRequest is the subset of the OpenAI-compatible payload that
 // WuApi accepts. Additional fields survive via Extra (preserved verbatim).
+//
+// Field choice: we expose everything the OpenAI / Anthropic / DeepSeek /
+// OpenRouter interfaces accept. Providers that don't know a field (e.g.
+// vanilla OpenAI has no top_k) just ignore it. WuApi itself is permissive.
 type ChatCompletionRequest struct {
-	Model            string           `json:"model"`
-	Messages         []map[string]any `json:"messages"`
-	Temperature      *float64         `json:"temperature,omitempty"`
-	TopP             *float64         `json:"top_p,omitempty"`
-	MaxTokens        *int             `json:"max_tokens,omitempty"`
-	FrequencyPenalty *float64         `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float64         `json:"presence_penalty,omitempty"`
-	Stream           bool             `json:"stream"`
+	Model             string           `json:"model"`
+	Messages          []map[string]any `json:"messages"`
+	Temperature       *float64         `json:"temperature,omitempty"`
+	TopP              *float64         `json:"top_p,omitempty"`
+	TopK              *int             `json:"top_k,omitempty"`
+	MinP              *float64         `json:"min_p,omitempty"`
+	MaxTokens         *int             `json:"max_tokens,omitempty"`
+	FrequencyPenalty  *float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty   *float64         `json:"presence_penalty,omitempty"`
+	RepetitionPenalty *float64         `json:"repetition_penalty,omitempty"`
+	Seed              *int             `json:"seed,omitempty"`
+	Stop              []string         `json:"stop,omitempty"`
+	Stream            bool             `json:"stream"`
 	// Extra holds unknown/user-supplied fields so the caller can pass through
-	// model-specific knobs (tool_choice, response_format, etc.) without this
-	// struct growing every release.
+	// model-specific knobs (tool_choice, response_format, reasoning_effort,
+	// thinking, etc.) without this struct growing every release.
 	Extra map[string]any `json:"-"`
 }
 

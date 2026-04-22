@@ -86,9 +86,15 @@ type SendMessageInput struct {
 	Model                string         `json:"model,omitempty"`
 	Temperature          *float64       `json:"temperature,omitempty"`
 	TopP                 *float64       `json:"top_p,omitempty"`
+	TopK                 *int           `json:"top_k,omitempty"`
+	MinP                 *float64       `json:"min_p,omitempty"`
 	MaxTokens            *int           `json:"max_tokens,omitempty"`
 	FrequencyPenalty     *float64       `json:"frequency_penalty,omitempty"`
 	PresencePenalty      *float64       `json:"presence_penalty,omitempty"`
+	RepetitionPenalty    *float64       `json:"repetition_penalty,omitempty"`
+	Seed                 *int           `json:"seed,omitempty"`
+	Stop                 []string       `json:"stop,omitempty"`
+	ReasoningEnabled     *bool          `json:"reasoning_enabled,omitempty"`
 	PersonaID            *uuid.UUID     `json:"persona_id,omitempty"`
 	Overrides            map[string]any `json:"overrides,omitempty"`
 	SystemPromptOverride string         `json:"-"`
@@ -97,12 +103,21 @@ type SendMessageInput struct {
 // ChatSamplerMetadata is the shape of chat_metadata.sampler. Stored as
 // JSONB; the chat handler hydrates it before each generation and uses
 // its values as defaults (overridable by per-request SendMessageInput).
+//
+// Field set mirrors SendMessageInput except Content/Model (per-message
+// concerns) and SystemPromptOverride (renamed here to match ST's wire form).
 type ChatSamplerMetadata struct {
 	Temperature          *float64 `json:"temperature,omitempty"`
 	TopP                 *float64 `json:"top_p,omitempty"`
+	TopK                 *int     `json:"top_k,omitempty"`
+	MinP                 *float64 `json:"min_p,omitempty"`
 	MaxTokens            *int     `json:"max_tokens,omitempty"`
 	FrequencyPenalty     *float64 `json:"frequency_penalty,omitempty"`
 	PresencePenalty      *float64 `json:"presence_penalty,omitempty"`
+	RepetitionPenalty    *float64 `json:"repetition_penalty,omitempty"`
+	Seed                 *int     `json:"seed,omitempty"`
+	Stop                 []string `json:"stop,omitempty"`
+	ReasoningEnabled     *bool    `json:"reasoning_enabled,omitempty"`
 	SystemPromptOverride string   `json:"system_prompt,omitempty"`
 	// PresetID is informational — identifies the template that was most
 	// recently applied. Not a foreign key (the preset may be deleted or

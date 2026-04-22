@@ -105,14 +105,19 @@ func (h *Handler) pipeStream(
 	started := time.Now()
 
 	req := wuapi.ChatCompletionRequest{
-		Model:            model,
-		Messages:         up,
-		Temperature:      in.Temperature,
-		TopP:             in.TopP,
-		MaxTokens:        in.MaxTokens,
-		FrequencyPenalty: in.FrequencyPenalty,
-		PresencePenalty:  in.PresencePenalty,
-		Extra:            in.Overrides,
+		Model:             model,
+		Messages:          up,
+		Temperature:       in.Temperature,
+		TopP:              in.TopP,
+		TopK:              in.TopK,
+		MinP:              in.MinP,
+		MaxTokens:         in.MaxTokens,
+		FrequencyPenalty:  in.FrequencyPenalty,
+		PresencePenalty:   in.PresencePenalty,
+		RepetitionPenalty: in.RepetitionPenalty,
+		Seed:              in.Seed,
+		Stop:              in.Stop,
+		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
 	}
 
 	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
@@ -299,14 +304,19 @@ func (h *Handler) streamChat(
 	}
 
 	req := wuapi.ChatCompletionRequest{
-		Model:            model,
-		Messages:         up,
-		Temperature:      in.Temperature,
-		TopP:             in.TopP,
-		MaxTokens:        in.MaxTokens,
-		FrequencyPenalty: in.FrequencyPenalty,
-		PresencePenalty:  in.PresencePenalty,
-		Extra:            in.Overrides,
+		Model:             model,
+		Messages:          up,
+		Temperature:       in.Temperature,
+		TopP:              in.TopP,
+		TopK:              in.TopK,
+		MinP:              in.MinP,
+		MaxTokens:         in.MaxTokens,
+		FrequencyPenalty:  in.FrequencyPenalty,
+		PresencePenalty:   in.PresencePenalty,
+		RepetitionPenalty: in.RepetitionPenalty,
+		Seed:              in.Seed,
+		Stop:              in.Stop,
+		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
 	}
 
 	// 5. Insert empty assistant placeholder with the model chosen.
@@ -469,6 +479,42 @@ func writeSSEError(w http.ResponseWriter, f http.Flusher, kind string, err error
 		"kind":    kind,
 		"message": err.Error(),
 	})
+}
+
+// mergeReasoning folds the ReasoningEnabled flag into the upstream Extra map
+// using shapes that the most popular reasoning-model APIs accept:
+//   - Anthropic (thinking): thinking: { type: "enabled" }
+//   - OpenRouter / generic: reasoning: { enabled: true }
+//   - OpenAI o-series: reasoning_effort: "medium" (only on true)
+// We only ADD keys — we don't clobber anything the caller explicitly set.
+// Providers that don't recognise a key ignore it.
+func mergeReasoning(extra map[string]any, enabled *bool) map[string]any {
+	if enabled == nil {
+		return extra
+	}
+	out := make(map[string]any, len(extra)+3)
+	for k, v := range extra {
+		out[k] = v
+	}
+	if *enabled {
+		if _, ok := out["thinking"]; !ok {
+			out["thinking"] = map[string]any{"type": "enabled"}
+		}
+		if _, ok := out["reasoning"]; !ok {
+			out["reasoning"] = map[string]any{"enabled": true}
+		}
+		if _, ok := out["reasoning_effort"]; !ok {
+			out["reasoning_effort"] = "medium"
+		}
+	} else {
+		if _, ok := out["thinking"]; !ok {
+			out["thinking"] = map[string]any{"type": "disabled"}
+		}
+		if _, ok := out["reasoning"]; !ok {
+			out["reasoning"] = map[string]any{"enabled": false}
+		}
+	}
+	return out
 }
 
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating

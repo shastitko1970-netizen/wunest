@@ -387,6 +387,12 @@ func applyChatSampler(in SendMessageInput, s ChatSamplerMetadata) SendMessageInp
 	if in.TopP == nil && s.TopP != nil {
 		in.TopP = s.TopP
 	}
+	if in.TopK == nil && s.TopK != nil {
+		in.TopK = s.TopK
+	}
+	if in.MinP == nil && s.MinP != nil {
+		in.MinP = s.MinP
+	}
 	if in.MaxTokens == nil && s.MaxTokens != nil {
 		in.MaxTokens = s.MaxTokens
 	}
@@ -395,6 +401,18 @@ func applyChatSampler(in SendMessageInput, s ChatSamplerMetadata) SendMessageInp
 	}
 	if in.PresencePenalty == nil && s.PresencePenalty != nil {
 		in.PresencePenalty = s.PresencePenalty
+	}
+	if in.RepetitionPenalty == nil && s.RepetitionPenalty != nil {
+		in.RepetitionPenalty = s.RepetitionPenalty
+	}
+	if in.Seed == nil && s.Seed != nil {
+		in.Seed = s.Seed
+	}
+	if len(in.Stop) == 0 && len(s.Stop) > 0 {
+		in.Stop = s.Stop
+	}
+	if in.ReasoningEnabled == nil && s.ReasoningEnabled != nil {
+		in.ReasoningEnabled = s.ReasoningEnabled
 	}
 	if in.SystemPromptOverride == "" && s.SystemPromptOverride != "" {
 		in.SystemPromptOverride = s.SystemPromptOverride

@@ -23,9 +23,15 @@ export const PRESET_TYPES: PresetType[] = [
 export interface SamplerData {
   temperature?: number | null
   top_p?: number | null
+  top_k?: number | null
+  min_p?: number | null
   max_tokens?: number | null
   frequency_penalty?: number | null
   presence_penalty?: number | null
+  repetition_penalty?: number | null
+  seed?: number | null
+  stop?: string[] | null
+  reasoning_enabled?: boolean | null
   system_prompt?: string | null
 }
 

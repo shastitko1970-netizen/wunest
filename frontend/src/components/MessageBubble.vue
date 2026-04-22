@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Message } from '@/api/chats'
+import MessageContent from '@/components/MessageContent.vue'
 
 const { t } = useI18n()
 
@@ -174,7 +175,15 @@ function onEditKeydown(e: KeyboardEvent) {
         <span class="nest-thinking">▍</span>
       </template>
       <template v-else>
-        <div class="nest-msg-content">{{ streaming ? liveSplit.rest : message.content }}<span v-if="streaming" class="nest-cursor">▍</span></div>
+        <div class="nest-msg-content">
+          <!-- Streaming: while tokens fly in, render as plain text so we
+               don't re-parse markdown on every chunk. Once the stream ends,
+               swap to rich markdown + JSON plate rendering. -->
+          <template v-if="streaming">
+            <span class="nest-streaming-text">{{ liveSplit.rest }}</span><span class="nest-cursor">▍</span>
+          </template>
+          <MessageContent v-else :content="message.content" />
+        </div>
       </template>
     </div>
 
