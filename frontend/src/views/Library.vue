@@ -10,6 +10,8 @@ import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
 import NewCharacterDialog from '@/components/NewCharacterDialog.vue'
 import BrowseLibraryDialog from '@/components/BrowseLibraryDialog.vue'
+import WorldsPanel from '@/components/WorldsPanel.vue'
+import CharacterWorldsDialog from '@/components/CharacterWorldsDialog.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
@@ -22,6 +24,13 @@ const importOpen = ref(false)
 const createOpen = ref(false)
 const browseOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
+const worldsDialogOpen = ref(false)
+const worldsDialogChar = ref<Character | null>(null)
+
+function onAttachWorlds(c: Character) {
+  worldsDialogChar.value = c
+  worldsDialogOpen.value = true
+}
 
 onMounted(() => {
   store.fetchAll()
@@ -101,7 +110,7 @@ async function confirmDelete() {
       :grow="false"
     >
       <v-tab value="characters">{{ t('library.tabs.characters') }}</v-tab>
-      <v-tab value="worlds" disabled>{{ t('library.tabs.worlds') }}</v-tab>
+      <v-tab value="worlds">{{ t('library.tabs.worlds') }}</v-tab>
       <v-tab value="presets" disabled>{{ t('library.tabs.presets') }}</v-tab>
       <v-tab value="personas" disabled>{{ t('library.tabs.personas') }}</v-tab>
     </v-tabs>
@@ -189,8 +198,13 @@ async function confirmDelete() {
             @chat="onChat"
             @favorite="onFavorite"
             @delete="askDelete"
+            @worlds="onAttachWorlds"
           />
         </div>
+      </v-window-item>
+
+      <v-window-item value="worlds">
+        <WorldsPanel class="mt-3" />
       </v-window-item>
     </v-window>
 
@@ -202,6 +216,12 @@ async function confirmDelete() {
 
     <!-- CHUB browse dialog -->
     <BrowseLibraryDialog v-model="browseOpen" />
+
+    <!-- Per-character lorebook attachment -->
+    <CharacterWorldsDialog
+      v-model="worldsDialogOpen"
+      :character="worldsDialogChar"
+    />
 
     <!-- Delete confirmation -->
     <v-dialog :model-value="confirmDeleteId !== null" max-width="360" @update:model-value="v => !v && (confirmDeleteId = null)">

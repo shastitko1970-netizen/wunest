@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 )
 
 // ChatMessage is the shape we send upstream to WuApi (OpenAI-compatible).
@@ -24,6 +25,7 @@ type PromptInput struct {
 	UserName             string                // persona or WuApi first_name fallback
 	UserDesc             string                // persona description, may be empty
 	SystemPromptOverride string                // if non-empty, replaces the character-derived system message entirely
+	Worlds               []*worldinfo.World    // lorebooks attached to this chat/character
 }
 
 // Build returns the OpenAI-compatible messages[] to send to WuApi.
@@ -35,13 +37,12 @@ type PromptInput struct {
 //     Macros are substituted in every turn, so inserts from the UI still work.
 //
 // Intentionally omitted in this version (will land later):
-//   - World Info / Lorebook activation
 //   - Author's Note depth injection
 //   - Regex input rules
 //   - Mes example few-shot priming
 //   - Instruct-mode wrapping (for text-completion backends)
 //
-// This is enough to get a working chat loop going; M4 will add WI/presets.
+// World Info / Lorebook activation runs inside buildSystem.
 func Build(in PromptInput) []ChatMessage {
 	out := make([]ChatMessage, 0, len(in.History)+1)
 
@@ -75,42 +76,88 @@ func Build(in PromptInput) []ChatMessage {
 	return out
 }
 
-// buildSystem concatenates the character's description, personality, and
-// scenario fields into a single system prompt. Empty fields are skipped,
-// and a `system_prompt` override (if set on the card) wraps everything.
+// buildSystem concatenates the character's description, personality,
+// scenario, and any activated Lorebook entries into a single system prompt.
+// Layout:
+//
+//	[ activated WI entries with position=before_char ]
+//	[ character's own system_prompt override ]
+//	[ description ]
+//	Personality: [personality]
+//	Scenario: [scenario]
+//	About the user: [user desc]
+//	[ activated WI entries with position=after_char ]
+//
+// Empty fields are skipped.
 func buildSystem(in PromptInput) string {
-	if in.Character == nil {
-		return ""
-	}
-	data := in.Character.Data
+	// Lorebook activation runs before we touch the character so both branches
+	// (character present / absent) benefit. Recent user/assistant texts drive
+	// keyword matches.
+	act := activateWorlds(in)
+
 	var b strings.Builder
-
-	// Character-provided override goes first verbatim.
-	if s := strings.TrimSpace(data.SystemPrompt); s != "" {
-		b.WriteString(SubstituteMacros(s, in))
+	for _, block := range act.BeforeChar {
+		b.WriteString(SubstituteMacros(block, in))
 		b.WriteString("\n\n")
 	}
 
-	if s := strings.TrimSpace(data.Description); s != "" {
-		b.WriteString(SubstituteMacros(s, in))
-		b.WriteString("\n\n")
+	if in.Character != nil {
+		data := in.Character.Data
+		// Character-provided override goes first verbatim.
+		if s := strings.TrimSpace(data.SystemPrompt); s != "" {
+			b.WriteString(SubstituteMacros(s, in))
+			b.WriteString("\n\n")
+		}
+		if s := strings.TrimSpace(data.Description); s != "" {
+			b.WriteString(SubstituteMacros(s, in))
+			b.WriteString("\n\n")
+		}
+		if s := strings.TrimSpace(data.Personality); s != "" {
+			b.WriteString("Personality: ")
+			b.WriteString(SubstituteMacros(s, in))
+			b.WriteString("\n\n")
+		}
+		if s := strings.TrimSpace(data.Scenario); s != "" {
+			b.WriteString("Scenario: ")
+			b.WriteString(SubstituteMacros(s, in))
+			b.WriteString("\n\n")
+		}
 	}
-	if s := strings.TrimSpace(data.Personality); s != "" {
-		b.WriteString("Personality: ")
-		b.WriteString(SubstituteMacros(s, in))
-		b.WriteString("\n\n")
-	}
-	if s := strings.TrimSpace(data.Scenario); s != "" {
-		b.WriteString("Scenario: ")
-		b.WriteString(SubstituteMacros(s, in))
-		b.WriteString("\n\n")
-	}
+
 	if ud := strings.TrimSpace(in.UserDesc); ud != "" {
 		b.WriteString("About the user: ")
 		b.WriteString(ud)
 		b.WriteString("\n\n")
 	}
+
+	for _, block := range act.AfterChar {
+		b.WriteString(SubstituteMacros(block, in))
+		b.WriteString("\n\n")
+	}
+
 	return strings.TrimSpace(b.String())
+}
+
+// activateWorlds runs the WI engine across attached lorebooks.
+// Returns a zero-value Activated when no worlds are attached.
+func activateWorlds(in PromptInput) worldinfo.Activated {
+	if len(in.Worlds) == 0 {
+		return worldinfo.Activated{}
+	}
+	// Feed the tail of history (user + assistant turns only) into the scanner.
+	recent := make([]string, 0, len(in.History))
+	for _, m := range in.History {
+		if m.Role != RoleUser && m.Role != RoleAssistant {
+			continue
+		}
+		if s := strings.TrimSpace(m.Content); s != "" {
+			recent = append(recent, s)
+		}
+	}
+	return worldinfo.Activate(worldinfo.ActivationInput{
+		Books:  in.Worlds,
+		Recent: recent,
+	})
 }
 
 // SubstituteMacros replaces the basic set of {{...}} macros.

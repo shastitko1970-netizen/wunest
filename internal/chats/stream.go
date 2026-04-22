@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
@@ -56,6 +57,10 @@ func (h *Handler) streamChatRegen(
 		return
 	}
 
+	// Load attached lorebooks for this character, if any. Best-effort: a DB
+	// hiccup here should not kill the regen — we just skip WI for this turn.
+	worlds := loadAttachedWorlds(ctx, h, userID, charID)
+
 	model := in.Model
 	if model == "" {
 		model = defaultModel
@@ -68,6 +73,7 @@ func (h *Handler) streamChatRegen(
 		UserName:             userName,
 		UserDesc:             personaDesc,
 		SystemPromptOverride: in.SystemPromptOverride,
+		Worlds:               worlds,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
@@ -265,6 +271,9 @@ func (h *Handler) streamChat(
 		return
 	}
 
+	// 3b. Load attached lorebooks for the character.
+	worlds := loadAttachedWorlds(ctx, h, userID, charID)
+
 	// 4. Build prompt.
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
@@ -272,6 +281,7 @@ func (h *Handler) streamChat(
 		UserName:             userName,
 		UserDesc:             personaDesc,
 		SystemPromptOverride: in.SystemPromptOverride,
+		Worlds:               worlds,
 	})
 
 	// Convert to the loose map[string]any that wuapi expects.
@@ -459,4 +469,26 @@ func writeSSEError(w http.ResponseWriter, f http.Flusher, kind string, err error
 		"kind":    kind,
 		"message": err.Error(),
 	})
+}
+
+// loadAttachedWorlds fetches lorebooks attached to a character, tolerating
+// a nil character id (character-less chat) and any repository error (we log
+// and skip — WI is an enhancement, not a blocker for generation).
+func loadAttachedWorlds(ctx context.Context, h *Handler, userID uuid.UUID, charID *uuid.UUID) []*worldinfo.World {
+	if charID == nil || h.Worlds == nil {
+		return nil
+	}
+	books, err := h.Worlds.ListForCharacter(ctx, userID, *charID)
+	if err != nil {
+		slog.Warn("worldinfo: listForCharacter failed", "err", err, "character_id", *charID)
+		return nil
+	}
+	if len(books) == 0 {
+		return nil
+	}
+	out := make([]*worldinfo.World, len(books))
+	for i := range books {
+		out[i] = &books[i]
+	}
+	return out
 }

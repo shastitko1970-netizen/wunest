@@ -18,6 +18,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
+	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
@@ -38,12 +39,14 @@ type Server struct {
 	chats      *chats.Handler
 	presets    *presets.Handler
 	library    *library.Handler
+	worlds     *worldinfo.Handler
 }
 
 func New(deps Deps) *Server {
 	resolver := users.NewResolver(deps.Postgres)
 	charRepo := characters.NewRepository(deps.Postgres)
 	presetRepo := presets.NewRepository(deps.Postgres)
+	worldsRepo := worldinfo.NewRepository(deps.Postgres)
 	return &Server{
 		deps:       deps,
 		users:      resolver,
@@ -53,6 +56,7 @@ func New(deps Deps) *Server {
 			Users:      resolver,
 			Characters: charRepo,
 			Presets:    presetRepo,
+			Worlds:     worldsRepo,
 			WuApi:      deps.WuApi,
 		},
 		presets: &presets.Handler{
@@ -63,6 +67,11 @@ func New(deps Deps) *Server {
 			Client:         library.NewClient(),
 			Users:          resolver,
 			CharactersRepo: charRepo,
+		},
+		worlds: &worldinfo.Handler{
+			Repo:       worldsRepo,
+			Users:      resolver,
+			Characters: charRepo,
 		},
 	}
 }
@@ -90,11 +99,12 @@ func (s *Server) Router() http.Handler {
 	s.chats.Register(mux, authRequired)
 	s.presets.Register(mux, authRequired)
 	s.library.Register(mux, authRequired)
+	s.worlds.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
 
-	// TODO: /api/personas/*, /api/worlds/*, ...
+	// TODO: /api/personas/*
 
 	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
 	// routes above take priority. Vue Router handles client-side history.

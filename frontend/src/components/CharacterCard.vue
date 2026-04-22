@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'chat', c: Character): void
   (e: 'favorite', c: Character): void
   (e: 'delete', c: Character): void
+  (e: 'worlds', c: Character): void
 }>()
 
 const initials = computed(() => {
@@ -103,6 +104,11 @@ const tagline = computed(() => {
                 prepend-icon="mdi-pencil"
                 :title="t('common.edit')"
                 @click="emit('open', character)"
+              />
+              <v-list-item
+                prepend-icon="mdi-book-open-page-variant-outline"
+                :title="t('library.card.lorebooks')"
+                @click="emit('worlds', character)"
               />
               <v-list-item
                 prepend-icon="mdi-delete-outline"

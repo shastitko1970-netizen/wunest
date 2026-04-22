@@ -14,6 +14,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
+	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
@@ -24,6 +25,7 @@ type Handler struct {
 	Users      *users.Resolver
 	Characters *characters.Repository
 	Presets    *presets.Repository
+	Worlds     *worldinfo.Repository
 	WuApi      *wuapi.Client
 }
 

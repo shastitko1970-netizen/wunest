@@ -51,6 +51,15 @@ func main() {
 	}
 	defer pg.Close()
 
+	// Run pending migrations before accepting traffic. The first-init schema
+	// (001) was historically applied by docker-compose's initdb hook; for any
+	// later migration (002+, added after the DB was first created) we need
+	// our own runner. The runner is idempotent — safe on every boot.
+	if err := db.Migrate(rootCtx, pg, ""); err != nil {
+		slog.Error("migrations failed", "err", err)
+		os.Exit(1)
+	}
+
 	rdb, err := db.NewRedis(rootCtx, cfg.RedisURL)
 	if err != nil {
 		slog.Error("redis connect failed", "err", err)
