@@ -80,17 +80,15 @@ func (r *Repository) Create(ctx context.Context, userID uuid.UUID, name, descrip
 	if err != nil {
 		return nil, fmt.Errorf("marshal entries: %w", err)
 	}
+	id := uuid.New() // app-side UUID
 	const q = `
-		INSERT INTO nest_worlds (user_id, name, description, entries)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at, updated_at
+		INSERT INTO nest_worlds (id, user_id, name, description, entries)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING created_at, updated_at
 	`
-	var (
-		id                   uuid.UUID
-		createdAt, updatedAt time.Time
-	)
-	if err := r.pg.QueryRow(ctx, q, userID, name, description, entriesJSON).
-		Scan(&id, &createdAt, &updatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := r.pg.QueryRow(ctx, q, id, userID, name, description, entriesJSON).
+		Scan(&createdAt, &updatedAt); err != nil {
 		return nil, fmt.Errorf("insert world: %w", err)
 	}
 	return &World{

@@ -52,6 +52,47 @@ function startNew() {
   saveError.value = null
 }
 
+// ── SillyTavern persona import ──────────────────────────────────────
+// ST personas ship as a tiny JSON object: `{name, description,
+// avatar_url?}`. Some older exports use `avatar` instead of
+// `avatar_url`, and some dump persona data as a character-card shape
+// with the relevant fields inside `data`. We accept all three.
+const importInput = ref<HTMLInputElement | null>(null)
+
+async function onImportPick(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0] ?? null
+  if (importInput.value) importInput.value.value = ''
+  if (!f) return
+  saveError.value = null
+  try {
+    const text = await f.text()
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    // Try the three layouts in order of how often ST users actually ship them.
+    const src: Record<string, unknown> =
+      (typeof parsed.data === 'object' && parsed.data !== null)
+        ? (parsed.data as Record<string, unknown>)
+        : parsed
+    const name = stringify(src.name) || stringify(parsed.name)
+    const description = stringify(src.description) || stringify(parsed.description)
+    const avatar = stringify(src.avatar_url) || stringify(src.avatar) || stringify(parsed.avatar_url)
+    if (!name) {
+      saveError.value = 'JSON must include a "name" field'
+      return
+    }
+    // Seed the editor; user can review before saving.
+    startNew()
+    draftName.value = name
+    draftDesc.value = description
+    draftAvatar.value = avatar
+  } catch (err) {
+    saveError.value = (err as Error).message
+  }
+}
+
+function stringify(v: unknown): string {
+  return typeof v === 'string' ? v : ''
+}
+
 const hasDraftChanges = computed(() => {
   if (isNew.value) return draftName.value.trim().length > 0
   if (!selected.value) return false
@@ -133,15 +174,33 @@ watch(items, () => {
     <aside class="nest-personas-list">
       <div class="nest-personas-head">
         <h3 class="nest-h3">{{ t('personas.yours') }}</h3>
-        <v-btn
-          size="small"
-          variant="flat"
-          color="primary"
-          prepend-icon="mdi-plus"
-          @click="startNew"
-        >
-          {{ t('common.new') }}
-        </v-btn>
+        <div class="d-flex ga-1">
+          <v-btn
+            size="small"
+            variant="outlined"
+            prepend-icon="mdi-upload"
+            :title="t('personas.actions.import')"
+            @click="importInput?.click()"
+          >
+            {{ t('common.import') }}
+          </v-btn>
+          <input
+            ref="importInput"
+            type="file"
+            accept="application/json,.json"
+            hidden
+            @change="onImportPick"
+          />
+          <v-btn
+            size="small"
+            variant="flat"
+            color="primary"
+            prepend-icon="mdi-plus"
+            @click="startNew"
+          >
+            {{ t('common.new') }}
+          </v-btn>
+        </div>
       </div>
 
       <div v-if="loading && !items.length" class="nest-state">

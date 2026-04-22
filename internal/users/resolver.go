@@ -28,16 +28,21 @@ func NewResolver(pg *db.Postgres) *Resolver {
 // Creates the row on first call.
 //
 // Also bumps last_active_at on each call (cheap, within the same UPDATE).
+//
+// UUID is generated app-side via uuid.New() so the schema doesn't need the
+// pgcrypto extension or Postgres 13+ `gen_random_uuid()`. Existing rows
+// with their server-generated UUIDs continue to work — the ON CONFLICT
+// branch returns the existing id, not our candidate.
 func (r *Resolver) Resolve(ctx context.Context, wuapiUserID int64) (*models.NestUser, error) {
 	const upsert = `
-		INSERT INTO nest_users (wuapi_user_id, last_active_at)
-		VALUES ($1, NOW())
+		INSERT INTO nest_users (id, wuapi_user_id, last_active_at)
+		VALUES ($1, $2, NOW())
 		ON CONFLICT (wuapi_user_id)
 		  DO UPDATE SET last_active_at = NOW()
 		RETURNING id, wuapi_user_id, settings, created_at, last_active_at
 	`
 	var u models.NestUser
-	err := r.pg.QueryRow(ctx, upsert, wuapiUserID).Scan(
+	err := r.pg.QueryRow(ctx, upsert, uuid.New(), wuapiUserID).Scan(
 		&u.ID, &u.WuApiUserID, &u.Settings, &u.CreatedAt, &u.LastActiveAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

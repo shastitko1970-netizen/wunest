@@ -99,6 +99,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if len(data) == 0 {
 		data = json.RawMessage("{}")
 	}
+	if err := validatePresetData(PresetType(req.Type), data); err != nil {
+		http.Error(w, "invalid preset data: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	p, err := h.Repo.Create(r.Context(), CreateInput{
 		UserID: user.ID,
 		Type:   PresetType(req.Type),
@@ -144,6 +148,17 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		raw := *req.Data
 		if len(raw) == 0 {
 			raw = json.RawMessage("{}")
+		}
+		// We don't know the type here without a Get — fetch the current row
+		// to validate against its type. Small DB cost, big robustness win.
+		cur, err := h.Repo.Get(r.Context(), user.ID, id)
+		if err != nil {
+			h.writeErr(w, err)
+			return
+		}
+		if err := validatePresetData(cur.Type, raw); err != nil {
+			http.Error(w, "invalid preset data: "+err.Error(), http.StatusBadRequest)
+			return
 		}
 		dataPatch = &raw
 	}

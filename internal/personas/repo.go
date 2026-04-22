@@ -117,17 +117,15 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Persona, erro
 		}
 	}
 
+	id := uuid.New() // app-side UUID
 	const q = `
-		INSERT INTO nest_personas (user_id, name, description, avatar_url, is_default)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5)
-		RETURNING id, created_at
+		INSERT INTO nest_personas (id, user_id, name, description, avatar_url, is_default)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6)
+		RETURNING created_at
 	`
-	var (
-		id        uuid.UUID
-		createdAt time.Time
-	)
-	if err := tx.QueryRow(ctx, q, in.UserID, in.Name, in.Description, in.AvatarURL, in.IsDefault).
-		Scan(&id, &createdAt); err != nil {
+	var createdAt time.Time
+	if err := tx.QueryRow(ctx, q, id, in.UserID, in.Name, in.Description, in.AvatarURL, in.IsDefault).
+		Scan(&createdAt); err != nil {
 		return nil, fmt.Errorf("insert persona: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

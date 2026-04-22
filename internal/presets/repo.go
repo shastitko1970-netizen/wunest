@@ -90,17 +90,15 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Preset, error
 	if len(data) == 0 {
 		data = json.RawMessage("{}")
 	}
+	id := uuid.New() // app-side UUID
 	const q = `
-		INSERT INTO nest_presets (user_id, type, name, data)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at, updated_at
+		INSERT INTO nest_presets (id, user_id, type, name, data)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING created_at, updated_at
 	`
-	var (
-		id                   uuid.UUID
-		createdAt, updatedAt time.Time
-	)
-	if err := r.pg.QueryRow(ctx, q, in.UserID, string(in.Type), in.Name, []byte(data)).
-		Scan(&id, &createdAt, &updatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := r.pg.QueryRow(ctx, q, id, in.UserID, string(in.Type), in.Name, []byte(data)).
+		Scan(&createdAt, &updatedAt); err != nil {
 		return nil, fmt.Errorf("insert preset: %w", err)
 	}
 	return &Preset{

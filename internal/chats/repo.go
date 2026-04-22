@@ -94,17 +94,15 @@ func (r *Repository) CreateChat(ctx context.Context, in CreateChatInput) (*Chat,
 	if in.Metadata == nil {
 		in.Metadata = []byte("{}")
 	}
+	id := uuid.New() // app-side UUID; see characters/repo.go comment
 	const q = `
-		INSERT INTO nest_chats (user_id, character_id, name, chat_metadata)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at, updated_at
+		INSERT INTO nest_chats (id, user_id, character_id, name, chat_metadata)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING created_at, updated_at
 	`
-	var (
-		id               uuid.UUID
-		createdAt, updAt time.Time
-	)
-	if err := r.pg.QueryRow(ctx, q, in.UserID, in.CharacterID, in.Name, in.Metadata).
-		Scan(&id, &createdAt, &updAt); err != nil {
+	var createdAt, updAt time.Time
+	if err := r.pg.QueryRow(ctx, q, id, in.UserID, in.CharacterID, in.Name, in.Metadata).
+		Scan(&createdAt, &updAt); err != nil {
 		return nil, fmt.Errorf("insert chat: %w", err)
 	}
 	return &Chat{

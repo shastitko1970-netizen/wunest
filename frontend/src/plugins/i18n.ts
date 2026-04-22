@@ -18,6 +18,7 @@ const messages = {
       refresh: 'Обновить',
       loading: 'Загрузка…',
       new: 'Создать',
+      import: 'Импорт',
       search: 'Поиск',
       error: 'Ошибка',
       close: 'Закрыть',
@@ -219,6 +220,7 @@ const messages = {
       },
       actions: {
         create: 'Создать',
+        import: 'Импорт ST персоны',
         setDefault: 'Сделать основной',
         unsetDefault: 'Убрать флаг',
       },
@@ -520,6 +522,7 @@ const messages = {
       refresh: 'Refresh',
       loading: 'Loading…',
       new: 'New',
+      import: 'Import',
       search: 'Search',
       error: 'Error',
       close: 'Close',
@@ -719,6 +722,7 @@ const messages = {
       },
       actions: {
         create: 'Create',
+        import: 'Import ST persona',
         setDefault: 'Make default',
         unsetDefault: 'Unset default',
       },

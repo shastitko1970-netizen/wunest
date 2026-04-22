@@ -151,19 +151,22 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Character, er
 		in.Tags = []string{}
 	}
 
+	// UUID is minted app-side so the DB default (gen_random_uuid) is only a
+	// safety net. Keeps us independent of the pgcrypto extension on
+	// restricted hosts (Supabase free tier, etc.).
+	id := uuid.New()
 	const q = `
-		INSERT INTO nest_characters (user_id, name, data, avatar_url, tags, favorite, spec, source_url)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, NULLIF($8, ''))
-		RETURNING id, created_at, updated_at
+		INSERT INTO nest_characters (id, user_id, name, data, avatar_url, tags, favorite, spec, source_url)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''))
+		RETURNING created_at, updated_at
 	`
 	var (
-		id        uuid.UUID
 		createdAt time.Time
 		updatedAt time.Time
 	)
 	err = r.pg.QueryRow(ctx, q,
-		in.UserID, in.Name, dataBytes, in.AvatarURL, in.Tags, in.Favorite, in.Spec, in.SourceURL,
-	).Scan(&id, &createdAt, &updatedAt)
+		id, in.UserID, in.Name, dataBytes, in.AvatarURL, in.Tags, in.Favorite, in.Spec, in.SourceURL,
+	).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert character: %w", err)
 	}
