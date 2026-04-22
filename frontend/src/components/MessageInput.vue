@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useModelsStore } from '@/stores/models'
+import { countTokens } from '@/lib/tokens'  // sync; see lib/tokens.ts
 
 const { t } = useI18n()
 
@@ -31,6 +32,10 @@ onMounted(() => { if (!models.loaded) void models.fetchList() })
 const canSend = computed(() =>
   !props.disabled && !props.streaming && props.modelValue.trim().length > 0,
 )
+
+// Token estimation. Pure-sync char-heuristic (see lib/tokens.ts) so we
+// can bind without a debounce; the ref stays in lockstep with the input.
+const tokenCount = computed(() => countTokens(props.modelValue ?? ''))
 
 function onInput(e: Event) {
   const el = e.target as HTMLTextAreaElement
@@ -94,6 +99,14 @@ function onKeydown(e: KeyboardEvent) {
           </v-list-item>
         </v-list>
       </v-menu>
+
+      <span
+        v-if="tokenCount > 0"
+        class="nest-token-count nest-mono"
+        :title="t('chat.input.tokensTitle')"
+      >
+        {{ tokenCount }} {{ t('chat.input.tokensShort') }}
+      </span>
 
       <div class="flex-grow-1" />
 
@@ -191,5 +204,15 @@ function onKeydown(e: KeyboardEvent) {
   border: 1px solid var(--nest-border);
   max-height: 320px;
   min-width: 200px;
+}
+
+.nest-token-count {
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+  padding: 2px 6px;
+  border-radius: var(--nest-radius-pill);
+  background: var(--nest-bg-elevated);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 </style>

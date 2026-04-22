@@ -13,6 +13,7 @@ import MessageInput from '@/components/MessageInput.vue'
 import GenerationSettings from '@/components/GenerationSettings.vue'
 import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
 import { usePersonasStore } from '@/stores/personas'
+import { countTokensMany } from '@/lib/tokens'  // sync approximation
 
 const { t } = useI18n()
 
@@ -44,6 +45,12 @@ const activePersonaLabel = computed(() => {
   if (personas.defaultPersona) return personas.defaultPersona.name
   return profile.value?.first_name || profile.value?.username || ''
 })
+
+// Rolling estimate of "what would go in the next prompt" — the full message
+// history content. Sync approximation, no debounce needed.
+const contextTokens = computed(() =>
+  countTokensMany((messages.value ?? []).map(m => m.content ?? '')),
+)
 
 onMounted(async () => {
   await chats.fetchList()
@@ -152,6 +159,13 @@ const lastAssistantId = computed(() => {
             </div>
           </div>
           <div class="nest-chat-tools">
+            <span
+              v-if="contextTokens > 0"
+              class="nest-mono nest-ctx-chip"
+              :title="t('chat.contextTokensTitle')"
+            >
+              {{ contextTokens }} {{ t('chat.input.tokensShort') }}
+            </span>
             <v-btn
               variant="text"
               size="small"
@@ -297,6 +311,15 @@ const lastAssistantId = computed(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.nest-ctx-chip {
+  font-size: 11px;
+  color: var(--nest-text-muted);
+  padding: 2px 8px;
+  border-radius: var(--nest-radius-pill);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  font-variant-numeric: tabular-nums;
 }
 .nest-chat-name {
   font-family: var(--nest-font-display);

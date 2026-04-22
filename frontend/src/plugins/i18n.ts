@@ -428,7 +428,10 @@ const messages = {
         placeholder: 'Напиши сообщение… (Enter — отправить, Shift+Enter — новая строка)',
         send: 'Отправить',
         stop: 'Остановить',
+        tokensShort: 'ток.',
+        tokensTitle: 'Примерное количество токенов в черновике',
       },
+      contextTokensTitle: 'Оценка размера контекста всех видимых сообщений',
       sampler: {
         title: 'Параметры генерации',
         advanced: 'Дополнительно',
@@ -913,7 +916,10 @@ const messages = {
         placeholder: 'Write a message… (Enter to send, Shift+Enter for newline)',
         send: 'Send',
         stop: 'Stop',
+        tokensShort: 'tok',
+        tokensTitle: 'Approximate token count for the draft',
       },
+      contextTokensTitle: 'Rough size of the full visible context',
       sampler: {
         title: 'Generation parameters',
         advanced: 'Advanced',
