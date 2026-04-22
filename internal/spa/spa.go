@@ -65,6 +65,17 @@ func Handler() http.Handler {
 			return
 		}
 
+		// Asset paths that don't exist must 404 — if we fall back to index.html
+		// here, the browser receives HTML with a JS/CSS Content-Type guess and
+		// blocks it under strict MIME checking, leading to endless retries of
+		// stale hashed filenames after a deploy. Let the 404 propagate so the
+		// client reloads index.html on the next navigation and picks up fresh
+		// asset hashes.
+		if strings.HasPrefix(path, "assets/") {
+			http.NotFound(w, r)
+			return
+		}
+
 		// SPA fallback: let the client router handle unknown routes.
 		serveIndex(w, index)
 	})

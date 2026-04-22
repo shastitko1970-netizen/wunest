@@ -68,7 +68,9 @@ const messages = {
       htmlRenderingHint: 'Разрешает моделям присылать разметку (div/span/style). Небезопасные теги (script, handlers) режутся DOMPurify.',
       customCss: 'Свой CSS',
       customCssHint: 'применяется поверх всего',
-      customCssPlaceholder: '/* e.g.\n.nest-msg-name { letter-spacing: 0.04em; }\n*/',
+      // vue-i18n reads `{…}` as a placeholder; escape the CSS braces so the
+      // parser doesn't blow up on literal '{'/'}'.
+      customCssPlaceholder: "/* e.g.\n.nest-msg-name {'{'} letter-spacing: 0.04em; {'}'}\n*/",
       avatar: {
         round: 'Круглые',
         square: 'Квадратные',
@@ -315,7 +317,7 @@ const messages = {
         },
         context: {
           storyString: 'Шаблон контекста',
-          storyHint: 'Handlebars-макросы: {{char}}, {{user}}, {{description}}, {{personality}}, {{scenario}}, {{system}}',
+          storyHint: "Handlebars-макросы: {'{{char}}'}, {'{{user}}'}, {'{{description}}'}, {'{{personality}}'}, {'{{scenario}}'}, {'{{system}}'}",
           chatStart: 'Маркер начала чата',
           exampleSep: 'Разделитель примеров',
           trimSentences: 'Обрезать по предложениям',
@@ -562,7 +564,8 @@ const messages = {
       htmlRenderingHint: 'Lets models ship inline markup (div/span/style). Unsafe tags (script, handlers) are stripped by DOMPurify.',
       customCss: 'Custom CSS',
       customCssHint: 'applied on top of everything',
-      customCssPlaceholder: '/* e.g.\n.nest-msg-name { letter-spacing: 0.04em; }\n*/',
+      // Same escape trick as the ru side — keep literal braces out of the placeholder syntax.
+      customCssPlaceholder: "/* e.g.\n.nest-msg-name {'{'} letter-spacing: 0.04em; {'}'}\n*/",
       avatar: {
         round: 'Round',
         square: 'Square',
@@ -809,7 +812,7 @@ const messages = {
         },
         context: {
           storyString: 'Context template',
-          storyHint: 'Handlebars macros: {{char}}, {{user}}, {{description}}, {{personality}}, {{scenario}}, {{system}}',
+          storyHint: "Handlebars macros: {'{{char}}'}, {'{{user}}'}, {'{{description}}'}, {'{{personality}}'}, {'{{scenario}}'}, {'{{system}}'}",
           chatStart: 'Chat start marker',
           exampleSep: 'Example separator',
           trimSentences: 'Trim to sentences',
