@@ -20,7 +20,7 @@ const chats = useChatsStore()
 const router = useRouter()
 const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = storeToRefs(store)
 
-const activeTab = ref<'characters' | 'worlds' | 'presets' | 'personas'>('characters')
+const activeTab = ref<'characters' | 'worlds' | 'personas'>('characters')
 const importOpen = ref(false)
 const createOpen = ref(false)
 const browseOpen = ref(false)
@@ -110,10 +110,14 @@ async function confirmDelete() {
       class="mt-6"
       :grow="false"
     >
+      <!-- Library tabs only cover the content types you import or create here:
+           Characters / Lorebooks / Personas. Generation templates (Пресеты)
+           live on their own page `/presets` — topbar's "Параметры" button —
+           and having a tab here that duplicates or disables that flow was
+           confusing. -->
       <v-tab value="characters">{{ t('library.tabs.characters') }}</v-tab>
       <v-tab value="worlds">{{ t('library.tabs.worlds') }}</v-tab>
       <v-tab value="personas">{{ t('library.tabs.personas') }}</v-tab>
-      <v-tab value="presets" disabled>{{ t('library.tabs.presets') }}</v-tab>
     </v-tabs>
 
     <v-divider />
