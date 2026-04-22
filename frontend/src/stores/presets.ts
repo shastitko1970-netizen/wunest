@@ -1,14 +1,22 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { presetsApi, type Preset, type SamplerData } from '@/api/presets'
+import {
+  defaultsApi,
+  presetsApi,
+  type Preset,
+  type PresetType,
+  type SamplerData,
+} from '@/api/presets'
 
 /**
- * Sampler-preset store. Only `type=sampler` presets in v1 — the other
- * types (instruct, context, sysprompt, reasoning) exist in the schema
- * but don't yet have a UI. The store fetches lazily on first drawer open.
+ * Presets store — holds every type of preset the user has saved, plus the
+ * map of per-type defaults (settings.default_presets on the server).
+ *
+ * Fetch is lazy: drawers / manager pages call fetchAll() on mount.
  */
 export const usePresetsStore = defineStore('presets', () => {
   const items = ref<Preset[]>([])
+  const defaults = ref<Record<string, string>>({})
   const loading = ref(false)
   const loaded = ref(false)
   const error = ref<string | null>(null)
@@ -17,13 +25,21 @@ export const usePresetsStore = defineStore('presets', () => {
     items.value.filter(p => p.type === 'sampler'),
   )
 
+  function byType(type: PresetType): Preset[] {
+    return items.value.filter(p => p.type === type)
+  }
+
   async function fetchAll(force = false) {
     if (loaded.value && !force) return
     loading.value = true
     error.value = null
     try {
-      const res = await presetsApi.list('sampler')
-      items.value = res.items
+      const [list, defs] = await Promise.all([
+        presetsApi.list(),
+        defaultsApi.list(),
+      ])
+      items.value = list.items
+      defaults.value = defs.default_presets ?? {}
       loaded.value = true
     } catch (e) {
       error.value = (e as Error).message
@@ -32,13 +48,17 @@ export const usePresetsStore = defineStore('presets', () => {
     }
   }
 
-  async function create(name: string, data: SamplerData): Promise<Preset> {
-    const p = await presetsApi.create({ type: 'sampler', name, data })
+  async function create(type: PresetType, name: string, data: unknown): Promise<Preset> {
+    const p = await presetsApi.create({ type, name, data })
     items.value = [...items.value, p].sort((a, b) => a.name.localeCompare(b.name))
     return p
   }
 
-  async function update(id: string, patch: { name?: string; data?: SamplerData }) {
+  async function createSampler(name: string, data: SamplerData): Promise<Preset> {
+    return create('sampler', name, data)
+  }
+
+  async function update(id: string, patch: { name?: string; data?: unknown }) {
     const p = await presetsApi.update(id, patch)
     const idx = items.value.findIndex(x => x.id === id)
     if (idx >= 0) items.value[idx] = p
@@ -49,7 +69,31 @@ export const usePresetsStore = defineStore('presets', () => {
   async function remove(id: string) {
     await presetsApi.delete(id)
     items.value = items.value.filter(x => x.id !== id)
+    // Also drop the default if we just nuked the active one.
+    for (const [type, def] of Object.entries(defaults.value)) {
+      if (def === id) delete defaults.value[type]
+    }
   }
 
-  return { items, samplers, loading, loaded, error, fetchAll, create, update, remove }
+  /** Set (or clear) the user's default preset for `type`. */
+  async function setDefault(type: PresetType, presetID: string | null) {
+    await defaultsApi.set(type, presetID)
+    if (presetID) {
+      defaults.value = { ...defaults.value, [type]: presetID }
+    } else {
+      const next = { ...defaults.value }
+      delete next[type]
+      defaults.value = next
+    }
+  }
+
+  function isDefault(p: Preset): boolean {
+    return defaults.value[p.type] === p.id
+  }
+
+  return {
+    items, defaults, samplers, loading, loaded, error,
+    byType, isDefault,
+    fetchAll, create, createSampler, update, remove, setDefault,
+  }
 })

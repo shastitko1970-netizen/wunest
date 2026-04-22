@@ -8,6 +8,7 @@ export const router = createRouter({
     { path: '/chat/:id', name: 'chat-detail', component: () => import('@/views/Chat.vue') },
     { path: '/library', name: 'library', component: () => import('@/views/Library.vue') },
     { path: '/account', name: 'account', component: () => import('@/views/Account.vue') },
+    { path: '/presets', name: 'presets', component: () => import('@/views/Presets.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
     { path: '/studio', name: 'studio', component: () => import('@/views/Studio.vue') },
     {

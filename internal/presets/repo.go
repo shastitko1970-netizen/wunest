@@ -22,8 +22,9 @@ func NewRepository(pg *db.Postgres) *Repository {
 	return &Repository{pg: pg}
 }
 
-// List returns all presets owned by a user, optionally filtered by type.
-// Sorted alphabetically by name so the UI picker is predictable.
+// List returns presets owned by a user, optionally filtered by type.
+// Data is kept as RawMessage through the DB round-trip — no typed decode
+// unless a caller explicitly wants it.
 func (r *Repository) List(ctx context.Context, userID uuid.UUID, typ PresetType) ([]Preset, error) {
 	q := `
 		SELECT id, type, name, data, created_at, updated_at
@@ -35,7 +36,7 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID, typ PresetType)
 		q += ` AND type = $2`
 		args = append(args, string(typ))
 	}
-	q += ` ORDER BY name ASC`
+	q += ` ORDER BY type, name ASC`
 
 	rows, err := r.pg.Query(ctx, q, args...)
 	if err != nil {
@@ -52,15 +53,13 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID, typ PresetType)
 			return nil, fmt.Errorf("scan preset: %w", err)
 		}
 		p.Type = PresetType(typeStr)
-		if err := json.Unmarshal(data, &p.Data); err != nil {
-			return nil, fmt.Errorf("unmarshal preset data: %w", err)
-		}
+		// Copy so subsequent iterations don't clobber the shared buffer.
+		p.Data = append(json.RawMessage(nil), data...)
 		out = append(out, p)
 	}
 	return out, rows.Err()
 }
 
-// Get returns one preset by id, scoped to the user.
 func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Preset, error) {
 	const q = `
 		SELECT id, type, name, data, created_at, updated_at
@@ -80,19 +79,16 @@ func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Preset, er
 		return nil, fmt.Errorf("get preset: %w", err)
 	}
 	p.Type = PresetType(typeStr)
-	if err := json.Unmarshal(data, &p.Data); err != nil {
-		return nil, fmt.Errorf("unmarshal preset data: %w", err)
-	}
+	p.Data = append(json.RawMessage(nil), data...)
 	return &p, nil
 }
 
-// Create inserts a new preset row. Conflicts on (user_id, type, name)
-// return a pgx unique-violation error — the handler translates that into
-// a 409 so callers can retry with a different name.
 func (r *Repository) Create(ctx context.Context, in CreateInput) (*Preset, error) {
-	data, err := json.Marshal(in.Data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal data: %w", err)
+	// Data can be any JSON — we just need it to be valid JSON for JSONB.
+	// Default to an empty object if the caller left it nil.
+	data := in.Data
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
 	}
 	const q = `
 		INSERT INTO nest_presets (user_id, type, name, data)
@@ -100,10 +96,10 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Preset, error
 		RETURNING id, created_at, updated_at
 	`
 	var (
-		id                       uuid.UUID
-		createdAt, updatedAt     time.Time
+		id                   uuid.UUID
+		createdAt, updatedAt time.Time
 	)
-	if err := r.pg.QueryRow(ctx, q, in.UserID, string(in.Type), in.Name, data).
+	if err := r.pg.QueryRow(ctx, q, in.UserID, string(in.Type), in.Name, []byte(data)).
 		Scan(&id, &createdAt, &updatedAt); err != nil {
 		return nil, fmt.Errorf("insert preset: %w", err)
 	}
@@ -111,13 +107,12 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Preset, error
 		ID:        id,
 		Type:      in.Type,
 		Name:      in.Name,
-		Data:      in.Data,
+		Data:      data,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
 }
 
-// Update applies a sparse patch.
 func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch UpdatePatch) (*Preset, error) {
 	cur, err := r.Get(ctx, userID, id)
 	if err != nil {
@@ -129,17 +124,13 @@ func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch Upd
 	if patch.Data != nil {
 		cur.Data = *patch.Data
 	}
-	data, err := json.Marshal(cur.Data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal data: %w", err)
-	}
 	const q = `
 		UPDATE nest_presets
 		   SET name = $3, data = $4, updated_at = NOW()
 		 WHERE user_id = $1 AND id = $2
 		 RETURNING updated_at
 	`
-	if err := r.pg.QueryRow(ctx, q, userID, id, cur.Name, data).Scan(&cur.UpdatedAt); err != nil {
+	if err := r.pg.QueryRow(ctx, q, userID, id, cur.Name, []byte(cur.Data)).Scan(&cur.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -148,7 +139,6 @@ func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch Upd
 	return cur, nil
 }
 
-// Delete removes a preset row.
 func (r *Repository) Delete(ctx context.Context, userID, id uuid.UUID) error {
 	const q = `DELETE FROM nest_presets WHERE user_id = $1 AND id = $2`
 	tag, err := r.pg.Exec(ctx, q, userID, id)

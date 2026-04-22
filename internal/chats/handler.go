@@ -12,6 +12,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
@@ -22,6 +23,7 @@ type Handler struct {
 	Repo       *Repository
 	Users      *users.Resolver
 	Characters *characters.Repository
+	Presets    *presets.Repository
 	WuApi      *wuapi.Client
 }
 
@@ -103,11 +105,21 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		name = "New chat"
 	}
 
+	// Seed chat_metadata.sampler from the user's default sampler preset if
+	// one is set. The metadata payload wins if the caller explicitly sent
+	// one — default is applied only to a bare Metadata.
+	metadata := req.Metadata
+	if len(metadata) == 0 {
+		if seeded, err := h.seedDefaultSampler(r.Context(), user.ID); err == nil && seeded != nil {
+			metadata = seeded
+		}
+	}
+
 	chat, err := h.Repo.CreateChat(r.Context(), CreateChatInput{
 		UserID:      user.ID,
 		CharacterID: req.CharacterID,
 		Name:        name,
-		Metadata:    req.Metadata,
+		Metadata:    metadata,
 	})
 	if err != nil {
 		h.writeErr(w, err)
@@ -324,6 +336,45 @@ func readSamplerFromChat(c *Chat) ChatSamplerMetadata {
 		return ChatSamplerMetadata{}
 	}
 	return readSampler(c.Metadata)
+}
+
+// seedDefaultSampler returns a chat_metadata bytes payload with the user's
+// default sampler preset pre-applied, or (nil, nil) if no default is set.
+// Errors are non-fatal for chat creation — we just log and return nil so
+// the new chat ships without sampler metadata.
+func (h *Handler) seedDefaultSampler(ctx context.Context, userID uuid.UUID) (json.RawMessage, error) {
+	if h.Presets == nil {
+		return nil, nil
+	}
+	defaultID, err := h.Users.GetDefaultPreset(ctx, userID, string(presets.TypeSampler))
+	if err != nil {
+		slog.Warn("load default sampler: settings read failed", "err", err)
+		return nil, nil
+	}
+	if defaultID == uuid.Nil {
+		return nil, nil
+	}
+	preset, err := h.Presets.Get(ctx, userID, defaultID)
+	if err != nil {
+		// Preset may have been deleted — fall through silently.
+		return nil, nil
+	}
+	sampler := preset.AsSampler()
+	sm := ChatSamplerMetadata{
+		Temperature:          sampler.Temperature,
+		TopP:                 sampler.TopP,
+		MaxTokens:            sampler.MaxTokens,
+		FrequencyPenalty:     sampler.FrequencyPenalty,
+		PresencePenalty:      sampler.PresencePenalty,
+		SystemPromptOverride: sampler.SystemPromptOverride,
+		PresetID:             &defaultID,
+	}
+	envelope := map[string]any{"sampler": sm}
+	b, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }
 
 func (h *Handler) deleteMessage(w http.ResponseWriter, r *http.Request) {

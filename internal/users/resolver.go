@@ -6,9 +6,11 @@ package users
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
@@ -46,4 +48,82 @@ func (r *Resolver) Resolve(ctx context.Context, wuapiUserID int64) (*models.Nest
 		return nil, fmt.Errorf("upsert nest_users: %w", err)
 	}
 	return &u, nil
+}
+
+// Settings is the typed view of nest_users.settings JSONB.
+//
+// Grows ad-hoc — every feature that needs a per-user preference adds its
+// own named sub-object so reads are self-documenting.
+type Settings struct {
+	// DefaultPresets maps preset-type → preset-id. Nil / missing values
+	// mean "no default for this type; chats fall back to hard-coded
+	// defaults". Keys follow presets.PresetType ("sampler", "instruct", …).
+	DefaultPresets map[string]uuid.UUID `json:"default_presets,omitempty"`
+}
+
+// LoadSettings reads nest_users.settings and returns a typed view.
+// Missing / malformed settings return a zero-value Settings (no error).
+func (r *Resolver) LoadSettings(ctx context.Context, userID uuid.UUID) (*Settings, error) {
+	const q = `SELECT settings FROM nest_users WHERE id = $1`
+	var raw []byte
+	if err := r.pg.QueryRow(ctx, q, userID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, fmt.Errorf("load settings: %w", err)
+	}
+	var s Settings
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &s)
+	}
+	return &s, nil
+}
+
+// SaveSettings writes the typed settings back into nest_users.settings.
+// Full replacement — callers load → mutate → save.
+func (r *Resolver) SaveSettings(ctx context.Context, userID uuid.UUID, s *Settings) error {
+	payload, err := json.Marshal(s)
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	const q = `UPDATE nest_users SET settings = $2 WHERE id = $1`
+	tag, err := r.pg.Exec(ctx, q, userID, payload)
+	if err != nil {
+		return fmt.Errorf("save settings: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// SetDefaultPreset records `preset_id` as the default for `presetType`.
+// Passing uuid.Nil clears the default.
+func (r *Resolver) SetDefaultPreset(ctx context.Context, userID uuid.UUID, presetType string, presetID uuid.UUID) error {
+	s, err := r.LoadSettings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if s.DefaultPresets == nil {
+		s.DefaultPresets = make(map[string]uuid.UUID)
+	}
+	if presetID == uuid.Nil {
+		delete(s.DefaultPresets, presetType)
+	} else {
+		s.DefaultPresets[presetType] = presetID
+	}
+	return r.SaveSettings(ctx, userID, s)
+}
+
+// GetDefaultPreset returns the user's default preset id for the given
+// type, or uuid.Nil if none is configured.
+func (r *Resolver) GetDefaultPreset(ctx context.Context, userID uuid.UUID, presetType string) (uuid.UUID, error) {
+	s, err := r.LoadSettings(ctx, userID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if s.DefaultPresets == nil {
+		return uuid.Nil, nil
+	}
+	return s.DefaultPresets[presetType], nil
 }

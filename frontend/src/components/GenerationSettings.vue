@@ -92,7 +92,9 @@ function applyPreset(id: string | null) {
   if (!id) return
   const p = presets.samplers.find((x: Preset) => x.id === id)
   if (!p) return
-  const d: SamplerData = p.data
+  // preset.data is typed `unknown` on the generic Preset — cast to the
+  // sampler-specific shape we know it has because we filtered on type.
+  const d = p.data as SamplerData
   form.value = {
     temperature: d.temperature ?? 1.0,
     top_p: d.top_p ?? 1.0,
@@ -157,7 +159,7 @@ async function saveAsPreset() {
       presence_penalty: form.value.presence_penalty,
       system_prompt: form.value.system_prompt.trim() || null,
     }
-    const created = await presets.create(name, data)
+    const created = await presets.createSampler(name, data)
     selectedPresetId.value = created.id
     // Persist the preset_id reference into the chat.
     await chats.setSampler(toWire())

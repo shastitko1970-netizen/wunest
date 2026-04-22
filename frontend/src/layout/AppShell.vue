@@ -32,6 +32,7 @@ const displayProfile = computed(() => accountProfile.value ?? profile.value)
 const navItems = computed(() => [
   { to: '/chat', icon: 'mdi-forum-outline', label: t('nav.chat') },
   { to: '/library', icon: 'mdi-bookshelf', label: t('nav.library') },
+  { to: '/presets', icon: 'mdi-tune-variant', label: t('nav.presets') },
   { to: '/account', icon: 'mdi-account-circle-outline', label: t('nav.account') },
   { to: '/settings', icon: 'mdi-cog-outline', label: t('nav.settings') },
   { to: '/studio', icon: 'mdi-wrench-outline', label: t('nav.studio'), disabled: true },

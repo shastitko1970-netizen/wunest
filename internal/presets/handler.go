@@ -66,9 +66,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createReq struct {
-	Type string      `json:"type"`
-	Name string      `json:"name"`
-	Data SamplerData `json:"data"`
+	Type string          `json:"type"`
+	Name string          `json:"name"`
+	// Data is passed through as raw JSON so every preset type (sampler,
+	// instruct, context, …) keeps its own schema verbatim.
+	Data json.RawMessage `json:"data"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -93,11 +95,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid type", http.StatusBadRequest)
 		return
 	}
+	data := req.Data
+	if len(data) == 0 {
+		data = json.RawMessage("{}")
+	}
 	p, err := h.Repo.Create(r.Context(), CreateInput{
 		UserID: user.ID,
 		Type:   PresetType(req.Type),
 		Name:   strings.TrimSpace(req.Name),
-		Data:   req.Data,
+		Data:   data,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -112,8 +118,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateReq struct {
-	Name *string      `json:"name,omitempty"`
-	Data *SamplerData `json:"data,omitempty"`
+	Name *string          `json:"name,omitempty"`
+	Data *json.RawMessage `json:"data,omitempty"`
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
@@ -132,9 +138,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	// If caller provided a Data patch, ensure we pass it as RawMessage.
+	var dataPatch *json.RawMessage
+	if req.Data != nil {
+		raw := *req.Data
+		if len(raw) == 0 {
+			raw = json.RawMessage("{}")
+		}
+		dataPatch = &raw
+	}
 	p, err := h.Repo.Update(r.Context(), user.ID, id, UpdatePatch{
 		Name: req.Name,
-		Data: req.Data,
+		Data: dataPatch,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
