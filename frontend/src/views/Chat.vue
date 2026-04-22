@@ -11,6 +11,8 @@ import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import MessageInput from '@/components/MessageInput.vue'
 import GenerationSettings from '@/components/GenerationSettings.vue'
+import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
+import { usePersonasStore } from '@/stores/personas'
 
 const { t } = useI18n()
 
@@ -26,6 +28,22 @@ const { selected: selectedModel } = storeToRefs(models)
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const settingsOpen = ref(false)
+const personaPickerOpen = ref(false)
+
+const personas = usePersonasStore()
+onMounted(() => personas.fetchAll())
+
+// Resolved "playing as" label for the chat header chip.
+const activePersonaLabel = computed(() => {
+  const chat = currentChat.value
+  const overrideId = chat?.chat_metadata?.persona_id ?? null
+  if (overrideId) {
+    const p = personas.items.find(x => x.id === overrideId)
+    if (p) return p.name
+  }
+  if (personas.defaultPersona) return personas.defaultPersona.name
+  return profile.value?.first_name || profile.value?.username || ''
+})
 
 onMounted(async () => {
   await chats.fetchList()
@@ -129,6 +147,13 @@ const lastAssistantId = computed(() => {
             <v-btn
               variant="text"
               size="small"
+              :title="t('personas.picker.title') + (activePersonaLabel ? ': ' + activePersonaLabel : '')"
+              icon="mdi-drama-masks"
+              @click="personaPickerOpen = true"
+            />
+            <v-btn
+              variant="text"
+              size="small"
               :title="t('chat.sampler.title')"
               icon="mdi-tune-variant"
               @click="settingsOpen = true"
@@ -187,6 +212,12 @@ const lastAssistantId = computed(() => {
 
     <!-- Generation settings drawer — lazily mounts sampler form. -->
     <GenerationSettings v-model="settingsOpen" />
+
+    <!-- Persona picker for the current chat. -->
+    <PersonaPickerDialog
+      v-model="personaPickerOpen"
+      :chat="currentChat ?? null"
+    />
   </div>
 </template>
 

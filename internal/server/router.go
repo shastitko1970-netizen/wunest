@@ -15,6 +15,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
 	"github.com/shastitko1970-netizen/wunest/internal/library"
+	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
@@ -40,6 +41,7 @@ type Server struct {
 	presets    *presets.Handler
 	library    *library.Handler
 	worlds     *worldinfo.Handler
+	personas   *personas.Handler
 }
 
 func New(deps Deps) *Server {
@@ -47,6 +49,7 @@ func New(deps Deps) *Server {
 	charRepo := characters.NewRepository(deps.Postgres)
 	presetRepo := presets.NewRepository(deps.Postgres)
 	worldsRepo := worldinfo.NewRepository(deps.Postgres)
+	personasRepo := personas.NewRepository(deps.Postgres)
 	return &Server{
 		deps:       deps,
 		users:      resolver,
@@ -57,6 +60,7 @@ func New(deps Deps) *Server {
 			Characters: charRepo,
 			Presets:    presetRepo,
 			Worlds:     worldsRepo,
+			Personas:   personasRepo,
 			WuApi:      deps.WuApi,
 		},
 		presets: &presets.Handler{
@@ -72,6 +76,10 @@ func New(deps Deps) *Server {
 			Repo:       worldsRepo,
 			Users:      resolver,
 			Characters: charRepo,
+		},
+		personas: &personas.Handler{
+			Repo:  personasRepo,
+			Users: resolver,
 		},
 	}
 }
@@ -100,11 +108,10 @@ func (s *Server) Router() http.Handler {
 	s.presets.Register(mux, authRequired)
 	s.library.Register(mux, authRequired)
 	s.worlds.Register(mux, authRequired)
+	s.personas.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
-
-	// TODO: /api/personas/*
 
 	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
 	// routes above take priority. Vue Router handles client-side history.

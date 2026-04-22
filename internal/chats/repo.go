@@ -171,6 +171,67 @@ func readSampler(raw json.RawMessage) ChatSamplerMetadata {
 	return envelope.Sampler
 }
 
+// SetPersona sets or clears the per-chat persona override. Pass uuid.Nil to
+// clear. Sibling metadata (sampler etc.) is preserved.
+func (r *Repository) SetPersona(ctx context.Context, userID, id uuid.UUID, personaID uuid.UUID) error {
+	// jsonb_set would only create a string key; for a proper UUID-or-null
+	// we build a tiny JSON value client-side and either set or remove the key.
+	if personaID == uuid.Nil {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'persona_id',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear persona: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+
+	// to_jsonb($3) wraps the text id as a JSON string value.
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{persona_id}', to_jsonb($3::text), true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, personaID.String())
+	if err != nil {
+		return fmt.Errorf("set persona: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// readPersonaID extracts chat_metadata.persona_id if present. Returns uuid.Nil
+// when missing/invalid so callers can treat "no override" uniformly.
+func readPersonaID(raw json.RawMessage) uuid.UUID {
+	if len(raw) == 0 {
+		return uuid.Nil
+	}
+	var envelope struct {
+		PersonaID string `json:"persona_id"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return uuid.Nil
+	}
+	if envelope.PersonaID == "" {
+		return uuid.Nil
+	}
+	id, err := uuid.Parse(envelope.PersonaID)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
+}
+
 func (r *Repository) DeleteChat(ctx context.Context, userID, id uuid.UUID) error {
 	const q = `DELETE FROM nest_chats WHERE user_id = $1 AND id = $2`
 	tag, err := r.pg.Exec(ctx, q, userID, id)

@@ -12,6 +12,7 @@ export interface Chat {
   name: string
   chat_metadata?: {
     sampler?: ChatSamplerMetadata
+    persona_id?: string | null
     [key: string]: unknown
   }
   created_at: string

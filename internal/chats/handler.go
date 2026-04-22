@@ -12,6 +12,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
@@ -26,6 +27,7 @@ type Handler struct {
 	Characters *characters.Repository
 	Presets    *presets.Repository
 	Worlds     *worldinfo.Repository
+	Personas   *personas.Repository
 	WuApi      *wuapi.Client
 }
 
@@ -35,6 +37,7 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
 	mux.Handle("PUT /api/chats/{id}/sampler", authRequired(http.HandlerFunc(h.setSampler)))
+	mux.Handle("PUT /api/chats/{id}/persona", authRequired(http.HandlerFunc(h.setPersona)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
 	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
@@ -135,10 +138,17 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		if ch, err := h.Characters.Get(r.Context(), user.ID, *req.CharacterID); err == nil {
 			greeting := ch.Data.FirstMes
 			if greeting != "" {
-				// Light macro pass so {{user}}/{{char}} render.
+				// Light macro pass so {{user}}/{{char}} render. Use the user's
+				// default persona name if one is set; session name otherwise.
+				personaName := user.DisplayName()
+				if h.Personas != nil {
+					if p, err := h.Personas.Default(r.Context(), user.ID); err == nil && p.Name != "" {
+						personaName = p.Name
+					}
+				}
 				greeting = SubstituteMacros(greeting, PromptInput{
 					Character: ch,
-					UserName:  user.DisplayName(),
+					UserName:  personaName,
 				})
 				if _, err := h.Repo.AppendMessage(r.Context(), chat.ID, RoleAssistant, greeting, &MessageExtras{
 					Model: "greeting",
@@ -176,6 +186,45 @@ func (h *Handler) setSampler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Repo.SetSampler(r.Context(), user.ID, id, req); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setPersona writes (or clears) chat_metadata.persona_id.
+// Body: {"persona_id": "uuid" | null}. Resolution order when streaming is
+// per-chat override → user's default → WuApi first_name.
+func (h *Handler) setPersona(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		PersonaID *uuid.UUID `json:"persona_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	target := uuid.Nil
+	if req.PersonaID != nil {
+		target = *req.PersonaID
+		// Ownership check: only the user's own personas are acceptable.
+		if h.Personas != nil {
+			if _, err := h.Personas.Get(r.Context(), user.ID, target); err != nil {
+				h.writeErr(w, err)
+				return
+			}
+		}
+	}
+	if err := h.Repo.SetPersona(r.Context(), user.ID, id, target); err != nil {
 		h.writeErr(w, err)
 		return
 	}
@@ -292,10 +341,7 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userName := session.WuApi.FirstName
-	if userName == "" {
-		userName = session.WuApi.Username
-	}
+	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 
 	// Apply chat_metadata.sampler as the baseline; explicit fields in the
 	// request body override (common pattern: drawer sliders set chat
@@ -303,7 +349,33 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	in = applyChatSampler(in, readSampler(chat.Metadata))
 
 	// Stream.
-	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, "", in)
+	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
+}
+
+// resolvePersona picks the {{user}} name and "About the user" description
+// for a turn. Order: chat_metadata.persona_id → user's default persona →
+// session fallback (first_name then username). Missing personas are tolerated.
+func (h *Handler) resolvePersona(ctx context.Context, userID uuid.UUID, metadata []byte, firstName, username string) (string, string) {
+	fallback := firstName
+	if fallback == "" {
+		fallback = username
+	}
+	if h.Personas == nil {
+		return fallback, ""
+	}
+	// 1. Per-chat override.
+	if pid := readPersonaID(metadata); pid != uuid.Nil {
+		if p, err := h.Personas.Get(ctx, userID, pid); err == nil {
+			return p.Name, p.Description
+		}
+		// Fall through on error — persona was deleted etc.
+	}
+	// 2. Account-wide default.
+	if p, err := h.Personas.Default(ctx, userID); err == nil {
+		return p.Name, p.Description
+	}
+	// 3. Session name.
+	return fallback, ""
 }
 
 // applyChatSampler merges ChatSamplerMetadata defaults into SendMessageInput
@@ -496,16 +568,13 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return
 	}
-	userName := session.WuApi.FirstName
-	if userName == "" {
-		userName = session.WuApi.Username
-	}
+	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 
 	// Same sampler merge as sendMessage so a regenerate honours the same
 	// drawer-saved defaults.
 	in = applyChatSampler(in, readSamplerFromChat(chat))
 
-	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, "", in)
+	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
 }
 
 // --- helpers ---

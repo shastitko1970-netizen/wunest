@@ -12,6 +12,7 @@ import NewCharacterDialog from '@/components/NewCharacterDialog.vue'
 import BrowseLibraryDialog from '@/components/BrowseLibraryDialog.vue'
 import WorldsPanel from '@/components/WorldsPanel.vue'
 import CharacterWorldsDialog from '@/components/CharacterWorldsDialog.vue'
+import PersonasPanel from '@/components/PersonasPanel.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
@@ -111,8 +112,8 @@ async function confirmDelete() {
     >
       <v-tab value="characters">{{ t('library.tabs.characters') }}</v-tab>
       <v-tab value="worlds">{{ t('library.tabs.worlds') }}</v-tab>
+      <v-tab value="personas">{{ t('library.tabs.personas') }}</v-tab>
       <v-tab value="presets" disabled>{{ t('library.tabs.presets') }}</v-tab>
-      <v-tab value="personas" disabled>{{ t('library.tabs.personas') }}</v-tab>
     </v-tabs>
 
     <v-divider />
@@ -205,6 +206,10 @@ async function confirmDelete() {
 
       <v-window-item value="worlds">
         <WorldsPanel class="mt-3" />
+      </v-window-item>
+
+      <v-window-item value="personas">
+        <PersonasPanel class="mt-3" />
       </v-window-item>
     </v-window>
 
