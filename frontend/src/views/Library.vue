@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useCharactersStore } from '@/stores/characters'
 import { useChatsStore } from '@/stores/chats'
@@ -13,14 +13,33 @@ import BrowseLibraryDialog from '@/components/BrowseLibraryDialog.vue'
 import WorldsPanel from '@/components/WorldsPanel.vue'
 import CharacterWorldsDialog from '@/components/CharacterWorldsDialog.vue'
 import PersonasPanel from '@/components/PersonasPanel.vue'
+import PresetsPanel from '@/components/PresetsPanel.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
 const chats = useChatsStore()
 const router = useRouter()
+const route = useRoute()
 const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = storeToRefs(store)
 
-const activeTab = ref<'characters' | 'worlds' | 'personas'>('characters')
+// Tab selection is mirrored to ?tab=… so deep links (and the /presets
+// legacy-redirect) can land on the right pane.
+type Tab = 'characters' | 'worlds' | 'personas' | 'presets'
+const ALL_TABS: Tab[] = ['characters', 'worlds', 'personas', 'presets']
+
+function tabFromQuery(q: unknown): Tab {
+  return typeof q === 'string' && (ALL_TABS as string[]).includes(q)
+    ? (q as Tab)
+    : 'characters'
+}
+
+const activeTab = ref<Tab>(tabFromQuery(route.query.tab))
+
+watch(() => route.query.tab, (q) => { activeTab.value = tabFromQuery(q) })
+watch(activeTab, (t) => {
+  if (t === tabFromQuery(route.query.tab)) return
+  router.replace({ query: { ...route.query, tab: t === 'characters' ? undefined : t } })
+})
 const importOpen = ref(false)
 const createOpen = ref(false)
 const browseOpen = ref(false)
@@ -110,14 +129,14 @@ async function confirmDelete() {
       class="mt-6"
       :grow="false"
     >
-      <!-- Library tabs only cover the content types you import or create here:
-           Characters / Lorebooks / Personas. Generation templates (Пресеты)
-           live on their own page `/presets` — topbar's "Параметры" button —
-           and having a tab here that duplicates or disables that flow was
-           confusing. -->
+      <!-- All "things in your library" live as tabs here: content you create
+           or import. Generation templates (Пресеты) were a standalone page
+           before; consolidating here per user request keeps one roof over
+           characters/lorebooks/personas/templates. -->
       <v-tab value="characters">{{ t('library.tabs.characters') }}</v-tab>
       <v-tab value="worlds">{{ t('library.tabs.worlds') }}</v-tab>
       <v-tab value="personas">{{ t('library.tabs.personas') }}</v-tab>
+      <v-tab value="presets">{{ t('library.tabs.presets') }}</v-tab>
     </v-tabs>
 
     <v-divider />
@@ -214,6 +233,10 @@ async function confirmDelete() {
 
       <v-window-item value="personas">
         <PersonasPanel class="mt-3" />
+      </v-window-item>
+
+      <v-window-item value="presets">
+        <PresetsPanel class="mt-3" />
       </v-window-item>
     </v-window>
 

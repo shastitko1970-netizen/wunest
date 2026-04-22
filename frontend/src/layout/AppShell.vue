@@ -55,17 +55,16 @@ interface NavItem {
 const navItems = computed<NavItem[]>(() => [
   { to: '/chat', icon: 'mdi-forum-outline', label: t('nav.chat') },
   { to: '/library', icon: 'mdi-bookshelf', label: t('nav.library') },
-  { to: '/presets', icon: 'mdi-tune-variant', label: t('nav.presets') },
   { to: '/account', icon: 'mdi-account-circle-outline', label: t('nav.account') },
   { to: '/settings', icon: 'mdi-cog-outline', label: t('nav.settings') },
   { to: '/studio', icon: 'mdi-wrench-outline', label: t('nav.studio'), disabled: true },
 ])
 
-// Subset of navItems shown directly in the topbar on desktop. We keep
-// Account/Settings out of this strip because they live under the avatar
-// menu — fewer items = more room for the core three (Chat/Library/Presets).
+// Subset of navItems shown directly in the topbar on desktop. Presets used
+// to be here as a separate destination; folded into /library as a tab so
+// the topbar stays lean (Chat + Library cover everything).
 const topbarNav = computed<NavItem[]>(() =>
-  navItems.value.filter(i => ['/chat', '/library', '/presets'].includes(i.to)),
+  navItems.value.filter(i => ['/chat', '/library'].includes(i.to)),
 )
 
 const goldDisplay = computed(() =>
