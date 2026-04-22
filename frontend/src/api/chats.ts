@@ -100,6 +100,34 @@ export const chatsApi = {
       body: JSON.stringify(note),
     }),
 
+  /** Download the chat as JSONL. Returns a Blob + suggested filename. */
+  async exportJsonl(id: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await fetch(`/api/chats/${id}/export`, { credentials: 'include' })
+    if (!res.ok) throw new Error(`Export failed (${res.status})`)
+    // Content-Disposition: attachment; filename="Chat.jsonl"
+    const disp = res.headers.get('Content-Disposition') ?? ''
+    const match = /filename="?([^";]+)"?/i.exec(disp)
+    const filename = match?.[1] ?? `chat-${id}.jsonl`
+    const blob = await res.blob()
+    return { blob, filename }
+  },
+
+  /** Upload a JSONL file, creating a new chat. Returns {chat, imported}. */
+  async importJsonl(file: File): Promise<{ chat: Chat; imported: number }> {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/chats/import', {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(body || `Import failed (${res.status})`)
+    }
+    return res.json()
+  },
+
   delete: (id: string) =>
     apiFetch<void>(`/api/chats/${id}`, { method: 'DELETE' }),
 

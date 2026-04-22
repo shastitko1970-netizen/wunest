@@ -51,6 +51,9 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	// Swipes — alternate assistant outputs for the same turn.
 	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.swipeMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.selectSwipe)))
+	// Portability: export current chat as JSONL, import a .jsonl into a new chat.
+	mux.Handle("GET /api/chats/{id}/export", authRequired(http.HandlerFunc(h.exportChat)))
+	mux.Handle("POST /api/chats/import", authRequired(http.HandlerFunc(h.importChat)))
 }
 
 // --- chat CRUD ---
@@ -585,6 +588,253 @@ func (h *Handler) editMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// exportChat streams the full chat (metadata + all messages) as JSONL.
+// First line is a `{"type":"chat_meta",...}` envelope; subsequent lines are
+// one message each (`{"type":"message","role":...,"content":...}`).
+// Designed to round-trip with importChat, and to be readable-ish by SillyTavern
+// users who'd manually massage the file.
+func (h *Handler) exportChat(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.Repo.GetChat(r.Context(), user.ID, chatID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	msgs, err := h.Repo.ListMessages(r.Context(), chatID, true) // include hidden for fidelity
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	// Optional character name for the meta line. Silent fallback if missing.
+	var charName string
+	if chat.CharacterID != nil && h.Characters != nil {
+		if c, err := h.Characters.Get(r.Context(), user.ID, *chat.CharacterID); err == nil {
+			charName = c.Name
+		}
+	}
+
+	filename := sanitiseFilename(chat.Name) + ".jsonl"
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	enc := json.NewEncoder(w)
+
+	// Meta line. chat_metadata is the raw JSONB, so the export carries
+	// whatever knobs (sampler, persona_id, authors_note) the chat had.
+	meta := map[string]any{
+		"type":           "chat_meta",
+		"schema":         "wunest-chat-v1",
+		"name":           chat.Name,
+		"character_name": charName,
+		"created_at":     chat.CreatedAt,
+		"metadata":       json.RawMessage(chat.Metadata),
+	}
+	if err := enc.Encode(meta); err != nil {
+		slog.Error("export meta", "err", err)
+		return
+	}
+	// Message lines. Preserves swipes + extras verbatim.
+	for _, m := range msgs {
+		line := map[string]any{
+			"type":       "message",
+			"role":       m.Role,
+			"content":    m.Content,
+			"swipes":     json.RawMessage(m.Swipes),
+			"swipe_id":   m.SwipeID,
+			"extras":     json.RawMessage(m.Extras),
+			"hidden":     m.Hidden,
+			"created_at": m.CreatedAt,
+		}
+		if err := enc.Encode(line); err != nil {
+			slog.Error("export message", "err", err, "id", m.ID)
+			return
+		}
+	}
+}
+
+// importChat consumes a JSONL file upload (same shape as exportChat's output)
+// and creates a fresh chat + messages owned by the caller. Character is
+// re-resolved by name if one of the user's characters matches; otherwise
+// the chat comes in character-less.
+func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	// Accept either multipart (file upload) or direct application/x-ndjson.
+	// 16 MiB cap — generous for even long chats.
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024*1024)
+
+	var body []byte
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if err := r.ParseMultipartForm(16 * 1024 * 1024); err != nil {
+			http.Error(w, "parse multipart: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "missing file field", http.StatusBadRequest)
+			return
+		}
+		defer f.Close()
+		body, err = io.ReadAll(f)
+		if err != nil {
+			http.Error(w, "read file", http.StatusBadRequest)
+			return
+		}
+	} else {
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body", http.StatusBadRequest)
+			return
+		}
+	}
+	if len(body) == 0 {
+		http.Error(w, "empty payload", http.StatusBadRequest)
+		return
+	}
+
+	// Line-by-line decode. First meta, rest messages. Tolerant of leading
+	// blank lines. Strict on unknown `type` values — fail fast beats silent
+	// partial imports.
+	lines := splitJSONL(body)
+	if len(lines) == 0 {
+		http.Error(w, "no JSON lines", http.StatusBadRequest)
+		return
+	}
+
+	var metaLine struct {
+		Type          string          `json:"type"`
+		Name          string          `json:"name"`
+		CharacterName string          `json:"character_name"`
+		Metadata      json.RawMessage `json:"metadata"`
+	}
+	if err := json.Unmarshal(lines[0], &metaLine); err != nil || metaLine.Type != "chat_meta" {
+		http.Error(w, "first line must be chat_meta", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(metaLine.Name)
+	if name == "" {
+		name = "Imported chat"
+	}
+
+	// Resolve character by name (best-effort). Not fatal if missing — the
+	// chat still gets created, just character-less.
+	var charID *uuid.UUID
+	if metaLine.CharacterName != "" && h.Characters != nil {
+		if found, err := h.Characters.FindByName(r.Context(), user.ID, metaLine.CharacterName); err == nil && found != nil {
+			id := found.ID
+			charID = &id
+		}
+	}
+
+	chat, err := h.Repo.CreateChat(r.Context(), CreateChatInput{
+		UserID:      user.ID,
+		CharacterID: charID,
+		Name:        name,
+		Metadata:    metaLine.Metadata,
+	})
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	// Messages — insert in order, preserving role/content/swipes/extras.
+	type msgLine struct {
+		Type    string          `json:"type"`
+		Role    string          `json:"role"`
+		Content string          `json:"content"`
+		Swipes  json.RawMessage `json:"swipes"`
+		SwipeID int             `json:"swipe_id"`
+		Extras  json.RawMessage `json:"extras"`
+		Hidden  bool            `json:"hidden"`
+	}
+	imported := 0
+	for _, line := range lines[1:] {
+		var m msgLine
+		if err := json.Unmarshal(line, &m); err != nil || m.Type != "message" {
+			continue // skip unknown/malformed lines; don't blow up the whole import
+		}
+		role := Role(m.Role)
+		if role != RoleUser && role != RoleAssistant && role != RoleSystem {
+			continue
+		}
+		extras := parseMessageExtras(m.Extras)
+		appended, err := h.Repo.AppendMessage(r.Context(), chat.ID, role, m.Content, extras)
+		if err != nil {
+			slog.Warn("import: append", "err", err)
+			continue
+		}
+		// Restore swipes + swipe_id if the line carried them.
+		if len(m.Swipes) > 0 && string(m.Swipes) != "null" && string(m.Swipes) != "[]" {
+			_ = h.Repo.RestoreSwipes(r.Context(), chat.ID, appended.ID, m.Swipes, m.SwipeID)
+		}
+		imported++
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"chat":     chat,
+		"imported": imported,
+	})
+}
+
+// splitJSONL trims each line of its surrounding whitespace and skips empties.
+// Accepts LF and CRLF. Not a general JSON-streaming decoder — we trust the
+// export shape (one object per line, no line-break inside objects).
+func splitJSONL(body []byte) [][]byte {
+	lines := strings.Split(string(body), "\n")
+	out := make([][]byte, 0, len(lines))
+	for _, l := range lines {
+		trimmed := strings.TrimRight(l, "\r\t ")
+		trimmed = strings.TrimLeft(trimmed, "\t ")
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, []byte(trimmed))
+	}
+	return out
+}
+
+// parseMessageExtras turns a JSON blob back into *MessageExtras for insert.
+// Nil / empty / parse-failure → nil, which AppendMessage treats as "no extras".
+func parseMessageExtras(raw json.RawMessage) *MessageExtras {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil
+	}
+	var e MessageExtras
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return nil
+	}
+	return &e
+}
+
+// sanitiseFilename strips characters that are unsafe in most filesystems
+// plus trims runs of separators. Output is 1..80 chars, ASCII-safe enough
+// for Content-Disposition. Cyrillic + punctuation are preserved because
+// modern browsers handle UTF-8 filenames in headers.
+func sanitiseFilename(s string) string {
+	if s == "" {
+		return "chat"
+	}
+	replacer := strings.NewReplacer(`"`, `'`, "/", "-", "\\", "-", "\n", " ", "\r", " ")
+	out := replacer.Replace(s)
+	if len(out) > 80 {
+		out = out[:80]
+	}
+	return out
 }
 
 // swipeMessage generates a new variant for an existing assistant message

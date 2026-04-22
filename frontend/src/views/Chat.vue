@@ -14,6 +14,7 @@ import GenerationSettings from '@/components/GenerationSettings.vue'
 import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
 import { usePersonasStore } from '@/stores/personas'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
+import { chatsApi } from '@/api/chats'
 
 const { t } = useI18n()
 
@@ -97,6 +98,22 @@ async function onSelectSwipe(m: Message, swipeID: number) {
   await chats.selectSwipe(m, swipeID)
 }
 
+async function exportCurrentChat() {
+  const id = currentChat.value?.id
+  if (!id) return
+  try {
+    const { blob, filename } = await chatsApi.exportJsonl(id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('export failed', e)
+  }
+}
+
 async function onEditMessage(m: Message, newContent: string) {
   try {
     await chats.editMessage(m, newContent)
@@ -172,6 +189,13 @@ const lastAssistantId = computed(() => {
               :title="t('personas.picker.title') + (activePersonaLabel ? ': ' + activePersonaLabel : '')"
               icon="mdi-drama-masks"
               @click="personaPickerOpen = true"
+            />
+            <v-btn
+              variant="text"
+              size="small"
+              :title="t('chat.export.btn')"
+              icon="mdi-download-outline"
+              @click="exportCurrentChat"
             />
             <v-btn
               variant="text"

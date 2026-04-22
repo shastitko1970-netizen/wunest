@@ -107,6 +107,37 @@ func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character,
 	return &c, nil
 }
 
+// FindByName does a case-insensitive name lookup scoped to a user, returning
+// the first match. Used by chat import to re-associate a restored chat with
+// its character when the export carried a `character_name`. Returns
+// ErrNotFound when nothing matches.
+func (r *Repository) FindByName(ctx context.Context, userID uuid.UUID, name string) (*Character, error) {
+	const q = `
+		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		       created_at, updated_at
+		  FROM nest_characters
+		 WHERE user_id = $1 AND lower(name) = lower($2)
+		 ORDER BY created_at ASC
+		 LIMIT 1
+	`
+	var c Character
+	var dataBytes []byte
+	err := r.pg.QueryRow(ctx, q, userID, name).Scan(
+		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
+		&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find by name: %w", err)
+	}
+	if err := json.Unmarshal(dataBytes, &c.Data); err != nil {
+		return nil, fmt.Errorf("unmarshal data: %w", err)
+	}
+	return &c, nil
+}
+
 // Create inserts a new character row and returns the hydrated model.
 func (r *Repository) Create(ctx context.Context, in CreateInput) (*Character, error) {
 	dataBytes, err := json.Marshal(in.Data)

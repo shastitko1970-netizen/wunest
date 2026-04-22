@@ -411,6 +411,12 @@ const messages = {
         next: 'Следующий вариант',
         newVariant: 'Новый вариант (свайп)',
       },
+      export: {
+        btn: 'Экспорт в .jsonl',
+      },
+      import: {
+        btn: 'Импорт .jsonl',
+      },
       authorsNote: {
         label: 'Author\'s Note',
         placeholder: 'Короткая подсказка, подмешиваемая в середину диалога…',
@@ -898,6 +904,12 @@ const messages = {
         prev: 'Previous variant',
         next: 'Next variant',
         newVariant: 'New variant (swipe)',
+      },
+      export: {
+        btn: 'Export to .jsonl',
+      },
+      import: {
+        btn: 'Import .jsonl',
       },
       authorsNote: {
         label: "Author's Note",

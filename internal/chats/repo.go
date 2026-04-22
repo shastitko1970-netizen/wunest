@@ -425,6 +425,26 @@ func (r *Repository) EditMessageContent(ctx context.Context, chatID uuid.UUID, m
 	return nil
 }
 
+// RestoreSwipes overwrites the swipes[] and swipe_id columns for a message
+// without touching content. Used by the chat import path to faithfully
+// reinstate alternate variants from a .jsonl export. The raw JSON is
+// forwarded verbatim — callers are expected to have validated shape.
+func (r *Repository) RestoreSwipes(ctx context.Context, chatID uuid.UUID, messageID int64, swipesJSON json.RawMessage, swipeID int) error {
+	const q = `
+		UPDATE nest_messages
+		   SET swipes = $3::jsonb, swipe_id = $4
+		 WHERE chat_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, chatID, messageID, string(swipesJSON), swipeID)
+	if err != nil {
+		return fmt.Errorf("restore swipes: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GetMessage fetches a single message by chat + id, for handlers that need
 // to inspect an existing row (swipe, edit, delete confirmation).
 func (r *Repository) GetMessage(ctx context.Context, chatID uuid.UUID, messageID int64) (*Message, error) {

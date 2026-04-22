@@ -1,15 +1,33 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useChatsStore } from '@/stores/chats'
+import { chatsApi } from '@/api/chats'
 import type { Chat } from '@/api/chats'
 
 const { t } = useI18n()
 const router = useRouter()
 const store = useChatsStore()
 const { list, currentId, listLoading, listError } = storeToRefs(store)
+
+const importInput = ref<HTMLInputElement | null>(null)
+const importError = ref<string | null>(null)
+
+async function onImportPick(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0] ?? null
+  if (importInput.value) importInput.value.value = ''
+  if (!f) return
+  importError.value = null
+  try {
+    const { chat } = await chatsApi.importJsonl(f)
+    await store.fetchList()
+    router.push(`/chat/${chat.id}`)
+  } catch (err) {
+    importError.value = (err as Error).message
+  }
+}
 
 const GROUP_KEYS = {
   today: 'chat.list.groupToday',
@@ -36,13 +54,42 @@ async function del(c: Chat, ev: Event) {
   <div class="nest-chatlist">
     <div class="nest-chatlist-header">
       <span class="nest-eyebrow">{{ t('chat.list.title') }}</span>
-      <v-btn
-        size="x-small"
-        variant="text"
-        icon="mdi-plus"
-        @click="router.push('/library')"
-      />
+      <div class="d-flex ga-1 align-center">
+        <v-btn
+          size="x-small"
+          variant="text"
+          icon="mdi-upload"
+          :title="t('chat.import.btn')"
+          @click="importInput?.click()"
+        />
+        <input
+          ref="importInput"
+          type="file"
+          accept="application/x-ndjson,application/jsonl,.jsonl,.json,text/plain"
+          hidden
+          @change="onImportPick"
+        />
+        <v-btn
+          size="x-small"
+          variant="text"
+          icon="mdi-plus"
+          :title="t('chat.list.browse')"
+          @click="router.push('/library')"
+        />
+      </div>
     </div>
+
+    <v-alert
+      v-if="importError"
+      type="error"
+      variant="tonal"
+      density="compact"
+      closable
+      class="ma-2"
+      @click:close="importError = null"
+    >
+      {{ importError }}
+    </v-alert>
 
     <div v-if="listLoading" class="nest-state">
       <v-progress-circular indeterminate size="20" />
