@@ -312,14 +312,14 @@ const hasDraftChanges = computed(() => {
                 class="mb-3"
               />
 
-              <div class="d-flex ga-3 mb-3">
+              <div class="d-flex flex-wrap ga-3 mb-3">
                 <v-text-field
                   :model-value="keysToString(entry)"
                   :label="t('worlds.keysLabel')"
                   :placeholder="t('worlds.keysPlaceholder')"
                   density="compact"
                   hide-details
-                  style="flex: 1"
+                  class="nest-entry-keys"
                   @update:model-value="v => (entry.keys = stringToKeys(v))"
                 />
                 <v-select
@@ -331,7 +331,7 @@ const hasDraftChanges = computed(() => {
                   :label="t('worlds.positionLabel')"
                   density="compact"
                   hide-details
-                  style="width: 180px"
+                  class="nest-entry-position"
                 />
               </div>
 
@@ -368,7 +368,7 @@ const hasDraftChanges = computed(() => {
                   type="number"
                   density="compact"
                   hide-details
-                  style="width: 120px"
+                  class="nest-entry-num"
                 />
                 <v-text-field
                   v-model.number="entry.depth"
@@ -376,7 +376,7 @@ const hasDraftChanges = computed(() => {
                   type="number"
                   density="compact"
                   hide-details
-                  style="width: 100px"
+                  class="nest-entry-num"
                 />
               </div>
 
@@ -617,10 +617,26 @@ const hasDraftChanges = computed(() => {
   border: 1px solid var(--nest-border);
 }
 
+// Entry editor field sizes — flex-basis instead of rigid widths so they
+// wrap cleanly on narrow viewports without clipping number spinners.
+.nest-entry-keys     { flex: 1 1 240px; min-width: 0; }
+.nest-entry-position { flex: 0 1 180px; min-width: 140px; }
+.nest-entry-num      { flex: 0 1 120px; min-width: 90px; }
+
 @media (max-width: 860px) {
   .nest-worlds-panel {
     grid-template-columns: 1fr;
   }
   .nest-worlds-list { max-height: none; }
+}
+
+// iPhone SE territory: stack the keys row fully, let number inputs be
+// full-width. Editor right column gets a single visible column.
+@media (max-width: 480px) {
+  .nest-worlds-editor { padding: 12px; }
+  .nest-entry-keys, .nest-entry-position { flex: 1 1 100%; }
+  .nest-entry-num { flex: 1 1 calc(50% - 6px); }
+  .nest-editor-head { flex-direction: column; align-items: stretch; }
+  .nest-editor-name { min-width: 0; }
 }
 </style>

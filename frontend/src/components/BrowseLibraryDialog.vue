@@ -348,7 +348,10 @@ function stars(n: number): string {
   flex-wrap: wrap;
 }
 
-.nest-browse-search { flex: 1; min-width: 260px; }
+// 260px was too chunky on phones — eats the whole filter row. Soft
+// floor at 160px; flex-wrap in the parent lets the sort/nsfw drop
+// below the input when there's not enough horizontal room.
+.nest-browse-search { flex: 1 1 160px; min-width: 0; }
 
 .nest-browse-body {
   overflow-y: auto;

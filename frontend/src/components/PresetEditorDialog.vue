@@ -564,7 +564,13 @@ function close() { emit('update:modelValue', false) }
 }
 .nest-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .nest-field-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.nest-field-half { flex: 1; min-width: 180px; }
+.nest-field-half { flex: 1 1 180px; min-width: 0; }
+
+// Dialog + its rows squeeze onto iPhone SE cleanly.
+@media (max-width: 480px) {
+  .nest-field-half { flex: 1 1 100%; }
+  .nest-pe-body { padding-left: 16px; padding-right: 16px; }
+}
 .nest-field-label {
   display: flex;
   justify-content: space-between;

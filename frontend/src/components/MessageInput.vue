@@ -170,6 +170,15 @@ function onKeydown(e: KeyboardEvent) {
   border-radius: var(--nest-radius-pill);
   cursor: pointer;
   transition: border-color var(--nest-transition-fast), color var(--nest-transition-fast);
+  // Cap width on narrow viewports so a long model id doesn't push Send off-screen.
+  max-width: 60vw;
+  min-width: 0;
+
+  & > .nest-mono {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   &:hover {
     border-color: var(--nest-accent);
