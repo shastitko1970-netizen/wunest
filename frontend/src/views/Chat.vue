@@ -222,23 +222,30 @@ const lastAssistantId = computed(() => {
 </template>
 
 <style lang="scss" scoped>
+// 100dvh keeps mobile browsers honest as their address bar collapses;
+// the appbar height is subtracted so the chat fills exactly the visible
+// area below it.
 .nest-chat-layout {
-  height: calc(100vh - var(--nest-header-height));
+  height: calc(100dvh - var(--nest-header-height));
   display: grid;
   grid-template-columns: 280px 1fr;
+  grid-template-rows: 1fr;       // explicit so .nest-chat-main inherits height
   background: var(--nest-bg);
+  overflow: hidden;              // input must stay pinned; no parent scroll
 }
 
 .nest-chat-sidebar {
   border-right: 1px solid var(--nest-border);
   background: var(--nest-bg-elevated);
   overflow: hidden;
+  min-height: 0;
 }
 
 .nest-chat-main {
   display: flex;
   flex-direction: column;
-  min-width: 0; /* so children with overflow work inside grid */
+  min-width: 0;                  // children with overflow work inside grid
+  min-height: 0;                 // critical: lets the inner scroll area shrink
 }
 
 .nest-chat-empty {

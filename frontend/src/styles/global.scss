@@ -35,8 +35,10 @@
   --nest-transition-fast: 0.15s ease;
   --nest-transition-base: 0.2s ease;
 
-  // Layout
-  --nest-header-height: 64px;
+  // Layout — keep --nest-header-height in sync with v-app-bar height in
+  // AppShell.vue (currently height="56"). Off-by-one here cascades into
+  // chat-area math and pushes the input bar below the fold.
+  --nest-header-height: 56px;
   --nest-sidebar-width: 260px;
   --nest-content-max:   820px;
 }

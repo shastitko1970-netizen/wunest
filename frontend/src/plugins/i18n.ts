@@ -163,7 +163,9 @@ const messages = {
       avatarLabel: 'URL аватара',
       avatarPlaceholder: 'https://...',
       empty: {
-        hint: 'Создай первую персону — её имя заменит {{user}} в промптах.',
+        // {'literal'} is vue-i18n's escape for braces; otherwise it tries
+        // to parse {{user}} as a placeholder and throws a SyntaxError.
+        hint: "Создай первую персону — её имя заменит {'{{user}}'} в промптах.",
       },
       delete: {
         title: 'Удалить персону?',
@@ -176,7 +178,7 @@ const messages = {
       },
       picker: {
         title: 'Играешь за',
-        hint: 'Персона подставляется в {{user}} и добавляется в системный промпт как «About the user».',
+        hint: "Персона подставляется в {'{{user}}'} и добавляется в системный промпт как «About the user».",
         useDefault: 'Использовать по умолчанию',
         defaultHint: 'Сейчас: {name} (основная)',
         sessionHint: 'Сейчас: {name} (имя из WuApi)',
@@ -468,7 +470,8 @@ const messages = {
       avatarLabel: 'Avatar URL',
       avatarPlaceholder: 'https://...',
       empty: {
-        hint: 'Create your first persona — its name replaces {{user}} in prompts.',
+        // {'literal'} escape: vue-i18n parses bare {{user}} as a malformed placeholder.
+        hint: "Create your first persona — its name replaces {'{{user}}'} in prompts.",
       },
       delete: {
         title: 'Delete persona?',
@@ -481,7 +484,7 @@ const messages = {
       },
       picker: {
         title: 'Playing as',
-        hint: 'The persona is substituted into {{user}} and added to the system prompt as "About the user".',
+        hint: "The persona is substituted into {'{{user}}'} and added to the system prompt as \"About the user\".",
         useDefault: 'Use default',
         defaultHint: 'Currently: {name} (default)',
         sessionHint: 'Currently: {name} (WuApi name)',
