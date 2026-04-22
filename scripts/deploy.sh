@@ -65,11 +65,23 @@ for i in {1..30}; do
 done
 
 # ── Swap nginx upstream ──────────────────────────────
+# CRITICAL: if nginx fails to reload we must NOT stop the old container,
+# otherwise we're left with a broken upstream and the old target gone.
+# We only proceed to the stop step once nginx is serving the new color.
 echo "[deploy] swapping nginx upstream to :$NEW_PORT ..."
 cat > /etc/nginx/conf.d/wunest-upstream.conf <<EOF
 upstream wunest_backend { server 127.0.0.1:$NEW_PORT; }
 EOF
-nginx -t && systemctl reload nginx
+if ! nginx -t 2>&1; then
+    echo "[deploy] FAILED — nginx config invalid; reverting upstream and keeping $ACTIVE active"
+    cat > /etc/nginx/conf.d/wunest-upstream.conf <<EOF
+upstream wunest_backend { server 127.0.0.1:$OLD_PORT; }
+EOF
+    # Old container still up, so traffic keeps flowing. Kill the new one.
+    docker rm -f "wunest-$NEW" >/dev/null 2>&1 || true
+    exit 1
+fi
+systemctl reload nginx
 
 # ── Stop old ─────────────────────────────────────────
 if [[ "$ACTIVE" != "none" ]]; then
