@@ -10,40 +10,60 @@ import (
 // an entry doesn't specify a per-entry depth and the caller doesn't override.
 const DefaultScanDepth = 4
 
+// MaxRecursionDepth caps how many recursive passes Activate runs after the
+// primary pass. Three is the SillyTavern default and plenty for any
+// reasonable lore pack — past that it's almost always a cycle.
+const MaxRecursionDepth = 3
+
+// activatedRow captures one fired entry. Lives at package scope so the
+// recursion helper can accept a slice of it without anonymous-struct
+// type mismatches.
+type activatedRow struct {
+	e        *Entry
+	bookIdx  int
+	entryIdx int
+	reason   string
+	trace    Trace
+}
+
+// entryKey is the (book, entry) tuple used to deduplicate activations
+// across recursion passes.
+type entryKey struct{ b, e int }
+
 // Activate runs every enabled entry across all provided books against the
 // recent chat tail, and returns the entries grouped by position. The result
 // is deterministic: constant entries come first, then key-matched entries,
 // sorted within each position by (InsertionOrder, book index, entry index).
 //
-// v1 scope:
+// Scope:
 //   - Keys are OR-matched (any hit activates).
 //   - Selective + SecondaryKeys: when true, at least one secondary key must
 //     also match in the scanned window.
 //   - Constant entries always fire regardless of keys.
-//   - Case-insensitive substring match by default. An entry can flip to
-//     case-sensitive via CaseSensitive=true. Word-boundary matching is
-//     deferred to v1.1.
-//   - Probability / recursion / token budgeting: deferred.
+//   - Case-insensitive substring match by default; `CaseSensitive=true` flips.
+//   - Recursive scanning: after the primary pass, activated entries'
+//     content becomes a secondary scan window. Non-activated entries whose
+//     keys hit that window fire too. Repeats up to MaxRecursionDepth (3)
+//     iterations or until a pass activates nothing new — whichever comes
+//     first. Per-entry opt-outs: `ExcludeRecursion` (entry's content is
+//     omitted from the next pass's window) and `PreventRecursion` (entry
+//     cannot be activated by recursion, only by the primary history scan).
+//   - Probability / token budgeting: deferred.
 func Activate(in ActivationInput) Activated {
 	depth := in.DefaultDepth
 	if depth <= 0 {
 		depth = DefaultScanDepth
 	}
 
-	// For each entry, pick a lowercased scan window sized to the entry's Depth.
-	// Two windows cached: the global one and anything shorter an entry asks for.
 	globalWin := tailJoin(in.Recent, depth)
 	globalWinLower := strings.ToLower(globalWin)
 
-	type activatedRow struct {
-		e        *Entry
-		bookIdx  int
-		entryIdx int
-		reason   string
-		trace    Trace
-	}
 	rows := make([]activatedRow, 0)
+	// Track (bookIdx, entryIdx) → already activated so recursion doesn't
+	// double-fire entries.
+	activated := make(map[entryKey]struct{})
 
+	// Primary pass — scan the history window.
 	for bi, book := range in.Books {
 		if book == nil {
 			continue
@@ -54,17 +74,16 @@ func Activate(in ActivationInput) Activated {
 				continue
 			}
 
-			// Constant: fires unconditionally.
+			// Constant: fires unconditionally, no scan.
 			if e.Constant {
 				rows = append(rows, activatedRow{
 					e: e, bookIdx: bi, entryIdx: ei,
 					reason: "constant",
 					trace: Trace{
-						WorldID: book.ID,
-						EntryID: e.ID,
-						Reason:  "constant",
+						WorldID: book.ID, EntryID: e.ID, Reason: "constant",
 					},
 				})
+				activated[entryKey{bi, ei}] = struct{}{}
 				continue
 			}
 
@@ -72,55 +91,76 @@ func Activate(in ActivationInput) Activated {
 				continue
 			}
 
-			// Choose scan window for this entry.
-			var win, winLower string
+			// Choose scan window for this entry — global or per-entry.
+			win, winLower := globalWin, globalWinLower
 			if e.Depth > 0 && e.Depth != depth {
 				win = tailJoin(in.Recent, e.Depth)
 				winLower = strings.ToLower(win)
-			} else {
-				win = globalWin
-				winLower = globalWinLower
 			}
 			if win == "" {
 				continue
 			}
 
-			caseSens := e.CaseSensitive != nil && *e.CaseSensitive
-
-			primaryHit, primaryKey := containsAny(win, winLower, e.Keys, caseSens)
-			if primaryHit == "" {
-				continue
-			}
-
-			if e.Selective && len(e.SecondaryKeys) > 0 {
-				secHit, secKey := containsAny(win, winLower, e.SecondaryKeys, caseSens)
-				if secHit == "" {
-					continue
-				}
-				reason := fmt.Sprintf("key: %s + secondary: %s", primaryKey, secKey)
+			if row, ok := matchEntry(e, win, winLower, "key: %s", "key: %s + secondary: %s"); ok {
 				rows = append(rows, activatedRow{
 					e: e, bookIdx: bi, entryIdx: ei,
-					reason: reason,
+					reason: row.reason,
 					trace: Trace{
-						WorldID: book.ID,
-						EntryID: e.ID,
-						Reason:  reason,
+						WorldID: book.ID, EntryID: e.ID, Reason: row.reason,
 					},
 				})
+				activated[entryKey{bi, ei}] = struct{}{}
+			}
+		}
+	}
+
+	// Recursive passes — feed the just-activated content back in as a new
+	// scan window; pick up entries whose keys hit that text. Stops early
+	// when a pass adds nothing, or at MaxRecursionDepth iterations.
+	lastPassContents := collectRecursionText(rows, activated, in.Books, 0 /* all primary-pass rows qualify */)
+	for iter := 0; iter < MaxRecursionDepth && lastPassContents != ""; iter++ {
+		lower := strings.ToLower(lastPassContents)
+		addedThisIter := 0
+		// Track the starting index so we only collect recursion text from
+		// rows added in THIS iteration for the next one.
+		startLen := len(rows)
+
+		for bi, book := range in.Books {
+			if book == nil {
 				continue
 			}
+			for ei := range book.Entries {
+				e := &book.Entries[ei]
+				if !e.Enabled || e.Constant || e.PreventRecursion {
+					continue
+				}
+				if _, already := activated[entryKey{bi, ei}]; already {
+					continue
+				}
+				if len(e.Keys) == 0 {
+					continue
+				}
 
-			reason := "key: " + primaryKey
-			rows = append(rows, activatedRow{
-				e: e, bookIdx: bi, entryIdx: ei,
-				reason: reason,
-				trace: Trace{
-					WorldID: book.ID,
-					EntryID: e.ID,
-					Reason:  reason,
-				},
-			})
+				reasonFmt := fmt.Sprintf("key: %%s (recursion #%d)", iter+1)
+				secFmt := fmt.Sprintf("key: %%s + secondary: %%s (recursion #%d)", iter+1)
+				if row, ok := matchEntry(e, lastPassContents, lower, reasonFmt, secFmt); ok {
+					rows = append(rows, activatedRow{
+						e: e, bookIdx: bi, entryIdx: ei,
+						reason: row.reason,
+						trace: Trace{
+							WorldID: book.ID, EntryID: e.ID, Reason: row.reason,
+						},
+					})
+					activated[entryKey{bi, ei}] = struct{}{}
+					addedThisIter++
+				}
+			}
 		}
+
+		if addedThisIter == 0 {
+			break
+		}
+		lastPassContents = collectRecursionText(rows, activated, in.Books, startLen)
 	}
 
 	// Sort: lower InsertionOrder first, then book order, then entry order.
@@ -165,6 +205,57 @@ func Activate(in ActivationInput) Activated {
 		out.Trace = append(out.Trace, r.trace)
 	}
 	return out
+}
+
+// matchEntry reports whether a single entry matches a given scan window.
+// Handles primary key OR-match and the optional selective+secondary gate.
+// Both regexp-free — `containsAny` is a simple substring scan.
+type matchRow struct{ reason string }
+
+func matchEntry(e *Entry, win, winLower, primaryFmt, secondaryFmt string) (matchRow, bool) {
+	caseSens := e.CaseSensitive != nil && *e.CaseSensitive
+
+	primaryHit, primaryKey := containsAny(win, winLower, e.Keys, caseSens)
+	if primaryHit == "" {
+		return matchRow{}, false
+	}
+
+	if e.Selective && len(e.SecondaryKeys) > 0 {
+		secHit, secKey := containsAny(win, winLower, e.SecondaryKeys, caseSens)
+		if secHit == "" {
+			return matchRow{}, false
+		}
+		return matchRow{reason: fmt.Sprintf(secondaryFmt, primaryKey, secKey)}, true
+	}
+	return matchRow{reason: fmt.Sprintf(primaryFmt, primaryKey)}, true
+}
+
+// collectRecursionText concatenates the content of recently-activated rows
+// (starting at index `fromIdx` in `rows`) for feeding into the next
+// recursion pass. Entries flagged `ExcludeRecursion` are skipped — they
+// contribute to the prompt but not to the recursion window.
+//
+// This indirection keeps the main loop readable and lets us tune the
+// exclusion rules without rewriting the primary flow.
+func collectRecursionText(rows []activatedRow, _ map[entryKey]struct{}, _ []*World, fromIdx int) string {
+	if fromIdx >= len(rows) {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range rows[fromIdx:] {
+		if r.e == nil || r.e.ExcludeRecursion {
+			continue
+		}
+		content := strings.TrimSpace(r.e.Content)
+		if content == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(content)
+	}
+	return b.String()
 }
 
 // tailJoin returns the last N non-empty messages joined by newlines.

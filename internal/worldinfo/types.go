@@ -69,6 +69,16 @@ type Entry struct {
 	CaseSensitive *bool  `json:"case_sensitive,omitempty"` // default false
 	// Depth: how far back into history to scan for keys. 0 = book-level default.
 	Depth int `json:"depth,omitempty"`
+	// ExcludeRecursion: if true, this entry's content is NOT added to the
+	// next recursion pass's scan window. Matches the ST flag by the same
+	// name. Useful for "flavor text" entries that happen to contain words
+	// that could otherwise trigger cascades.
+	ExcludeRecursion bool `json:"exclude_recursion,omitempty"`
+	// PreventRecursion: if true, this entry cannot be activated BY recursion
+	// (only by the initial history scan). Shipped together with
+	// ExcludeRecursion because ST presets use the pair; semantically the
+	// former blocks outbound triggers, the latter blocks inbound.
+	PreventRecursion bool `json:"prevent_recursion,omitempty"`
 }
 
 // ActivationInput is what the Activator needs to decide which entries fire.

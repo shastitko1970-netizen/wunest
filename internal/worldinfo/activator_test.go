@@ -176,3 +176,78 @@ func TestActivate_DedupIdenticalContent(t *testing.T) {
 		t.Fatalf("duplicate content not deduped: %+v", got.BeforeChar)
 	}
 }
+
+// Primary pass fires "dragon"; the dragon entry's content mentions "hoard",
+// which should pull in the hoard entry on the next recursion pass even
+// though "hoard" never appeared in the user's message.
+func TestActivate_Recursion_ChainsActivations(t *testing.T) {
+	w := &World{
+		Entries: []Entry{
+			{ID: 1, Keys: []string{"dragon"}, Content: "Dragons sleep on their hoard.", Enabled: true},
+			{ID: 2, Keys: []string{"hoard"}, Content: "Hoards are piles of gold.", Enabled: true},
+			{ID: 3, Keys: []string{"volcano"}, Content: "Never read.", Enabled: true},
+		},
+	}
+	got := Activate(ActivationInput{
+		Books:  []*World{w},
+		Recent: []string{"I saw a dragon."},
+	})
+	if len(got.BeforeChar) != 2 {
+		t.Fatalf("recursion did not chain: %+v", got.BeforeChar)
+	}
+}
+
+// Recursion depth is bounded — a long chain shouldn't loop forever.
+func TestActivate_Recursion_RespectsDepth(t *testing.T) {
+	w := &World{
+		Entries: []Entry{
+			{ID: 1, Keys: []string{"one"}, Content: "two", Enabled: true},   // primary
+			{ID: 2, Keys: []string{"two"}, Content: "three", Enabled: true}, // 1st recursion
+			{ID: 3, Keys: []string{"three"}, Content: "four", Enabled: true}, // 2nd recursion
+			{ID: 4, Keys: []string{"four"}, Content: "five", Enabled: true},  // 3rd recursion (cap hit)
+			{ID: 5, Keys: []string{"five"}, Content: "six", Enabled: true},   // should NOT fire
+		},
+	}
+	got := Activate(ActivationInput{Books: []*World{w}, Recent: []string{"one"}})
+	if len(got.BeforeChar) != 4 {
+		t.Fatalf("expected 4 activations within MaxRecursionDepth, got %d: %+v", len(got.BeforeChar), got.BeforeChar)
+	}
+}
+
+// ExcludeRecursion: entry fires, but its content is not fed into the next
+// pass — so downstream entries that depend on it don't activate.
+func TestActivate_Recursion_ExcludeRecursionBlocksChain(t *testing.T) {
+	w := &World{
+		Entries: []Entry{
+			{ID: 1, Keys: []string{"dragon"}, Content: "The dragon hoards.", Enabled: true, ExcludeRecursion: true},
+			{ID: 2, Keys: []string{"hoard"}, Content: "Hoards are piles of gold.", Enabled: true},
+		},
+	}
+	got := Activate(ActivationInput{Books: []*World{w}, Recent: []string{"I see a dragon"}})
+	if len(got.BeforeChar) != 1 {
+		t.Fatalf("excluded entry should have blocked the chain: %+v", got.BeforeChar)
+	}
+	if got.BeforeChar[0] != "The dragon hoards." {
+		t.Fatalf("wrong surviving entry: %+v", got.BeforeChar)
+	}
+}
+
+// PreventRecursion: entry can only be activated by the primary pass. If its
+// keys only appear in an already-activated entry's content, it doesn't fire.
+func TestActivate_Recursion_PreventRecursionIsolates(t *testing.T) {
+	w := &World{
+		Entries: []Entry{
+			{ID: 1, Keys: []string{"dragon"}, Content: "Dragons and hoards.", Enabled: true},
+			{ID: 2, Keys: []string{"hoard"}, Content: "Protected lore.", Enabled: true, PreventRecursion: true},
+		},
+	}
+	got := Activate(ActivationInput{Books: []*World{w}, Recent: []string{"dragon"}})
+	if len(got.BeforeChar) != 1 {
+		t.Fatalf("prevent-recursion entry shouldn't have activated: %+v", got.BeforeChar)
+	}
+	// But the primary pass still activates it when the key is in the user's turn.
+	got2 := Activate(ActivationInput{Books: []*World{w}, Recent: []string{"dragon with a hoard"}})
+	if len(got2.BeforeChar) != 2 {
+		t.Fatalf("prevent-recursion must still fire on primary hit: %+v", got2.BeforeChar)
+	}
+}
