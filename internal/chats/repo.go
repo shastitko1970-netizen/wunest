@@ -371,6 +371,162 @@ func (r *Repository) EditMessageContent(ctx context.Context, chatID uuid.UUID, m
 	return nil
 }
 
+// GetMessage fetches a single message by chat + id, for handlers that need
+// to inspect an existing row (swipe, edit, delete confirmation).
+func (r *Repository) GetMessage(ctx context.Context, chatID uuid.UUID, messageID int64) (*Message, error) {
+	const q = `
+		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, created_at
+		  FROM nest_messages
+		 WHERE chat_id = $1 AND id = $2
+	`
+	var m Message
+	var swipes, extras []byte
+	var role string
+	err := r.pg.QueryRow(ctx, q, chatID, messageID).Scan(
+		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get message: %w", err)
+	}
+	m.Role = Role(role)
+	m.Swipes = swipes
+	m.Extras = extras
+	return &m, nil
+}
+
+// BeginSwipe prepares a message for a new streamed variant:
+//   - captures the current `content` into `swipes[]` if it isn't already
+//     there (so we don't lose the pre-swipe version);
+//   - appends an empty "" slot to `swipes[]`;
+//   - bumps `swipe_id` to the new slot's index;
+//   - clears `content` so the streaming loop starts from empty.
+//
+// The returned int is the new swipe_id. Callers then stream tokens into
+// the message via the usual UpdateMessageContent path. FinalizeSwipe
+// must be called on done to mirror the final content into swipes[].
+func (r *Repository) BeginSwipe(ctx context.Context, chatID uuid.UUID, messageID int64) (int, error) {
+	tx, err := r.pg.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var (
+		content    string
+		swipesRaw  []byte
+		swipeID    int
+	)
+	if err := tx.QueryRow(ctx,
+		`SELECT content, swipes, swipe_id FROM nest_messages WHERE chat_id = $1 AND id = $2 FOR UPDATE`,
+		chatID, messageID,
+	).Scan(&content, &swipesRaw, &swipeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("lock message: %w", err)
+	}
+
+	var swipes []string
+	if len(swipesRaw) > 0 {
+		_ = json.Unmarshal(swipesRaw, &swipes)
+	}
+
+	// Seed swipes[] with current content if empty; otherwise ensure the
+	// existing swipe_id slot reflects the latest content (covers the case
+	// where the current turn was regenerated with replace semantics).
+	if len(swipes) == 0 {
+		swipes = []string{content}
+		swipeID = 0
+	} else if swipeID >= 0 && swipeID < len(swipes) {
+		swipes[swipeID] = content
+	}
+
+	// Append a fresh empty slot; that's where the new stream lands.
+	swipes = append(swipes, "")
+	newSwipeID := len(swipes) - 1
+
+	newRaw, err := json.Marshal(swipes)
+	if err != nil {
+		return 0, fmt.Errorf("marshal swipes: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE nest_messages SET content = '', swipes = $3, swipe_id = $4 WHERE chat_id = $1 AND id = $2`,
+		chatID, messageID, newRaw, newSwipeID,
+	); err != nil {
+		return 0, fmt.Errorf("begin swipe: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return newSwipeID, nil
+}
+
+// FinalizeSwipe writes `content` into both `nest_messages.content` AND into
+// `swipes[swipe_id]` so the array mirrors the visible state. Called from the
+// stream loop's finalization path.
+func (r *Repository) FinalizeSwipe(ctx context.Context, chatID uuid.UUID, messageID int64, content string) error {
+	// Read current swipes + swipe_id, patch the slot, write back.
+	// Atomic via a single UPDATE using jsonb_set against the current swipe_id.
+	const q = `
+		UPDATE nest_messages
+		   SET content = $3,
+		       swipes  = jsonb_set(COALESCE(swipes, '[]'::jsonb), ARRAY[swipe_id::text], to_jsonb($3::text), true)
+		 WHERE chat_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, chatID, messageID, content)
+	if err != nil {
+		return fmt.Errorf("finalize swipe: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SelectSwipe navigates between stored variants: sets swipe_id = targetID,
+// copies swipes[targetID] into `content`, returns the resulting message.
+// Invalid targetID returns ErrNotFound-style behaviour (no-op + ErrNotFound).
+func (r *Repository) SelectSwipe(ctx context.Context, chatID uuid.UUID, messageID int64, targetID int) (*Message, error) {
+	tx, err := r.pg.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var swipesRaw []byte
+	if err := tx.QueryRow(ctx,
+		`SELECT swipes FROM nest_messages WHERE chat_id = $1 AND id = $2 FOR UPDATE`,
+		chatID, messageID,
+	).Scan(&swipesRaw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("lock message: %w", err)
+	}
+	var swipes []string
+	if len(swipesRaw) > 0 {
+		_ = json.Unmarshal(swipesRaw, &swipes)
+	}
+	if targetID < 0 || targetID >= len(swipes) {
+		return nil, ErrNotFound
+	}
+	newContent := swipes[targetID]
+	if _, err := tx.Exec(ctx,
+		`UPDATE nest_messages SET content = $3, swipe_id = $4 WHERE chat_id = $1 AND id = $2`,
+		chatID, messageID, newContent, targetID,
+	); err != nil {
+		return nil, fmt.Errorf("select swipe: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return r.GetMessage(ctx, chatID, messageID)
+}
+
 // LastAssistantMessage returns the most recent assistant message in a chat,
 // or ErrNotFound if the chat has none yet. Used by the regenerate endpoint.
 func (r *Repository) LastAssistantMessage(ctx context.Context, chatID uuid.UUID) (*Message, error) {

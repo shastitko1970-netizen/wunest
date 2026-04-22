@@ -18,6 +18,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'delete', m: Message): void
   (e: 'regenerate', m: Message): void
+  (e: 'swipe', m: Message): void
+  (e: 'select-swipe', m: Message, swipeID: number): void
   (e: 'edit', m: Message, newContent: string): void
 }>()
 
@@ -32,6 +34,15 @@ const timestamp = computed(() => {
 })
 
 const hasError = computed(() => !!props.message.extras?.error)
+
+// Swipe pagination: only meaningful on assistant rows that have been
+// regenerated/swiped at least once. A fresh message has swipes: [] and
+// we hide the strip entirely (totalSwipes === 0).
+const totalSwipes = computed(() => {
+  const s = props.message.swipes
+  return Array.isArray(s) ? s.length : 0
+})
+const currentSwipe = computed(() => props.message.swipe_id ?? 0)
 const tokensInfo = computed(() => {
   const ex = props.message.extras
   if (!ex?.tokens_out) return null
@@ -193,6 +204,39 @@ function onEditKeydown(e: KeyboardEvent) {
 
     <!-- Action row: shown on hover/focus, hidden while editing/streaming. -->
     <div v-if="!editing && !streaming" class="nest-msg-actions">
+      <!-- Swipe navigation: only on assistant rows with multiple variants.
+           Left/right chevrons step between stored swipes; plus generates a
+           fresh variant by appending to swipes[]. -->
+      <template v-if="!isUser && allowRegenerate">
+        <button
+          v-if="totalSwipes > 1"
+          class="nest-action-btn"
+          :title="t('chat.swipe.prev')"
+          :disabled="currentSwipe === 0"
+          @click="emit('select-swipe', message, currentSwipe - 1)"
+        >
+          <v-icon size="14">mdi-chevron-left</v-icon>
+        </button>
+        <span v-if="totalSwipes > 1" class="nest-swipe-count nest-mono">
+          {{ currentSwipe + 1 }}/{{ totalSwipes }}
+        </span>
+        <button
+          v-if="totalSwipes > 1"
+          class="nest-action-btn"
+          :title="t('chat.swipe.next')"
+          :disabled="currentSwipe === totalSwipes - 1"
+          @click="emit('select-swipe', message, currentSwipe + 1)"
+        >
+          <v-icon size="14">mdi-chevron-right</v-icon>
+        </button>
+        <button
+          class="nest-action-btn"
+          :title="t('chat.swipe.newVariant')"
+          @click="emit('swipe', message)"
+        >
+          <v-icon size="14">mdi-plus</v-icon>
+        </button>
+      </template>
       <button
         v-if="allowRegenerate"
         class="nest-action-btn"
@@ -396,10 +440,23 @@ function onEditKeydown(e: KeyboardEvent) {
     border-color: var(--nest-border);
     background: var(--nest-surface);
   }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
   &.nest-action-btn--danger:hover {
     color: var(--nest-accent);
     border-color: var(--nest-accent);
   }
+}
+
+.nest-swipe-count {
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+  padding: 2px 4px;
+  align-self: center;
+  font-variant-numeric: tabular-nums;
 }
 
 // Mobile: actions always visible (no hover affordance).

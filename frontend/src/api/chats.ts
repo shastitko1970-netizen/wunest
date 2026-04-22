@@ -100,6 +100,13 @@ export const chatsApi = {
     apiFetch<void>(`/api/chats/${chatID}/messages/${messageID}`, {
       method: 'DELETE',
     }),
+
+  /** Navigate between stored swipes. Returns the updated message. */
+  selectSwipe: (chatID: string, messageID: number, swipeID: number) =>
+    apiFetch<Message>(`/api/chats/${chatID}/messages/${messageID}/swipe`, {
+      method: 'PATCH',
+      body: JSON.stringify({ swipe_id: swipeID }),
+    }),
 }
 
 // ─── Streaming send ───────────────────────────────────────────────────
@@ -108,6 +115,7 @@ export const chatsApi = {
 export type StreamEvent =
   | { event: 'user_message'; data: Message }
   | { event: 'assistant_start'; data: { id: number; model: string } }
+  | { event: 'swipe_start'; data: { id: number; swipe_id: number } }
   | { event: 'token'; data: { content: string } }
   | { event: 'done'; data: {
         id: number
@@ -151,6 +159,18 @@ export async function* regenerateStream(
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
   yield* streamSSE(`/api/chats/${chatID}/regenerate`, input, signal)
+}
+
+/** Swipe — keep the existing assistant message, append a new variant,
+ *  navigate to it. Streams via the same SSE protocol as send/regenerate,
+ *  with a `swipe_start` event replacing `assistant_start`. */
+export async function* swipeMessageStream(
+  chatID: string,
+  messageID: number,
+  input: Partial<SendMessageInput> = {},
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent, void, unknown> {
+  yield* streamSSE(`/api/chats/${chatID}/messages/${messageID}/swipe`, input, signal)
 }
 
 async function* streamSSE(

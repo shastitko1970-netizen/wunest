@@ -4,6 +4,7 @@ import {
   chatsApi,
   regenerateStream,
   sendMessageStream,
+  swipeMessageStream,
   type Chat,
   type ChatSamplerMetadata,
   type Message,
@@ -130,6 +131,50 @@ export const useChatsStore = defineStore('chats', () => {
     )
   }
 
+  /** Swipe — append a NEW variant to an existing assistant message (keeps
+   *  the previous versions addressable via swipes[]). Streams the new
+   *  content into the same message row. */
+  async function swipe(message: Message, input: Partial<SendMessageInput> = {}) {
+    if (!currentId.value || streaming.value) return
+    // Optimistic: clear the message's content locally; stream will refill.
+    const row = messages.value.find(m => m.id === message.id)
+    if (row) {
+      const oldContent = row.content
+      const swipes = Array.isArray(row.swipes) ? [...row.swipes] : []
+      if (swipes.length === 0) swipes.push(oldContent)
+      swipes.push('')
+      row.swipes = swipes
+      row.swipe_id = swipes.length - 1
+      row.content = ''
+    }
+    await runStream(
+      () => swipeStreamLazy(currentId.value!, message.id, input),
+      null,
+    )
+  }
+
+  /** Select an existing swipe by index — simple PATCH, no stream. */
+  async function selectSwipe(message: Message, swipeID: number) {
+    if (!currentId.value) return
+    try {
+      const updated = await chatsApi.selectSwipe(currentId.value, message.id, swipeID)
+      const row = messages.value.find(m => m.id === message.id)
+      if (row) {
+        row.content = updated.content
+        row.swipe_id = updated.swipe_id
+        row.swipes = updated.swipes
+      }
+    } catch (e) {
+      streamError.value = (e as Error).message
+    }
+  }
+
+  // Lazy wrapper because swipeMessageStream needs the signal which is
+  // instantiated inside runStream; we capture it via a closure at call-time.
+  function swipeStreamLazy(chatID: string, mid: number, input: Partial<SendMessageInput>) {
+    return swipeMessageStream(chatID, mid, input, streamAbort!.signal)
+  }
+
   // runStream is the shared driver for the generator-based SSE flows
   // (send + regenerate). Centralises the streaming state lifecycle.
   async function runStream(
@@ -166,6 +211,16 @@ export const useChatsStore = defineStore('chats', () => {
                 created_at: new Date().toISOString(),
               },
             ]
+            break
+          }
+          case 'swipe_start': {
+            // Existing message row — just route subsequent tokens into it.
+            assistantId = ev.data.id
+            const existing = messages.value.find(m => m.id === assistantId)
+            if (existing) {
+              existing.content = ''
+              existing.swipe_id = ev.data.swipe_id
+            }
             break
           }
           case 'token': {
@@ -242,7 +297,7 @@ export const useChatsStore = defineStore('chats', () => {
     streaming, streamError,
     currentCharacterId,
     fetchList, open, createForCharacter, remove, rename,
-    send, regenerate, stopStreaming,
+    send, regenerate, swipe, selectSwipe, stopStreaming,
     editMessage, deleteMessage,
     setSampler,
   }

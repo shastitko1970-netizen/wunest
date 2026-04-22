@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
@@ -44,6 +45,9 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("POST /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.sendMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.editMessage)))
 	mux.Handle("DELETE /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.deleteMessage)))
+	// Swipes — alternate assistant outputs for the same turn.
+	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.swipeMessage)))
+	mux.Handle("PATCH /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.selectSwipe)))
 }
 
 // --- chat CRUD ---
@@ -535,6 +539,117 @@ func (h *Handler) editMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// swipeMessage generates a new variant for an existing assistant message
+// without destroying the previous one. The flow:
+//  1. Repo.BeginSwipe captures the current content into swipes[] (if not
+//     already there), appends an empty slot, clears `content`, and bumps
+//     `swipe_id` to the new index.
+//  2. We build the prompt from history UP TO but NOT INCLUDING the target
+//     message — we're regenerating its content fresh.
+//  3. streamChatSwipe reuses the existing message as the placeholder and
+//     runs pipeStream; on done, Repo.FinalizeSwipe mirrors the final
+//     content into swipes[swipe_id].
+//
+// Response shape matches POST /messages / regenerate (SSE), with an extra
+// `swipe_start` event up front carrying the new swipe_id and swipes length
+// so the client can update its local pagination state immediately.
+func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.Users.Resolve(r.Context(), session.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.Repo.GetChat(r.Context(), user.ID, chatID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	msg, err := h.Repo.GetMessage(r.Context(), chatID, mid)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	if msg.Role != RoleAssistant {
+		http.Error(w, "can only swipe assistant messages", http.StatusBadRequest)
+		return
+	}
+	newSwipeID, err := h.Repo.BeginSwipe(r.Context(), chatID, mid)
+	if err != nil {
+		slog.Error("begin swipe", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	apiKey := session.WuApi.APIKey
+	if apiKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+
+	var in SendMessageInput
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = json.NewDecoder(r.Body).Decode(&in)
+	}
+	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
+	in = applyChatSampler(in, readSamplerFromChat(chat))
+
+	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, apiKey, userName, userDesc, mid, newSwipeID, in)
+}
+
+// selectSwipe picks an existing variant for the message. Body: {swipe_id}.
+// Returns the updated message JSON (not a stream — no LLM call).
+func (h *Handler) selectSwipe(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+		return
+	}
+	// Ownership check via chat.
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, chatID); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	var req struct {
+		SwipeID int `json:"swipe_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	msg, err := h.Repo.SelectSwipe(r.Context(), chatID, mid, req.SwipeID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, msg)
 }
 
 // regenerate drops the most recent assistant message and streams a fresh

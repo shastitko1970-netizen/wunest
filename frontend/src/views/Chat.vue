@@ -82,6 +82,14 @@ async function regenerate(_m: Message) {
   await chats.regenerate({ model: selectedModel.value })
 }
 
+async function onSwipe(m: Message) {
+  await chats.swipe(m, { model: selectedModel.value })
+}
+
+async function onSelectSwipe(m: Message, swipeID: number) {
+  await chats.selectSwipe(m, swipeID)
+}
+
 async function onEditMessage(m: Message, newContent: string) {
   try {
     await chats.editMessage(m, newContent)
@@ -182,6 +190,8 @@ const lastAssistantId = computed(() => {
                 :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
                 :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
                 @regenerate="regenerate"
+                @swipe="onSwipe"
+                @select-swipe="onSelectSwipe"
                 @edit="onEditMessage"
                 @delete="onDeleteMessage"
               />

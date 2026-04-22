@@ -517,6 +517,223 @@ func mergeReasoning(extra map[string]any, enabled *bool) map[string]any {
 	return out
 }
 
+// streamChatSwipe runs a swipe: rebuilds the prompt from history up to but
+// not including the target message, streams a fresh completion, and
+// finalises the new content into both `nest_messages.content` and
+// `swipes[swipe_id]`. The target message row stays put — swipes accumulate
+// beside the original, navigable via SelectSwipe.
+func (h *Handler) streamChatSwipe(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	chatID uuid.UUID,
+	charID *uuid.UUID,
+	apiKey string,
+	userName string,
+	personaDesc string,
+	targetMessageID int64,
+	newSwipeID int,
+	in SendMessageInput,
+) {
+	ctx := r.Context()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+
+	// Announce the target id + the new swipe_id so the client can flip its
+	// pagination strip before the first token arrives.
+	writeSSE(w, flusher, "swipe_start", map[string]any{
+		"id":       targetMessageID,
+		"swipe_id": newSwipeID,
+	})
+
+	// Load character for the system prompt; not fatal if missing.
+	var ch *characters.Character
+	if charID != nil {
+		if c, err := h.Characters.Get(ctx, userID, *charID); err == nil {
+			ch = c
+		}
+	}
+
+	// Load history UP TO but NOT INCLUDING the target message. The swipe
+	// replaces that message's content, so it must regenerate against the
+	// same context it had originally.
+	all, err := h.Repo.ListMessages(ctx, chatID, false)
+	if err != nil {
+		writeSSEError(w, flusher, "load_history", err)
+		return
+	}
+	history := make([]Message, 0, len(all))
+	for _, m := range all {
+		if m.ID >= targetMessageID {
+			break
+		}
+		history = append(history, m)
+	}
+
+	worlds := loadAttachedWorlds(ctx, h, userID, charID)
+
+	model := in.Model
+	if model == "" {
+		model = defaultModel
+	}
+
+	promptMsgs := Build(PromptInput{
+		Character:            ch,
+		History:              history,
+		UserName:             userName,
+		UserDesc:             personaDesc,
+		SystemPromptOverride: in.SystemPromptOverride,
+		Worlds:               worlds,
+	})
+	up := make([]map[string]any, 0, len(promptMsgs))
+	for _, m := range promptMsgs {
+		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
+	}
+
+	// The "placeholder" for pipeStream is the existing message row — we
+	// already cleared its content and bumped swipe_id via BeginSwipe. Pass
+	// a minimal Message with the id; pipeStream's UpdateMessageContent
+	// writes by id.
+	placeholder := &Message{ID: targetMessageID}
+
+	h.pipeStreamSwipe(w, flusher, ctx, chatID, placeholder, model, apiKey, in, up)
+}
+
+// pipeStreamSwipe is the swipe-aware twin of pipeStream: on done it also
+// mirrors the final content into swipes[swipe_id] via FinalizeSwipe so the
+// stored array stays consistent with the visible content.
+func (h *Handler) pipeStreamSwipe(
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	ctx context.Context,
+	chatID uuid.UUID,
+	placeholder *Message,
+	model string,
+	apiKey string,
+	in SendMessageInput,
+	up []map[string]any,
+) {
+	started := time.Now()
+
+	req := wuapi.ChatCompletionRequest{
+		Model:             model,
+		Messages:          up,
+		Temperature:       in.Temperature,
+		TopP:              in.TopP,
+		TopK:              in.TopK,
+		MinP:              in.MinP,
+		MaxTokens:         in.MaxTokens,
+		FrequencyPenalty:  in.FrequencyPenalty,
+		PresencePenalty:   in.PresencePenalty,
+		RepetitionPenalty: in.RepetitionPenalty,
+		Seed:              in.Seed,
+		Stop:              in.Stop,
+		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
+	}
+
+	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
+	if err != nil {
+		finalizeError(ctx, h, placeholder.ID, model, err)
+		writeSSEError(w, flusher, "upstream_connect", err)
+		return
+	}
+	defer body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(body, 4096))
+		upErr := fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		finalizeError(ctx, h, placeholder.ID, model, upErr)
+		writeSSEError(w, flusher, "upstream_status", upErr)
+		return
+	}
+
+	var (
+		accumulator         strings.Builder
+		finishReason        string
+		tokensIn, tokensOut int
+	)
+	scanner := bufio.NewScanner(body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		if data == "[DONE]" {
+			break
+		}
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			writeSSERaw(w, flusher, "raw", data)
+			continue
+		}
+		for _, ch := range event.Choices {
+			if ch.Delta.Content != "" {
+				accumulator.WriteString(ch.Delta.Content)
+				writeSSE(w, flusher, "token", map[string]any{"content": ch.Delta.Content})
+			}
+			if ch.FinishReason != "" {
+				finishReason = ch.FinishReason
+			}
+		}
+		if event.Usage.PromptTokens > 0 {
+			tokensIn = event.Usage.PromptTokens
+		}
+		if event.Usage.CompletionTokens > 0 {
+			tokensOut = event.Usage.CompletionTokens
+		}
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("chats swipe stream scanner", "err", err)
+	}
+
+	final := accumulator.String()
+	cleanContent, reasoning := ExtractThinking(final)
+	extras := &MessageExtras{
+		Model:        model,
+		Reasoning:    reasoning,
+		TokensIn:     tokensIn,
+		TokensOut:    tokensOut,
+		LatencyMs:    int(time.Since(started).Milliseconds()),
+		FinishReason: finishReason,
+	}
+	// Mirror into swipes[swipe_id] AND update extras.
+	if err := h.Repo.FinalizeSwipe(ctx, chatID, placeholder.ID, cleanContent); err != nil {
+		slog.Error("finalize swipe", "err", err, "id", placeholder.ID)
+	}
+	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
+		slog.Error("update swipe extras", "err", err, "id", placeholder.ID)
+	}
+
+	writeSSE(w, flusher, "done", map[string]any{
+		"id":            placeholder.ID,
+		"content":       cleanContent,
+		"reasoning":     reasoning,
+		"tokens_in":     tokensIn,
+		"tokens_out":    tokensOut,
+		"latency_ms":    extras.LatencyMs,
+		"finish_reason": finishReason,
+	})
+}
+
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating
 // a nil character id (character-less chat) and any repository error (we log
 // and skip — WI is an enhancement, not a blocker for generation).

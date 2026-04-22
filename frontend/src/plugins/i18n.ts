@@ -406,6 +406,11 @@ const messages = {
         edit: 'Редактировать (Ctrl+Enter — сохранить)',
         delete: 'Удалить',
       },
+      swipe: {
+        prev: 'Предыдущий вариант',
+        next: 'Следующий вариант',
+        newVariant: 'Новый вариант (свайп)',
+      },
       input: {
         placeholder: 'Напиши сообщение… (Enter — отправить, Shift+Enter — новая строка)',
         send: 'Отправить',
@@ -872,6 +877,11 @@ const messages = {
         regenerate: 'Regenerate',
         edit: 'Edit (Ctrl+Enter to save)',
         delete: 'Delete',
+      },
+      swipe: {
+        prev: 'Previous variant',
+        next: 'Next variant',
+        newVariant: 'New variant (swipe)',
       },
       input: {
         placeholder: 'Write a message… (Enter to send, Shift+Enter for newline)',
