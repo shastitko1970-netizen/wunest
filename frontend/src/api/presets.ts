@@ -19,7 +19,8 @@ export const PRESET_TYPES: PresetType[] = [
   'openai',
 ]
 
-/** Typed view of sampler preset data. Other types store arbitrary shapes. */
+/** Typed view of sampler preset data. Mirrors SillyTavern's OpenAI/textgen
+ *  sampler fields so imports round-trip cleanly. */
 export interface SamplerData {
   temperature?: number | null
   top_p?: number | null
@@ -33,6 +34,52 @@ export interface SamplerData {
   stop?: string[] | null
   reasoning_enabled?: boolean | null
   system_prompt?: string | null
+}
+
+/** Instruct template — wraps user/assistant/system turns for text-completion
+ *  backends. Field names match ST's instruct-mode schema. */
+export interface InstructData {
+  input_sequence?: string          // e.g. "[INST] "
+  output_sequence?: string         // e.g. "[/INST] "
+  system_sequence?: string         // e.g. "<<SYS>>\n"
+  first_input_sequence?: string
+  last_input_sequence?: string
+  first_output_sequence?: string
+  last_output_sequence?: string
+  stop_sequence?: string
+  activation_regex?: string        // auto-activate by model name
+  wrap?: boolean                   // wrap tokens at limit
+  user_alignment_message?: string
+}
+
+/** Context template — how character/world/history get woven into the prompt.
+ *  ST field names verbatim; story_string carries {{macros}}. */
+export interface ContextData {
+  story_string?: string
+  example_separator?: string
+  chat_start?: string
+  use_stop_strings?: boolean
+  names_as_stop_strings?: boolean
+  single_line?: boolean
+  trim_sentences?: boolean
+  always_force_name2?: boolean
+}
+
+/** System prompt preset — just content. Tracked as its own type so users can
+ *  swap "jailbreak prompts" without touching character system_prompt.
+ *  `post_history` matches ST's sysprompt preset field (distinct from the V3
+ *  character card's `post_history_instructions`). */
+export interface SyspromptData {
+  content?: string
+  post_history?: string
+}
+
+/** Reasoning / thinking block config — prefix/suffix/separator for <think>
+ *  tag rewriting. Used by o1, Claude thinking, DeepSeek-R1. */
+export interface ReasoningData {
+  prefix?: string
+  suffix?: string
+  separator?: string
 }
 
 /**

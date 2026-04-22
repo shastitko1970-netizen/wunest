@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { usePresetsStore } from '@/stores/presets'
 import { PRESET_TYPES, type Preset, type PresetType } from '@/api/presets'
 import ImportPresetDialog from '@/components/ImportPresetDialog.vue'
+import PresetEditorDialog from '@/components/PresetEditorDialog.vue'
 
 const { t } = useI18n()
 
@@ -15,7 +16,37 @@ const importOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 const expandedId = ref<string | null>(null)
 
+// Editor dialog state: when `editorOpen` is true, either `editingPreset`
+// is set (edit mode) or `editorType` carries the type for create mode.
+const editorOpen = ref(false)
+const editingPreset = ref<Preset | null>(null)
+const editorType = ref<PresetType>('sampler')
+
 onMounted(() => presets.fetchAll())
+
+function openCreate(type: PresetType) {
+  editingPreset.value = null
+  editorType.value = type
+  editorOpen.value = true
+}
+
+function openEdit(p: Preset) {
+  editingPreset.value = p
+  editorOpen.value = true
+}
+
+// Download the preset as a JSON file matching SillyTavern's on-wire shape
+// (we stored it that way on write, so this is just a raw dump + filename).
+function exportPreset(p: Preset) {
+  const payload = { name: p.name, ...(p.data as Record<string, unknown>) }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${p.name.replace(/[^a-z0-9-_]+/gi, '_')}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 // Group presets by type, preserving the canonical PRESET_TYPES order so
 // the UI layout is stable across reloads.
@@ -95,6 +126,15 @@ function formatDate(iso: string): string {
       <div class="nest-group-header">
         <h2 class="nest-h2">{{ typeLabel(group.type) }}</h2>
         <span class="nest-mono nest-group-count">{{ group.items.length }}</span>
+        <v-spacer />
+        <v-btn
+          size="small"
+          variant="outlined"
+          prepend-icon="mdi-plus"
+          @click="openCreate(group.type)"
+        >
+          {{ t('presets.actions.newForType') }}
+        </v-btn>
       </div>
 
       <div v-if="group.items.length === 0" class="nest-group-empty">
@@ -130,9 +170,23 @@ function formatDate(iso: string): string {
             <v-btn
               size="x-small"
               variant="text"
+              :title="t('presets.actions.edit')"
+              icon="mdi-pencil-outline"
+              @click="openEdit(p)"
+            />
+            <v-btn
+              size="x-small"
+              variant="text"
               :title="t('presets.actions.view')"
               icon="mdi-code-braces"
               @click="toggleExpand(p.id)"
+            />
+            <v-btn
+              size="x-small"
+              variant="text"
+              :title="t('presets.actions.export')"
+              icon="mdi-download-outline"
+              @click="exportPreset(p)"
             />
             <v-btn
               size="x-small"
@@ -162,6 +216,13 @@ function formatDate(iso: string): string {
 
     <!-- Import dialog -->
     <ImportPresetDialog v-model="importOpen" />
+
+    <!-- Create / edit dialog -->
+    <PresetEditorDialog
+      v-model="editorOpen"
+      :preset="editingPreset"
+      :initial-type="editorType"
+    />
 
     <!-- Delete confirmation -->
     <v-dialog
