@@ -43,6 +43,12 @@ const messages = {
       theme: 'Тема',
       language: 'Язык',
       appearanceTitle: 'Внешний вид',
+      defaultModel: {
+        title: 'Модель по умолчанию',
+        tagline: 'Выбор, который применяется, когда чат или сообщение не задают модель явно.',
+        serverFallback: '— серверный дефолт —',
+        saved: 'сохранено ✓',
+      },
       byok: {
         title: 'BYOK (свои ключи провайдеров)',
         tagline: 'Используй свои собственные API-ключи вместо тех, что даёт WuApi. Полезно если у тебя уже оплачен OpenAI / Claude.',
@@ -539,6 +545,12 @@ const messages = {
       theme: 'Theme',
       language: 'Language',
       appearanceTitle: 'Appearance',
+      defaultModel: {
+        title: 'Default model',
+        tagline: 'Used when a chat or request doesn\'t pick a model explicitly.',
+        serverFallback: '— server default —',
+        saved: 'saved ✓',
+      },
       byok: {
         title: 'BYOK (bring your own keys)',
         tagline: 'Use your own provider API keys instead of WuApi. Useful if you already have an OpenAI or Claude plan.',

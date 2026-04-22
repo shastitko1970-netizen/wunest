@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import AppearancePanel from '@/components/AppearancePanel.vue'
+import { useModelsStore } from '@/stores/models'
+import { apiFetch } from '@/api/client'
 
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
+const models = useModelsStore()
+const { options: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
 const currentTheme = computed({
   get: () => vTheme.global.name.value,
@@ -28,6 +33,45 @@ const localeLabel = (code: string) => {
     case 'ru': return 'Русский'
     case 'en': return 'English'
     default:   return code.toUpperCase()
+  }
+}
+
+// ─── Default generation model ────────────────────────────────────────
+// Stored server-side on nest_users.settings.default_model. Applied when
+// a chat send doesn't specify a model and no chat-level override exists.
+const defaultModel = ref<string>('')
+const defaultModelSaving = ref(false)
+const defaultModelSaved = ref(false)
+
+onMounted(async () => {
+  try {
+    const r = await apiFetch<{ default_model: string }>('/api/me/default-model')
+    defaultModel.value = r.default_model ?? ''
+  } catch { /* non-fatal */ }
+  if (!models.loaded) await models.fetchList()
+})
+
+// Options for the select: "— server default —" (empty string = clear the
+// preference) plus every model from the catalogue. We don't try to merge
+// the stored preference in if the catalogue doesn't have it; a stale id
+// keeps working at generation time — the server just passes it through.
+const defaultModelOptions = computed(() => [
+  { id: '', title: t('settings.defaultModel.serverFallback') },
+  ...modelOptions.value.map(m => ({ id: m.id, title: m.id })),
+])
+
+async function saveDefaultModel(v: string) {
+  defaultModel.value = v
+  defaultModelSaving.value = true
+  try {
+    await apiFetch('/api/me/default-model', {
+      method: 'PUT',
+      body: JSON.stringify({ default_model: v }),
+    })
+    defaultModelSaved.value = true
+    setTimeout(() => (defaultModelSaved.value = false), 1500)
+  } finally {
+    defaultModelSaving.value = false
   }
 }
 </script>
@@ -55,6 +99,25 @@ const localeLabel = (code: string) => {
           :value="code"
         />
       </v-radio-group>
+    </section>
+
+    <section class="nest-section">
+      <h2 class="nest-h2">{{ t('settings.defaultModel.title') }}</h2>
+      <p class="nest-subtitle mb-3">{{ t('settings.defaultModel.tagline') }}</p>
+      <v-select
+        :model-value="defaultModel"
+        :items="defaultModelOptions"
+        item-title="title"
+        item-value="id"
+        :loading="modelsLoading || defaultModelSaving"
+        density="compact"
+        hide-details
+        style="max-width: 360px"
+        @update:model-value="saveDefaultModel"
+      />
+      <div v-if="defaultModelSaved" class="nest-mono text-success mt-2" style="font-size: 11px">
+        {{ t('settings.defaultModel.saved') }}
+      </div>
     </section>
 
     <section class="nest-section">

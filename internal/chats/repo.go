@@ -425,6 +425,13 @@ func (r *Repository) EditMessageContent(ctx context.Context, chatID uuid.UUID, m
 	return nil
 }
 
+// maxSwipesPerMessage caps how many alternative variants we retain per row.
+// Past this, BeginSwipe slides a window forward: oldest entries fall off,
+// swipe_id rebases, and `nest_messages.swipes` never grows unboundedly.
+// 20 is plenty for roleplay "let me try that again" loops without turning
+// a single row into a megabyte of JSON.
+const maxSwipesPerMessage = 20
+
 // RestoreSwipes overwrites the swipes[] and swipe_id columns for a message
 // without touching content. Used by the chat import path to faithfully
 // reinstate alternate variants from a .jsonl export. The raw JSON is
@@ -516,6 +523,24 @@ func (r *Repository) BeginSwipe(ctx context.Context, chatID uuid.UUID, messageID
 		swipeID = 0
 	} else if swipeID >= 0 && swipeID < len(swipes) {
 		swipes[swipeID] = content
+	}
+
+	// Window the stored history so `nest_messages` rows don't bloat on
+	// heavy regen. Keep the most recent (maxSwipesPerMessage-1) variants
+	// so the append below lands at the cap. Oldest entries drop first;
+	// swipeID rebased to whichever surviving position still holds the
+	// "current" content, or to the last kept slot if the current was
+	// aged out (shouldn't happen since we always keep the last N, but
+	// belt-and-suspenders).
+	if keep := maxSwipesPerMessage - 1; keep > 0 && len(swipes) > keep {
+		dropped := len(swipes) - keep
+		swipes = swipes[dropped:]
+		switch {
+		case swipeID >= dropped:
+			swipeID -= dropped
+		default:
+			swipeID = 0
+		}
 	}
 
 	// Append a fresh empty slot; that's where the new stream lands.

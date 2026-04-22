@@ -400,9 +400,28 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	// defaults once, per-turn overrides are rare).
 	in = applyChatSampler(in, readSampler(chat.Metadata))
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
+	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
 	// Stream.
 	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
+}
+
+// applyUserDefaults populates SendMessageInput fields from per-user settings
+// when the request didn't override them. Right now this covers DefaultModel;
+// future additions (e.g. token-budget ceilings) go here so call sites don't
+// sprout parallel settings lookups.
+func (h *Handler) applyUserDefaults(ctx context.Context, userID uuid.UUID, in SendMessageInput) SendMessageInput {
+	if in.Model != "" {
+		return in
+	}
+	s, err := h.Users.LoadSettings(ctx, userID)
+	if err != nil || s == nil {
+		return in
+	}
+	if s.DefaultModel != "" {
+		in.Model = s.DefaultModel
+	}
+	return in
 }
 
 // resolvePersona picks the {{user}} name and "About the user" description
@@ -753,6 +772,8 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Messages — insert in order, preserving role/content/swipes/extras.
+	// Collect skipped-line reports so the client can tell the user which
+	// rows didn't land, rather than silently ingesting a partial chat.
 	type msgLine struct {
 		Type    string          `json:"type"`
 		Role    string          `json:"role"`
@@ -762,33 +783,65 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 		Extras  json.RawMessage `json:"extras"`
 		Hidden  bool            `json:"hidden"`
 	}
+	type skippedLine struct {
+		Line   int    `json:"line"`   // 1-based, counting the meta row as line 1
+		Reason string `json:"reason"`
+	}
 	imported := 0
-	for _, line := range lines[1:] {
+	skipped := make([]skippedLine, 0)
+	// Cap the skipped-list length so a truly malformed file doesn't inflate
+	// the response to multi-MB of error records — show the first N, count
+	// the rest as "… and M more".
+	const maxSkippedReported = 50
+	overflow := 0
+	recordSkip := func(lineIdx int, reason string) {
+		if len(skipped) < maxSkippedReported {
+			skipped = append(skipped, skippedLine{Line: lineIdx, Reason: reason})
+		} else {
+			overflow++
+		}
+	}
+	for i, line := range lines[1:] {
+		lineIdx := i + 2 // +1 for meta, +1 for 1-based numbering
 		var m msgLine
-		if err := json.Unmarshal(line, &m); err != nil || m.Type != "message" {
-			continue // skip unknown/malformed lines; don't blow up the whole import
+		if err := json.Unmarshal(line, &m); err != nil {
+			recordSkip(lineIdx, "invalid json: "+err.Error())
+			continue
+		}
+		if m.Type != "message" {
+			recordSkip(lineIdx, "unknown type "+strconv.Quote(m.Type))
+			continue
 		}
 		role := Role(m.Role)
 		if role != RoleUser && role != RoleAssistant && role != RoleSystem {
+			recordSkip(lineIdx, "invalid role "+strconv.Quote(m.Role))
 			continue
 		}
 		extras := parseMessageExtras(m.Extras)
 		appended, err := h.Repo.AppendMessage(r.Context(), chat.ID, role, m.Content, extras)
 		if err != nil {
-			slog.Warn("import: append", "err", err)
+			slog.Warn("import: append", "err", err, "line", lineIdx)
+			recordSkip(lineIdx, "db insert failed")
 			continue
 		}
-		// Restore swipes + swipe_id if the line carried them.
 		if len(m.Swipes) > 0 && string(m.Swipes) != "null" && string(m.Swipes) != "[]" {
-			_ = h.Repo.RestoreSwipes(r.Context(), chat.ID, appended.ID, m.Swipes, m.SwipeID)
+			if err := h.Repo.RestoreSwipes(r.Context(), chat.ID, appended.ID, m.Swipes, m.SwipeID); err != nil {
+				// Not fatal — content is in; just note the swipes slot didn't.
+				slog.Warn("import: restore swipes", "err", err, "line", lineIdx)
+			}
 		}
 		imported++
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"chat":     chat,
-		"imported": imported,
-	})
+	resp := map[string]any{
+		"chat":              chat,
+		"imported":          imported,
+		"skipped":           len(skipped) + overflow,
+		"skipped_details":   skipped,
+		"skipped_overflow":  overflow,
+		"total_data_lines":  len(lines) - 1,
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // splitJSONL trims each line of its surrounding whitespace and skips empties.
@@ -907,6 +960,7 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 	in = applyChatSampler(in, readSamplerFromChat(chat))
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
+	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
 	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, apiKey, userName, userDesc, mid, newSwipeID, in)
 }
@@ -1004,6 +1058,7 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	// drawer-saved defaults.
 	in = applyChatSampler(in, readSamplerFromChat(chat))
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
+	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
 	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
 }

@@ -14,16 +14,30 @@ const { list, currentId, listLoading, listError } = storeToRefs(store)
 
 const importInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
+const importNotice = ref<string | null>(null)
 
 async function onImportPick(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0] ?? null
   if (importInput.value) importInput.value.value = ''
   if (!f) return
   importError.value = null
+  importNotice.value = null
   try {
-    const { chat } = await chatsApi.importJsonl(f)
+    const report = await chatsApi.importJsonl(f)
     await store.fetchList()
-    router.push(`/chat/${chat.id}`)
+    // If the server skipped rows, show a one-liner above the list so the
+    // user knows the chat is partial and can check the file. Success-path
+    // (zero skipped) goes silent — the navigation itself is feedback.
+    if (report.skipped > 0) {
+      const details = report.skipped_details
+        .map(d => `#${d.line}: ${d.reason}`)
+        .join('; ')
+      const overflow = report.skipped_overflow > 0
+        ? ` (+${report.skipped_overflow} more)`
+        : ''
+      importNotice.value = `Imported ${report.imported} of ${report.total_data_lines}. ${report.skipped} skipped — ${details}${overflow}`
+    }
+    router.push(`/chat/${report.chat.id}`)
   } catch (err) {
     importError.value = (err as Error).message
   }
@@ -89,6 +103,17 @@ async function del(c: Chat, ev: Event) {
       @click:close="importError = null"
     >
       {{ importError }}
+    </v-alert>
+    <v-alert
+      v-if="importNotice"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      closable
+      class="ma-2"
+      @click:close="importNotice = null"
+    >
+      {{ importNotice }}
     </v-alert>
 
     <div v-if="listLoading" class="nest-state">

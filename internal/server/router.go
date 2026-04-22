@@ -110,6 +110,8 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("PUT /api/me/defaults", authRequired(http.HandlerFunc(s.handleSetDefault)))
 	mux.Handle("GET /api/me/appearance", authRequired(http.HandlerFunc(s.handleGetAppearance)))
 	mux.Handle("PUT /api/me/appearance", authRequired(http.HandlerFunc(s.handleSetAppearance)))
+	mux.Handle("GET /api/me/default-model", authRequired(http.HandlerFunc(s.handleGetDefaultModel)))
+	mux.Handle("PUT /api/me/default-model", authRequired(http.HandlerFunc(s.handleSetDefaultModel)))
 
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
@@ -361,6 +363,50 @@ func (s *Server) handleSetAppearance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.users.SetAppearance(r.Context(), local.ID, json.RawMessage(body)); err != nil {
 		slog.Error("set appearance", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetDefaultModel returns the user's stored preferred model id, or
+// empty when not set. The client uses this to hydrate a picker in Settings.
+func (s *Server) handleGetDefaultModel(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	settings, err := s.users.LoadSettings(r.Context(), local.ID)
+	if err != nil {
+		slog.Error("load settings", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"default_model": settings.DefaultModel})
+}
+
+// handleSetDefaultModel updates settings.default_model. Body:
+// { "default_model": "wu-claude" } or { "default_model": "" } to clear.
+func (s *Server) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var req struct {
+		DefaultModel string `json:"default_model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := s.users.SetDefaultModel(r.Context(), local.ID, req.DefaultModel); err != nil {
+		slog.Error("set default model", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

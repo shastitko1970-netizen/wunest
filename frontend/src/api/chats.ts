@@ -21,6 +21,16 @@ export interface Chat {
   last_message_at?: string
 }
 
+/** Report returned by POST /api/chats/import. */
+export interface ImportReport {
+  chat: Chat
+  imported: number
+  skipped: number
+  skipped_details: { line: number; reason: string }[]
+  skipped_overflow: number
+  total_data_lines: number
+}
+
 /** Author's Note — prose block injected at `depth` from history's end.
  *  Mirrors SillyTavern's semantics; `role` defaults to "system". */
 export interface AuthorsNote {
@@ -112,8 +122,9 @@ export const chatsApi = {
     return { blob, filename }
   },
 
-  /** Upload a JSONL file, creating a new chat. Returns {chat, imported}. */
-  async importJsonl(file: File): Promise<{ chat: Chat; imported: number }> {
+  /** Upload a JSONL file, creating a new chat. Returns the full report —
+   *  imported/skipped counts plus details for the first N skipped lines. */
+  async importJsonl(file: File): Promise<ImportReport> {
     const fd = new FormData()
     fd.append('file', file)
     const res = await fetch('/api/chats/import', {

@@ -10,7 +10,6 @@ export const router = createRouter({
     { path: '/account', name: 'account', component: () => import('@/views/Account.vue') },
     { path: '/presets', name: 'presets', component: () => import('@/views/Presets.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
-    { path: '/studio', name: 'studio', component: () => import('@/views/Studio.vue') },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',

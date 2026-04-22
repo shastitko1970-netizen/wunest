@@ -66,6 +66,12 @@ type Settings struct {
 	// Default values live on the client; a missing Appearance means "use
 	// per-theme defaults" (not a blank page).
 	Appearance json.RawMessage `json:"appearance,omitempty"`
+
+	// DefaultModel is the preferred model id used for generation when a
+	// request doesn't override it and no other source (chat-level, e.g.)
+	// provides one. Empty = fall back to the server-side constant. Stored
+	// as a string so we don't pin ourselves to WuApi's evolving catalogue.
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 // LoadSettings reads nest_users.settings and returns a typed view.
@@ -143,5 +149,16 @@ func (r *Resolver) SetAppearance(ctx context.Context, userID uuid.UUID, blob jso
 		return err
 	}
 	s.Appearance = blob
+	return r.SaveSettings(ctx, userID, s)
+}
+
+// SetDefaultModel stores the user's preferred model id. Empty string clears
+// the preference so generation falls back to the server constant.
+func (r *Resolver) SetDefaultModel(ctx context.Context, userID uuid.UUID, modelID string) error {
+	s, err := r.LoadSettings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	s.DefaultModel = modelID
 	return r.SaveSettings(ctx, userID, s)
 }

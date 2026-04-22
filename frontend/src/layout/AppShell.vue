@@ -57,7 +57,9 @@ const navItems = computed<NavItem[]>(() => [
   { to: '/library', icon: 'mdi-bookshelf', label: t('nav.library') },
   { to: '/account', icon: 'mdi-account-circle-outline', label: t('nav.account') },
   { to: '/settings', icon: 'mdi-cog-outline', label: t('nav.settings') },
-  { to: '/studio', icon: 'mdi-wrench-outline', label: t('nav.studio'), disabled: true },
+  // /studio dropped — it was a permanently-disabled stub that only added
+  // noise to the mobile drawer. If we ship the debug panel (regex tester,
+  // raw prompts, logs) we'll add a real menu entry then.
 ])
 
 // Subset of navItems shown directly in the topbar on desktop. Presets used
