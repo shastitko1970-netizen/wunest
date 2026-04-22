@@ -222,16 +222,26 @@ const lastAssistantId = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-// 100dvh keeps mobile browsers honest as their address bar collapses;
-// the appbar height is subtracted so the chat fills exactly the visible
-// area below it.
+// Anchor the chat layout to viewport edges with position: fixed so we don't
+// depend on v-main's height math. With the topbar always 56px tall and no
+// desktop sidebar, this is viewport-independent and behaves identically in
+// Firefox / Chrome / Safari / mobile browsers.
+//
+// Previous approach (height: calc(100vh - …) inside flex v-main) broke in
+// Firefox because of strict flex min-size rules and on mobile because of
+// URL-bar collapse changing 100vh mid-scroll.
 .nest-chat-layout {
-  height: calc(100dvh - var(--nest-header-height));
+  position: fixed;
+  top: var(--nest-header-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   grid-template-columns: 280px 1fr;
-  grid-template-rows: 1fr;       // explicit so .nest-chat-main inherits height
+  grid-template-rows: 1fr;
   background: var(--nest-bg);
-  overflow: hidden;              // input must stay pinned; no parent scroll
+  overflow: hidden;
+  min-height: 0;
 }
 
 .nest-chat-sidebar {
@@ -239,17 +249,20 @@ const lastAssistantId = computed(() => {
   background: var(--nest-bg-elevated);
   overflow: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
 .nest-chat-main {
   display: flex;
   flex-direction: column;
-  min-width: 0;                  // children with overflow work inside grid
-  min-height: 0;                 // critical: lets the inner scroll area shrink
+  min-width: 0;
+  min-height: 0;
+  height: 100%;                  // anchor the flex container to the grid cell
 }
 
 .nest-chat-empty {
   flex: 1;
+  min-height: 0;
   display: grid;
   place-items: center;
   padding: 40px;
@@ -258,6 +271,7 @@ const lastAssistantId = computed(() => {
 }
 
 .nest-chat-header {
+  flex: 0 0 auto;                // header always visible, doesn't shrink
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -287,9 +301,13 @@ const lastAssistantId = computed(() => {
 }
 
 .nest-chat-scroll {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;                 // Firefox refuses to shrink without this
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;  // scroll chain doesn't bubble to the shell
   scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;  // iOS momentum scroll
 }
 
 // chat-width (set by AppearancePanel) is a percent of the chat column —
@@ -311,7 +329,8 @@ const lastAssistantId = computed(() => {
 }
 
 .nest-chat-input {
-  padding: 12px 20px 16px;
+  flex: 0 0 auto;                // pinned to the bottom of the flex column
+  padding: 12px 20px max(16px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--nest-border);
   background: var(--nest-bg);
   max-width: 820px;

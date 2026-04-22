@@ -17,9 +17,12 @@ import (
 
 // Handler hosts /api/library endpoints.
 type Handler struct {
-	Client          *Client
-	Users           *users.Resolver
-	CharactersRepo  *characters.Repository
+	Client         *Client
+	Users          *users.Resolver
+	CharactersRepo *characters.Repository
+	// Books is optional — when non-nil, CHUB imports that carry an embedded
+	// character_book get promoted to a standalone Lorebook and attached.
+	Books characters.BookExtractor
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
@@ -111,6 +114,20 @@ func (h *Handler) chubImport(w http.ResponseWriter, r *http.Request) {
 		slog.Error("persist chub import", "err", err)
 		http.Error(w, "failed to save character", http.StatusInternalServerError)
 		return
+	}
+
+	// Best-effort: promote embedded character_book → standalone Lorebook.
+	if h.Books != nil && card.Data.CharacterBook != nil && len(card.Data.CharacterBook.Entries) > 0 {
+		entriesJSON, mErr := json.Marshal(card.Data.CharacterBook.Entries)
+		if mErr == nil {
+			name := card.Data.CharacterBook.Name
+			if name == "" {
+				name = card.Name + " — Lorebook"
+			}
+			if err := h.Books.CreateAndAttach(r.Context(), user.ID, created.ID, name, card.Data.CharacterBook.Description, entriesJSON); err != nil {
+				slog.Warn("chub import: extract embedded book", "err", err, "full_path", fullPath)
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, created)

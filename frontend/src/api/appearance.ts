@@ -36,6 +36,10 @@ export interface Appearance {
   // Custom CSS — appended to <head> after all other styles.
   customCss?: string
 
+  // Render inline HTML in messages (sanitized). On by default; turn off if
+  // you're worried about models smuggling markup in.
+  htmlRendering?: boolean
+
   // Metadata — when imported from ST, we stash the original name here.
   importedFrom?: string
 }

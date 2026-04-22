@@ -14,14 +14,30 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
+// BookExtractor is implemented by whoever can persist a character's embedded
+// lorebook (`data.character_book`) as a standalone Lorebook attached to the
+// new character row. The server package wires this to worldinfo.Repository
+// via a small adapter — we keep the interface here to avoid a cycle
+// (worldinfo imports characters, not the other way around).
+type BookExtractor interface {
+	CreateAndAttach(
+		ctx context.Context,
+		userID, characterID uuid.UUID,
+		name, description string,
+		entries []byte, // JSON bytes of []CharacterBookEntry
+	) error
+}
+
 // Handler groups all /api/characters HTTP endpoints.
 //
 // It depends on:
 //   - Repository  — DB access for nest_characters
 //   - users.Resolver — upserts nest_users rows from WuApi profiles
+//   - Books (optional) — post-create extraction of embedded lorebooks
 type Handler struct {
 	Repo  *Repository
 	Users *users.Resolver
+	Books BookExtractor
 }
 
 // maxUploadSize is the cap on a single PNG upload.
@@ -179,7 +195,37 @@ func (h *Handler) importPNG(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+	// If the card ships an embedded character_book with entries, promote it
+	// to a standalone Lorebook and attach — so it shows up in Library →
+	// Worlds and activates during generation exactly like a hand-made book.
+	h.extractEmbeddedBook(r.Context(), user.ID, c.ID, data)
 	writeJSON(w, http.StatusCreated, c)
+}
+
+// extractEmbeddedBook is a best-effort promotion of data.character_book into
+// a standalone Lorebook + attachment. Any failure is logged; the character
+// has already been persisted successfully and returning an error here would
+// leave the user with a half-finished import.
+func (h *Handler) extractEmbeddedBook(ctx context.Context, userID, characterID uuid.UUID, data *CharacterData) {
+	if h.Books == nil || data == nil || data.CharacterBook == nil {
+		return
+	}
+	entries := data.CharacterBook.Entries
+	if len(entries) == 0 {
+		return
+	}
+	name := data.CharacterBook.Name
+	if name == "" {
+		name = data.Name + " — Lorebook"
+	}
+	entriesJSON, err := json.Marshal(entries)
+	if err != nil {
+		slog.Warn("marshal embedded character_book", "err", err, "character_id", characterID)
+		return
+	}
+	if err := h.Books.CreateAndAttach(ctx, userID, characterID, name, data.CharacterBook.Description, entriesJSON); err != nil {
+		slog.Warn("extract embedded character_book", "err", err, "character_id", characterID)
+	}
 }
 
 // updateRequest uses JSON nullable fields so the caller can distinguish

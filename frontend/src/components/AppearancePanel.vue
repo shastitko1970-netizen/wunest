@@ -57,6 +57,10 @@ const customCss = computed<string>({
   get: () => appearance.value.customCss ?? '',
   set: v => store.update({ customCss: v || undefined }),
 })
+const htmlRendering = computed<boolean>({
+  get: () => appearance.value.htmlRendering !== false,
+  set: v => store.update({ htmlRendering: v }),
+})
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
@@ -251,7 +255,15 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         color="primary"
         inset
       />
+      <v-switch
+        v-model="htmlRendering"
+        :label="t('appearance.htmlRendering')"
+        hide-details
+        color="primary"
+        inset
+      />
     </div>
+    <p class="nest-subtitle nest-html-hint">{{ t('appearance.htmlRenderingHint') }}</p>
 
     <!-- Custom CSS -->
     <div class="nest-field">
@@ -372,6 +384,12 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 .nest-io {
   padding-top: 12px;
   border-top: 1px dashed var(--nest-border-subtle);
+}
+
+.nest-html-hint {
+  font-size: 11.5px;
+  margin: -6px 0 0;
+  color: var(--nest-text-muted);
 }
 
 @media (max-width: 640px) {

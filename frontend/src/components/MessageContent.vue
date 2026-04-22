@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import JsonPlate from './JsonPlate.vue'
 import { splitContent, type Part } from '@/lib/splitContent'
+import { useAppearanceStore } from '@/stores/appearance'
 
 // MessageContent renders a single assistant/user message, with:
 //   - Markdown (bold, italic, lists, links, blockquotes)
@@ -10,6 +13,8 @@ import { splitContent, type Part } from '@/lib/splitContent'
 //   - Structured JSON plates: ```json {...} ``` and bare {...} blocks are
 //     pulled out and rendered as key/value cards — the roleplay community
 //     uses these as stat blocks, status panels, etc.
+//   - Optional inline HTML (appearance.htmlRendering) — sanitized with
+//     DOMPurify so the model can't paint a phishing popup.
 //
 // The splitter lives in lib/ so it's unit-testable without touching Vue.
 
@@ -19,17 +24,53 @@ const props = defineProps<{
   raw?: boolean
 }>()
 
-const md = new MarkdownIt({
-  html: false,    // never trust incoming HTML — we escape it
-  breaks: true,   // single \n → <br>, matches the feel of chat
+const appearance = useAppearanceStore()
+const { appearance: app } = storeToRefs(appearance)
+
+// html: true lets raw <div>/<span> flow through markdown-it. We still route
+// every output through DOMPurify before injecting, so the model can't ship
+// <script> or event handlers. On by default — parity with SillyTavern.
+const md = computed(() => new MarkdownIt({
+  html: app.value.htmlRendering !== false,
+  breaks: true,
   linkify: true,
   typographer: false,
-})
+}))
 
 const parts = computed<Part[]>(() => splitContent(props.content ?? '', !!props.raw))
 
+// DOMPurify config: permit common formatting tags and data-* / style / class
+// attrs, strip every JS handler. Hyperlinks get rel=noopener+target=_blank.
+const DP_CFG = {
+  ALLOWED_TAGS: [
+    'b', 'strong', 'i', 'em', 'u', 's', 'del', 'ins', 'mark', 'small', 'sub', 'sup',
+    'br', 'p', 'span', 'div', 'blockquote', 'q', 'cite',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+    'a', 'img',
+    'code', 'pre', 'kbd', 'samp', 'var',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'hr', 'abbr', 'details', 'summary',
+    'figure', 'figcaption',
+  ],
+  ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'style', 'id', 'lang', 'dir', 'colspan', 'rowspan'],
+  // Don't allow javascript: / vbscript: URIs anywhere.
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data:image\/(?:png|jpeg|gif|webp|svg\+xml)):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+}
+
+// Make external links safe by default.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A' && node.getAttribute('href')) {
+    node.setAttribute('rel', 'noopener noreferrer')
+    node.setAttribute('target', '_blank')
+  }
+})
+
 function renderMd(body: string): string {
-  return md.render(body)
+  const raw = md.value.render(body)
+  // `sanitize` returns TrustedHTML on browsers with TT enabled; the string
+  // form works for our v-html injection either way.
+  return String(DOMPurify.sanitize(raw, DP_CFG))
 }
 </script>
 

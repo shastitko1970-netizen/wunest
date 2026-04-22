@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -50,10 +51,15 @@ func New(deps Deps) *Server {
 	presetRepo := presets.NewRepository(deps.Postgres)
 	worldsRepo := worldinfo.NewRepository(deps.Postgres)
 	personasRepo := personas.NewRepository(deps.Postgres)
+	// Adapter fulfils characters.BookExtractor by creating a Lorebook via
+	// worldinfo.Repository and attaching it to the new character. Lives
+	// here instead of inside characters/ to keep that package free of a
+	// dependency on worldinfo (which imports characters).
+	bookExtractor := &worldsBookExtractor{repo: worldsRepo}
 	return &Server{
 		deps:       deps,
 		users:      resolver,
-		characters: &characters.Handler{Repo: charRepo, Users: resolver},
+		characters: &characters.Handler{Repo: charRepo, Users: resolver, Books: bookExtractor},
 		chats: &chats.Handler{
 			Repo:       chats.NewRepository(deps.Postgres),
 			Users:      resolver,
@@ -71,6 +77,7 @@ func New(deps Deps) *Server {
 			Client:         library.NewClient(),
 			Users:          resolver,
 			CharactersRepo: charRepo,
+			Books:          bookExtractor,
 		},
 		worlds: &worldinfo.Handler{
 			Repo:       worldsRepo,
@@ -423,4 +430,40 @@ func (s *statusRecorder) Flush() {
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// worldsBookExtractor implements characters.BookExtractor by creating a
+// Lorebook via worldinfo.Repository and attaching it to the character.
+// Lives here so the `characters` package stays unaware of worldinfo —
+// worldinfo already imports characters (for ErrNotFound etc.) and going
+// the other way would create a cycle.
+type worldsBookExtractor struct {
+	repo *worldinfo.Repository
+}
+
+func (a *worldsBookExtractor) CreateAndAttach(
+	ctx context.Context,
+	userID, characterID uuid.UUID,
+	name, description string,
+	entriesJSON []byte,
+) error {
+	var entries []worldinfo.Entry
+	if err := json.Unmarshal(entriesJSON, &entries); err != nil {
+		return err
+	}
+	// Drop disabled/empty entries on the way in — ST cards often include
+	// placeholder rows that would clutter the Lorebook UI.
+	cleaned := make([]worldinfo.Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.Content == "" && len(e.Keys) == 0 {
+			continue
+		}
+		// Default enabled if the field was missing (some ST exports omit it).
+		cleaned = append(cleaned, e)
+	}
+	w, err := a.repo.Create(ctx, userID, name, description, cleaned)
+	if err != nil {
+		return err
+	}
+	return a.repo.Attach(ctx, characterID, w.ID)
 }
