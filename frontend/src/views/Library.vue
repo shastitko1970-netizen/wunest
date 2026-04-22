@@ -9,6 +9,7 @@ import type { Character } from '@/api/characters'
 import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
 import NewCharacterDialog from '@/components/NewCharacterDialog.vue'
+import BrowseLibraryDialog from '@/components/BrowseLibraryDialog.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
@@ -19,6 +20,7 @@ const { filtered, loading, error, allTags, query, activeTag, favoriteOnly } = st
 const activeTab = ref<'characters' | 'worlds' | 'presets' | 'personas'>('characters')
 const importOpen = ref(false)
 const createOpen = ref(false)
+const browseOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 
 onMounted(() => {
@@ -64,10 +66,17 @@ async function confirmDelete() {
         <div class="nest-eyebrow">{{ t('library.title') }}</div>
         <h1 class="nest-h1 mt-1">{{ t('library.headline') }}</h1>
       </div>
-      <div class="d-flex ga-2">
+      <div class="d-flex ga-2 flex-wrap">
         <v-btn
           color="primary"
           variant="flat"
+          prepend-icon="mdi-earth"
+          @click="browseOpen = true"
+        >
+          {{ t('library.actions.browse') }}
+        </v-btn>
+        <v-btn
+          variant="outlined"
           prepend-icon="mdi-upload"
           @click="importOpen = true"
         >
@@ -162,9 +171,14 @@ async function confirmDelete() {
           <p class="nest-subtitle mt-2" style="max-width: 360px; margin: 0 auto">
             {{ t('library.empty.hint') }}
           </p>
-          <v-btn color="primary" class="mt-4" variant="flat" @click="importOpen = true">
-            {{ t('library.actions.importPng') }}
-          </v-btn>
+          <div class="d-flex ga-2 mt-4 justify-center flex-wrap">
+            <v-btn color="primary" variant="flat" prepend-icon="mdi-earth" @click="browseOpen = true">
+              {{ t('library.actions.browse') }}
+            </v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-upload" @click="importOpen = true">
+              {{ t('library.actions.importPng') }}
+            </v-btn>
+          </div>
         </div>
         <div v-else class="nest-grid">
           <CharacterCard
@@ -185,6 +199,9 @@ async function confirmDelete() {
 
     <!-- Create-from-scratch dialog -->
     <NewCharacterDialog v-model="createOpen" />
+
+    <!-- CHUB browse dialog -->
+    <BrowseLibraryDialog v-model="browseOpen" />
 
     <!-- Delete confirmation -->
     <v-dialog :model-value="confirmDeleteId !== null" max-width="360" @update:model-value="v => !v && (confirmDeleteId = null)">

@@ -101,6 +101,7 @@ const messages = {
       actions: {
         importPng: 'Импорт PNG',
         new: 'Создать',
+        browse: 'Библиотека CHUB',
       },
       search: 'Поиск персонажей…',
       favorites: 'Избранные',
@@ -142,6 +143,26 @@ const messages = {
       card: {
         chat: 'Чат',
       },
+    },
+    browse: {
+      title: 'Библиотека CHUB',
+      subtitle: 'Общая библиотека персонажей',
+      searchPlaceholder: 'Поиск по CHUB…',
+      total: '{n} карточек',
+      nsfw: 'NSFW',
+      sort: {
+        trending: 'В тренде',
+        recent: 'Недавно активные',
+        newest: 'Новые',
+        stars: 'По звёздам',
+      },
+      emptyTitle: 'Ничего не найдено',
+      emptyHint: 'Попробуй другой запрос или смени фильтр.',
+      import: 'Импорт',
+      added: 'Добавлен ✓',
+      importToLibrary: 'Импортировать в Библиотеку',
+      openOnChub: 'Открыть на CHUB',
+      loadMore: 'Загрузить ещё',
     },
     chat: {
       newChat: 'Новый чат',
@@ -287,6 +308,7 @@ const messages = {
       actions: {
         importPng: 'Import PNG',
         new: 'New',
+        browse: 'CHUB library',
       },
       search: 'Search characters…',
       favorites: 'Favorites',
@@ -328,6 +350,26 @@ const messages = {
       card: {
         chat: 'Chat',
       },
+    },
+    browse: {
+      title: 'CHUB library',
+      subtitle: 'Public character collection',
+      searchPlaceholder: 'Search CHUB…',
+      total: '{n} cards',
+      nsfw: 'NSFW',
+      sort: {
+        trending: 'Trending',
+        recent: 'Recent activity',
+        newest: 'Newest',
+        stars: 'Most starred',
+      },
+      emptyTitle: 'Nothing found',
+      emptyHint: 'Try a different query or change the filter.',
+      import: 'Import',
+      added: 'Added ✓',
+      importToLibrary: 'Import to Library',
+      openOnChub: 'Open on CHUB',
+      loadMore: 'Load more',
     },
     chat: {
       newChat: 'New chat',

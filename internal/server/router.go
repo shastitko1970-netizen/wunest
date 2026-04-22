@@ -3,25 +3,26 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"io"
-
+	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/chats"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
+	"github.com/shastitko1970-netizen/wunest/internal/library"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
 
-// Deps is the dependency container for HTTP handlers. Kept flat — easier to
-// refactor than growing a constructor.
+// Deps is the dependency container for HTTP handlers. Kept flat — easier
+// to refactor than growing a constructor.
 type Deps struct {
 	Config   *config.Config
 	Postgres *db.Postgres
@@ -36,11 +37,13 @@ type Server struct {
 	characters *characters.Handler
 	chats      *chats.Handler
 	presets    *presets.Handler
+	library    *library.Handler
 }
 
 func New(deps Deps) *Server {
 	resolver := users.NewResolver(deps.Postgres)
 	charRepo := characters.NewRepository(deps.Postgres)
+	presetRepo := presets.NewRepository(deps.Postgres)
 	return &Server{
 		deps:       deps,
 		users:      resolver,
@@ -49,11 +52,17 @@ func New(deps Deps) *Server {
 			Repo:       chats.NewRepository(deps.Postgres),
 			Users:      resolver,
 			Characters: charRepo,
+			Presets:    presetRepo,
 			WuApi:      deps.WuApi,
 		},
 		presets: &presets.Handler{
-			Repo:  presets.NewRepository(deps.Postgres),
+			Repo:  presetRepo,
 			Users: resolver,
+		},
+		library: &library.Handler{
+			Client:         library.NewClient(),
+			Users:          resolver,
+			CharactersRepo: charRepo,
 		},
 	}
 }
@@ -73,11 +82,14 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
 	mux.Handle("GET /api/me/stats", authRequired(http.HandlerFunc(s.handleMeStats)))
 	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
+	mux.Handle("GET /api/me/defaults", authRequired(http.HandlerFunc(s.handleGetDefaults)))
+	mux.Handle("PUT /api/me/defaults", authRequired(http.HandlerFunc(s.handleSetDefault)))
 
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
 	s.chats.Register(mux, authRequired)
 	s.presets.Register(mux, authRequired)
+	s.library.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
@@ -117,8 +129,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// handleAuthCheck reports whether the caller is logged in. Used by the SPA at
-// page-load to decide between showing the app or redirecting to wusphere.ru/login.
+// handleAuthCheck reports whether the caller is logged in. Used by the SPA
+// at page-load to decide between showing the app or redirecting to
+// wusphere.ru/login.
 func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 	type resp struct {
@@ -126,7 +139,10 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 		LoginURL      string `json:"login_url,omitempty"`
 	}
 	if u == nil {
-		writeJSON(w, http.StatusOK, resp{Authenticated: false, LoginURL: "https://wusphere.ru/login?return_to=" + s.deps.Config.PublicBaseURL})
+		writeJSON(w, http.StatusOK, resp{
+			Authenticated: false,
+			LoginURL:      "https://wusphere.ru/login?return_to=" + s.deps.Config.PublicBaseURL,
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, resp{Authenticated: true})
@@ -169,9 +185,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleMeStats proxies GET /api/me/stats from WuApi using the caller's
-// Bearer token. Response shape is WuApi's responsibility — we pass-through
-// so WuApi can evolve the payload without forcing a WuNest release.
+// handleMeStats proxies GET /api/me/stats from WuApi.
 func (s *Server) handleMeStats(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 	if u.WuApi.APIKey == "" {
@@ -190,8 +204,7 @@ func (s *Server) handleMeStats(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, body)
 }
 
-// handleGoldTransactions proxies GET /api/me/gold/transactions. The
-// `limit` and `offset` query params pass through as-is.
+// handleGoldTransactions proxies GET /api/me/gold/transactions.
 func (s *Server) handleGoldTransactions(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 	if u.WuApi.APIKey == "" {
@@ -212,6 +225,63 @@ func (s *Server) handleGoldTransactions(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, body)
+}
+
+// handleGetDefaults returns the user's map of preset-type → preset-id.
+// Missing keys mean "no default is set for that type".
+func (s *Server) handleGetDefaults(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	settings, err := s.users.LoadSettings(r.Context(), local.ID)
+	if err != nil {
+		slog.Error("load settings", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defaults := settings.DefaultPresets
+	if defaults == nil {
+		defaults = map[string]uuid.UUID{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"default_presets": defaults})
+}
+
+// handleSetDefault updates a single default-preset entry.
+// Body: { "type": "sampler", "preset_id": "uuid" | null }.
+func (s *Server) handleSetDefault(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var req struct {
+		Type     string     `json:"type"`
+		PresetID *uuid.UUID `json:"preset_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.Type == "" {
+		http.Error(w, "type required", http.StatusBadRequest)
+		return
+	}
+	id := uuid.Nil
+	if req.PresetID != nil {
+		id = *req.PresetID
+	}
+	if err := s.users.SetDefaultPreset(r.Context(), local.ID, req.Type, id); err != nil {
+		slog.Error("set default preset", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleModels proxies GET /api/models → WuApi GET /v1/models using the
