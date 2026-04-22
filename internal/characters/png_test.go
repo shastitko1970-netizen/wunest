@@ -100,6 +100,37 @@ func TestParsePNGCard_V2_UpgradesToV3Shape(t *testing.T) {
 	}
 }
 
+// CHUB and several other modern exporters serve a V3-shape envelope under
+// the legacy "chara" keyword. Our parser must handle that — otherwise the
+// flat decoder produces an empty Name and we'd reject perfectly valid cards.
+func TestParsePNGCard_CharaWithV3Wrapper(t *testing.T) {
+	card := map[string]any{
+		"spec":         "chara_card_v2",
+		"spec_version": "2.0",
+		"data": map[string]any{
+			"name":        "Chubby",
+			"description": "Imported from chub.ai",
+			"first_mes":   "Hi.",
+		},
+	}
+	cardJSON, _ := json.Marshal(card)
+	png := buildTestPNG(t, keyChara, cardJSON)
+
+	data, spec, err := ParsePNGCard(png)
+	if err != nil {
+		t.Fatalf("ParsePNGCard: %v", err)
+	}
+	if data.Name != "Chubby" {
+		t.Errorf("name = %q, want Chubby (CHUB-style wrapped V2)", data.Name)
+	}
+	if spec != "chara_card_v3" {
+		t.Errorf("spec = %q, want chara_card_v3", spec)
+	}
+	if data.FirstMes != "Hi." {
+		t.Errorf("first_mes = %q, want Hi.", data.FirstMes)
+	}
+}
+
 func TestParsePNGCard_NoMetadata(t *testing.T) {
 	// Build a PNG with only IHDR+IEND (no tEXt chunk).
 	var buf bytes.Buffer

@@ -58,7 +58,10 @@
   --nest-ember:          #e0a96d;  // tavern warmth
 }
 
-// ── Light palette (Dossier-inspired) ─────────────────
+// ── Light palette (Dossier-inspired paper, coral accent) ───────────
+// Accent (CTA / focus / primary) intentionally matches the dark theme so
+// brand recognition carries across themes — it's the same product, the
+// surface is just different.
 .v-theme--nestLight {
   --nest-bg:             #FAFAF7;
   --nest-bg-elevated:    #F3F2EC;
@@ -68,11 +71,11 @@
   --nest-text:           #141412;
   --nest-text-secondary: #4A4740;
   --nest-text-muted:     #7A756C;
-  --nest-accent:         #d9734a;  // terracotta
-  --nest-gold:           #b45309;  // bronze
+  --nest-accent:         #ef4444;  // coral (synced with dark theme)
+  --nest-gold:           #b45309;  // bronze (decorative, light-friendly)
   --nest-green:          #4c8b4f;
   --nest-blue:           #1e6fd9;
-  --nest-ember:          #d9734a;
+  --nest-ember:          #ef4444;  // synced with accent
 }
 
 // ── Base elements ────────────────────────────────────

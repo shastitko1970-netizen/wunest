@@ -23,13 +23,14 @@ const nestDark: ThemeDefinition = {
 const nestLight: ThemeDefinition = {
   dark: false,
   colors: {
-    // Dossier-inspired: warm off-white paper + dark ink.
+    // Dossier-inspired: warm off-white paper + dark ink. Accent intentionally
+    // matches the dark theme's coral so the brand identity carries across.
     background: '#FAFAF7',
     surface: '#F3F2EC',
     'surface-variant': '#FAFAF7',
-    primary: '#d9734a',       // terracotta (oklch(56% 0.13 40) approx.)
-    secondary: '#b45309',     // bronze
-    error: '#c43c3c',
+    primary: '#ef4444',       // coral (synced with nestDark.primary)
+    secondary: '#b45309',     // bronze (decorative, light-friendly)
+    error: '#ef4444',
     info: '#1e6fd9',
     success: '#4c8b4f',
     warning: '#c07a1f',

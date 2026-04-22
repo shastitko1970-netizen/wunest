@@ -124,16 +124,28 @@ func decodeV3(payload []byte) (*CharacterData, string, error) {
 	return &wrapper.Data, "chara_card_v3", nil
 }
 
-// decodeV2 decodes a base64+JSON V2 payload and upgrades it to V3 shape.
-//
-// V2 is a flat object (no `data` wrapper). We unmarshal into the same
-// CharacterData struct, which is a superset.
+// decodeV2 decodes a base64+JSON payload found under the legacy "chara"
+// keyword. The shape is not always V2-flat — CHUB and some other modern
+// exporters serve a V3-shape envelope ({"spec":"chara_card_v2","data":{...}})
+// under the V2 keyword. We try the wrapper shape first and fall back to flat
+// V2 if no name is found.
 func decodeV2(payload []byte) (*CharacterData, string, error) {
 	raw, err := base64.StdEncoding.DecodeString(string(payload))
 	if err != nil {
 		return nil, "", fmt.Errorf("v2 base64 decode: %w", err)
 	}
 
+	// Wrapper shape — used by CHUB and most current exporters.
+	var wrapper struct {
+		Spec        string        `json:"spec"`
+		SpecVersion string        `json:"spec_version"`
+		Data        CharacterData `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err == nil && wrapper.Data.Name != "" {
+		return &wrapper.Data, "chara_card_v3", nil
+	}
+
+	// Flat shape — original SillyTavern V2 export.
 	var data CharacterData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return nil, "", fmt.Errorf("v2 json decode: %w", err)
@@ -141,6 +153,5 @@ func decodeV2(payload []byte) (*CharacterData, string, error) {
 	if data.Name == "" {
 		return nil, "", errors.New("v2 card has empty name")
 	}
-	// Upgraded in-place.
 	return &data, "chara_card_v3", nil
 }
