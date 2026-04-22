@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
+import { useAppearanceStore } from '@/stores/appearance'
 import AppShell from '@/layout/AppShell.vue'
 import LoginGate from '@/views/LoginGate.vue'
 
 const auth = useAuthStore()
+const appearance = useAppearanceStore()
 const { authenticated, loading } = storeToRefs(auth)
 
 // Boot: check session once.
 onMounted(() => {
   auth.check()
 })
+
+// Once logged in, pull the saved appearance from the server. The store
+// also reads localStorage eagerly so the first paint already reflects
+// the last-used theme — this is the "catch up if we're out of sync"
+// step after a cross-device login.
+watch(authenticated, (ok) => {
+  if (ok) void appearance.fetchFromServer()
+}, { immediate: true })
 
 const showShell = computed(() => !loading.value && authenticated.value)
 const showLogin = computed(() => !loading.value && !authenticated.value)

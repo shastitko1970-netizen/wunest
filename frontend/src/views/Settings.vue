@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
+import AppearancePanel from '@/components/AppearancePanel.vue'
 
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
@@ -54,6 +55,10 @@ const localeLabel = (code: string) => {
           :value="code"
         />
       </v-radio-group>
+    </section>
+
+    <section class="nest-section">
+      <AppearancePanel />
     </section>
 
     <section class="nest-section">

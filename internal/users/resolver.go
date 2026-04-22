@@ -59,6 +59,13 @@ type Settings struct {
 	// mean "no default for this type; chats fall back to hard-coded
 	// defaults". Keys follow presets.PresetType ("sampler", "instruct", …).
 	DefaultPresets map[string]uuid.UUID `json:"default_presets,omitempty"`
+
+	// Appearance is the raw user-authored theme blob: font scale, chat width,
+	// accent color, custom CSS, etc. We store it as a raw JSON object so the
+	// client can evolve the schema without a server migration every time.
+	// Default values live on the client; a missing Appearance means "use
+	// per-theme defaults" (not a blank page).
+	Appearance json.RawMessage `json:"appearance,omitempty"`
 }
 
 // LoadSettings reads nest_users.settings and returns a typed view.
@@ -126,4 +133,15 @@ func (r *Resolver) GetDefaultPreset(ctx context.Context, userID uuid.UUID, prese
 		return uuid.Nil, nil
 	}
 	return s.DefaultPresets[presetType], nil
+}
+
+// SetAppearance replaces settings.appearance with the given raw JSON blob.
+// Nil / empty blob clears the field (client reverts to default theme).
+func (r *Resolver) SetAppearance(ctx context.Context, userID uuid.UUID, blob json.RawMessage) error {
+	s, err := r.LoadSettings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	s.Appearance = blob
+	return r.SaveSettings(ctx, userID, s)
 }

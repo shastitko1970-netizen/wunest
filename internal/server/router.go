@@ -101,6 +101,8 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
 	mux.Handle("GET /api/me/defaults", authRequired(http.HandlerFunc(s.handleGetDefaults)))
 	mux.Handle("PUT /api/me/defaults", authRequired(http.HandlerFunc(s.handleSetDefault)))
+	mux.Handle("GET /api/me/appearance", authRequired(http.HandlerFunc(s.handleGetAppearance)))
+	mux.Handle("PUT /api/me/appearance", authRequired(http.HandlerFunc(s.handleSetAppearance)))
 
 	// Feature packages register their own routes.
 	s.characters.Register(mux, authRequired)
@@ -295,6 +297,63 @@ func (s *Server) handleSetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.users.SetDefaultPreset(r.Context(), local.ID, req.Type, id); err != nil {
 		slog.Error("set default preset", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetAppearance returns the user's saved appearance blob. Empty JSON
+// object when the user hasn't customised anything yet — the client treats
+// `{}` as "use whatever the selected theme's defaults are".
+func (s *Server) handleGetAppearance(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	settings, err := s.users.LoadSettings(r.Context(), local.ID)
+	if err != nil {
+		slog.Error("load settings", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	out := json.RawMessage("{}")
+	if len(settings.Appearance) > 0 {
+		out = settings.Appearance
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(out)
+}
+
+// handleSetAppearance replaces settings.appearance with the request body,
+// which must be a JSON object. Size-capped at 256 KiB so a runaway custom
+// CSS field can't bloat the row.
+func (s *Server) handleSetAppearance(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	local, err := s.users.Resolve(r.Context(), u.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "body too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	// Validate it's at least parseable JSON — even `{}` qualifies. Prevents
+	// us storing random bytes that would blow up future LoadSettings reads.
+	var probe any
+	if err := json.Unmarshal(body, &probe); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := s.users.SetAppearance(r.Context(), local.ID, json.RawMessage(body)); err != nil {
+		slog.Error("set appearance", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

@@ -292,8 +292,12 @@ const lastAssistantId = computed(() => {
   scroll-behavior: smooth;
 }
 
+// chat-width (set by AppearancePanel) is a percent of the chat column —
+// same semantic as SillyTavern's `chat_width` field. 100% uses the whole
+// column; narrower values center a readable measure.
 .nest-chat-messages {
-  max-width: 820px;
+  max-width: var(--nest-chat-width, 820px);
+  width: 100%;
   margin: 0 auto;
   padding: 24px 20px 60px;
   display: flex;

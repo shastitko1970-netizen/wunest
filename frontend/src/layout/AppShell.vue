@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useDisplay, useTheme } from 'vuetify'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAccountStore } from '@/stores/account'
 import { useI18n } from 'vue-i18n'
 
-const { mdAndUp } = useDisplay()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -17,7 +16,25 @@ const { profile: accountProfile } = storeToRefs(account)
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
 
-// On desktop the drawer is persistent; on mobile it's an overlay.
+// Viewport detection via raw matchMedia — previously we relied on Vuetify's
+// useDisplay() but it was returning stale/incorrect values for some users,
+// leaving the persistent sidebar unmounted on real desktops. matchMedia is
+// a browser primitive; if it's wrong, nothing downstream can fix it.
+const isDesktop = ref(typeof window !== 'undefined'
+  ? window.matchMedia('(min-width: 960px)').matches
+  : true)
+let mql: MediaQueryList | null = null
+function handleMQ(e: MediaQueryListEvent) { isDesktop.value = e.matches }
+onMounted(() => {
+  if (typeof window === 'undefined') return
+  mql = window.matchMedia('(min-width: 960px)')
+  isDesktop.value = mql.matches
+  mql.addEventListener('change', handleMQ)
+})
+onBeforeUnmount(() => mql?.removeEventListener('change', handleMQ))
+
+// Mobile-only overlay state. On desktop the drawer is `permanent` and this
+// v-model is ignored, so we keep it false to avoid an overlay flash.
 const drawerOpen = ref(false)
 
 // Topbar pulls from the account store because that view has the fullest
@@ -78,7 +95,7 @@ const localeLabel = (code: string) => {
       height="56"
     >
       <v-app-bar-nav-icon
-        v-if="!mdAndUp"
+        v-if="!isDesktop"
         variant="text"
         @click="drawerOpen = !drawerOpen"
       />
@@ -90,7 +107,7 @@ const localeLabel = (code: string) => {
       <v-spacer />
 
       <!-- Live quota chips (desktop only) -->
-      <template v-if="displayProfile && mdAndUp">
+      <template v-if="displayProfile && isDesktop">
         <v-chip
           size="small"
           variant="tonal"
@@ -180,8 +197,8 @@ const localeLabel = (code: string) => {
     <!-- Sidebar nav -->
     <v-navigation-drawer
       v-model="drawerOpen"
-      :permanent="mdAndUp"
-      :temporary="!mdAndUp"
+      :permanent="isDesktop"
+      :temporary="!isDesktop"
       width="240"
       class="nest-sidebar"
       :elevation="0"

@@ -146,3 +146,32 @@ html, body, #app {
   font-family: var(--nest-font-mono);
   font-feature-settings: 'tnum' 1;
 }
+
+// ── Appearance-driven overrides ──────────────────────
+// The Appearance panel writes CSS custom properties onto :root; the rules
+// below wire those tokens into Vuetify primitives so slider changes take
+// effect without every component needing to opt in.
+
+.v-avatar {
+  border-radius: var(--nest-avatar-radius, 50%) !important;
+}
+
+// chat_display semantics (matches ST's chat_display field):
+//   bubbles  — default: rounded pill backgrounds on each message
+//   flat     — no background, no shadow (maximum text density)
+//   document — typeset look: wider measure, no decoration on messages
+[data-nest-chat-display='flat'] .nest-msg .nest-msg-body {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+[data-nest-chat-display='document'] .nest-msg {
+  .nest-msg-body {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .nest-msg-header { opacity: 0.6; }
+}
