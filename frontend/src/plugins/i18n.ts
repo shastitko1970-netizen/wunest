@@ -922,6 +922,7 @@ const messages = {
         prev: 'Предыдущий вариант',
         next: 'Следующий вариант',
         newVariant: 'Новый вариант (свайп)',
+        greetingLabel: 'Приветствие',
       },
       export: {
         btn: 'Экспорт в .jsonl',
@@ -1936,6 +1937,7 @@ const messages = {
         prev: 'Previous variant',
         next: 'Next variant',
         newVariant: 'New variant (swipe)',
+        greetingLabel: 'Greeting',
       },
       export: {
         btn: 'Export to .jsonl',

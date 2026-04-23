@@ -43,6 +43,12 @@ const totalSwipes = computed(() => {
   return Array.isArray(s) ? s.length : 0
 })
 const currentSwipe = computed(() => props.message.swipe_id ?? 0)
+
+// Greeting detection — server tags seed-messages with extras.model =
+// "greeting". We use this to label the swipe counter so users see
+// "Приветствие 1/3" instead of a bare "1/3" and realize the chevrons
+// let them browse alternate_greetings from the character card.
+const isGreeting = computed(() => props.message.extras?.model === 'greeting')
 const tokensInfo = computed(() => {
   const ex = props.message.extras
   if (!ex?.tokens_out) return null
@@ -215,12 +221,15 @@ function onEditKeydown(e: KeyboardEvent) {
 
     <!-- Action row: shown on hover/focus, hidden while editing/streaming. -->
     <div v-if="!editing && !streaming" class="nest-msg-actions">
-      <!-- Swipe navigation: only on assistant rows with multiple variants.
-           Left/right chevrons step between stored swipes; plus generates a
-           fresh variant by appending to swipes[]. -->
-      <template v-if="!isUser && allowRegenerate">
+      <!-- Swipe navigation: on any assistant row with multiple variants.
+           Previously we gated by allowRegenerate (last-message-only),
+           which hid greeting-swipes the moment the user posted a reply.
+           Now chevrons appear for ALL assistant swipes — paging through
+           a greeting mid-conversation just updates that bubble, matches
+           ST's behavior. The "+" new-variant button stays allowRegenerate-
+           only since it costs an API turn. -->
+      <template v-if="!isUser && totalSwipes > 1">
         <button
-          v-if="totalSwipes > 1"
           class="nest-action-btn"
           :title="t('chat.swipe.prev')"
           :disabled="currentSwipe === 0"
@@ -228,11 +237,13 @@ function onEditKeydown(e: KeyboardEvent) {
         >
           <v-icon size="14">mdi-chevron-left</v-icon>
         </button>
-        <span v-if="totalSwipes > 1" class="nest-swipe-count nest-mono">
+        <span class="nest-swipe-count nest-mono" :class="{ 'is-greeting': isGreeting }">
+          <template v-if="isGreeting">
+            {{ t('chat.swipe.greetingLabel') }}
+          </template>
           {{ currentSwipe + 1 }}/{{ totalSwipes }}
         </span>
         <button
-          v-if="totalSwipes > 1"
           class="nest-action-btn"
           :title="t('chat.swipe.next')"
           :disabled="currentSwipe === totalSwipes - 1"
@@ -240,6 +251,8 @@ function onEditKeydown(e: KeyboardEvent) {
         >
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
+      </template>
+      <template v-if="!isUser && allowRegenerate">
         <button
           class="nest-action-btn"
           :title="t('chat.swipe.newVariant')"
@@ -474,6 +487,22 @@ function onEditKeydown(e: KeyboardEvent) {
   padding: 2px 4px;
   align-self: center;
   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  // Greeting messages get a labeled pill so users see it's a navigator
+  // for alternate_greetings, not a regenerate counter. Brighter color
+  // + background so it reads as an interactive affordance on a fresh
+  // chat (before other hover-opacity actions would cue-in).
+  &.is-greeting {
+    color: var(--nest-accent);
+    background: color-mix(in srgb, var(--nest-accent) 10%, transparent);
+    border-radius: var(--nest-radius-pill);
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
 }
 
 // Mobile: actions always visible (no hover affordance).

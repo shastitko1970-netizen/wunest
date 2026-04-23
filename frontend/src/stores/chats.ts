@@ -254,7 +254,7 @@ export const useChatsStore = defineStore('chats', () => {
             break
           }
           case 'error': {
-            streamError.value = `${ev.data.kind}: ${ev.data.message}`
+            streamError.value = formatStreamError(ev.data.kind, ev.data.message)
             break
           }
         }
@@ -264,18 +264,62 @@ export const useChatsStore = defineStore('chats', () => {
         // Upstream may return a JSON error body (auth gate, rate limit, etc.).
         // Pull out the human-readable message instead of dumping raw JSON at
         // the user.
-        const raw = (e as Error).message
-        try {
-          const parsed = JSON.parse(raw) as { error?: string; message?: string }
-          streamError.value = parsed.message || parsed.error || raw
-        } catch {
-          streamError.value = raw
-        }
+        streamError.value = formatStreamError('', (e as Error).message)
       }
     } finally {
       streaming.value = false
       streamAbort = null
     }
+  }
+
+  /**
+   * Take the (often JSON-shaped) server/upstream error soup and turn it
+   * into a single human-readable line. Recognizes:
+   *
+   *   - kind="upstream_status" with an "upstream 402: {json}" suffix
+   *     → extract nested error.message + map known error.type codes
+   *     (insufficient_gold, rate_limited) to friendlier text with a CTA.
+   *   - nest_access_required                              → "Need access code…"
+   *   - plain JSON body {error, message}                  → message || error
+   *   - anything else                                      → passthrough
+   */
+  function formatStreamError(kind: string, message: string): string {
+    // Try to dig the embedded JSON out of the message — server-side
+    // writeSSEError wraps upstream body as `"upstream 402: {json}"`.
+    const jsonStart = message.indexOf('{')
+    if (jsonStart >= 0) {
+      try {
+        const parsed = JSON.parse(message.slice(jsonStart))
+        const inner = parsed?.error ?? parsed
+        if (inner && typeof inner === 'object') {
+          const type = typeof inner.type === 'string' ? inner.type : ''
+          const msg = typeof inner.message === 'string' ? inner.message : ''
+          if (type === 'insufficient_gold') {
+            // WuApi ships a Telegram bot for top-up — surface the command
+            // cleanly. Room for a real /gold button later.
+            return msg || 'Недостаточно wu-gold. Пополните через бота /gold в Telegram.'
+          }
+          if (type === 'nest_access_required') {
+            return msg || 'WuNest в закрытой бете — введите код доступа в профиле.'
+          }
+          if (type === 'rate_limited') {
+            return msg || 'Слишком много запросов. Попробуйте через минуту.'
+          }
+          if (msg) return msg
+        }
+      } catch {
+        // Fall through to raw message if JSON can't be parsed.
+      }
+    }
+    // Tolerate the older plain-JSON body shape (no nested "error" key).
+    try {
+      const parsed = JSON.parse(message) as { error?: string; message?: string }
+      if (parsed.message) return parsed.message
+      if (typeof parsed.error === 'string') return parsed.error
+    } catch {
+      // Not JSON — just show kind + message.
+    }
+    return kind ? `${kind}: ${message}` : message
   }
 
   function stopStreaming() {
