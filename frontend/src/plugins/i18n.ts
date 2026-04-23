@@ -457,6 +457,18 @@ const messages = {
       stats: '{enabled} из {total} активны',
       addEntry: 'Добавить запись',
       entriesEmpty: 'В этом лорбуке ещё нет записей. Нажми «Добавить запись» чтобы создать первую.',
+      importBtn: 'Импорт .json',
+      importBtnHint: 'Импортировать SillyTavern-лорбук как встроенный в карточку',
+      exportBtn: 'Экспорт .json',
+      exportBtnHint: 'Скачать как отдельный ST-совместимый лорбук',
+      importError: {
+        shape: 'Не удалось распознать формат файла. Ожидается ST-лорбук с массивом entries.',
+      },
+      importConfirm: {
+        title: 'Заменить встроенный лорбук?',
+        body: 'Текущий лорбук содержит {existing} записей. После импорта они будут заменены на {incoming} записей из файла. Это действие нельзя отменить до сохранения персонажа.',
+        replace: 'Заменить',
+      },
       entry: {
         name: 'Название записи (для тебя)',
         comment: 'Комментарий',
@@ -1471,6 +1483,18 @@ const messages = {
       stats: '{enabled} of {total} enabled',
       addEntry: 'Add entry',
       entriesEmpty: "No entries yet. Click \"Add entry\" to create the first one.",
+      importBtn: 'Import .json',
+      importBtnHint: "Import a SillyTavern lorebook as this character's embedded book",
+      exportBtn: 'Export .json',
+      exportBtnHint: 'Download as a standalone ST-compatible lorebook',
+      importError: {
+        shape: "Couldn't recognize the file format. Expected an ST lorebook with an entries array.",
+      },
+      importConfirm: {
+        title: 'Replace the embedded lorebook?',
+        body: 'The current book has {existing} entries. After import they will be replaced with {incoming} entries from the file. Undoable only until you save the character.',
+        replace: 'Replace',
+      },
       entry: {
         name: 'Entry name (your reference)',
         comment: 'Comment',
