@@ -37,6 +37,16 @@ type Handler struct {
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
+	// Beta-gate helper: compose authRequired with RequireNestAccess. Applied
+	// to endpoints that spend upstream gold or enqueue new assistant turns.
+	// Read-only + CRUD-on-own-data routes stay un-gated so users can still
+	// browse existing chats, rename / delete, and edit the drafts they
+	// already own — the gate is strictly about "no new generation until
+	// you've redeemed a code".
+	betaGated := func(h http.Handler) http.Handler {
+		return authRequired(auth.RequireNestAccess(h))
+	}
+
 	mux.Handle("GET /api/chats", authRequired(http.HandlerFunc(h.list)))
 	mux.Handle("POST /api/chats", authRequired(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
@@ -46,13 +56,16 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("PUT /api/chats/{id}/authors-note", authRequired(http.HandlerFunc(h.setAuthorsNote)))
 	mux.Handle("PUT /api/chats/{id}/byok", authRequired(http.HandlerFunc(h.setBYOK)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
-	mux.Handle("POST /api/chats/{id}/regenerate", authRequired(http.HandlerFunc(h.regenerate)))
+	// Generation endpoints — gated. Regenerate + sendMessage + swipe all
+	// stream a new assistant turn from the upstream provider.
+	mux.Handle("POST /api/chats/{id}/regenerate", betaGated(http.HandlerFunc(h.regenerate)))
 	mux.Handle("GET /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.listMessages)))
-	mux.Handle("POST /api/chats/{id}/messages", authRequired(http.HandlerFunc(h.sendMessage)))
+	mux.Handle("POST /api/chats/{id}/messages", betaGated(http.HandlerFunc(h.sendMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.editMessage)))
 	mux.Handle("DELETE /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.deleteMessage)))
-	// Swipes — alternate assistant outputs for the same turn.
-	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.swipeMessage)))
+	// Swipes — alternate assistant outputs for the same turn. Creating a new
+	// swipe is a generation (gated); selecting among existing swipes is not.
+	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", betaGated(http.HandlerFunc(h.swipeMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.selectSwipe)))
 	// Portability: export current chat as JSONL, import a .jsonl into a new chat.
 	mux.Handle("GET /api/chats/{id}/export", authRequired(http.HandlerFunc(h.exportChat)))

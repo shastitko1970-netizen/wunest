@@ -259,7 +259,16 @@ export const useChatsStore = defineStore('chats', () => {
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
-        streamError.value = (e as Error).message
+        // Upstream may return a JSON error body (auth gate, rate limit, etc.).
+        // Pull out the human-readable message instead of dumping raw JSON at
+        // the user.
+        const raw = (e as Error).message
+        try {
+          const parsed = JSON.parse(raw) as { error?: string; message?: string }
+          streamError.value = parsed.message || parsed.error || raw
+        } catch {
+          streamError.value = raw
+        }
       }
     } finally {
       streaming.value = false

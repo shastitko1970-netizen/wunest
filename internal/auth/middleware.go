@@ -98,3 +98,33 @@ func FromContext(ctx context.Context) *models.SessionUser {
 	u, _ := ctx.Value(userKey).(*models.SessionUser)
 	return u
 }
+
+// RequireNestAccess is a middleware that enforces the WuNest beta gate at
+// the HTTP layer. Must be composed inside (i.e. wrapped by) the auth
+// Middleware so there is always a SessionUser on the context; missing or
+// un-redeemed users are rejected with 403 and a machine-readable JSON
+// body that the SPA can special-case if it wants to.
+//
+// Usage:
+//
+//	mux.Handle("POST /api/chats/{id}/messages",
+//	    authRequired(auth.RequireNestAccess(http.HandlerFunc(h.sendMessage))))
+//
+// Without this the disabled-nav + router-guard UI is still fully
+// bypassable via dev-tools or curl — anyone with a session cookie can
+// POST to generation endpoints and spend upstream gold. This middleware
+// closes that path.
+func RequireNestAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		su := FromContext(r.Context())
+		if su == nil || !su.WuApi.NestAccessGranted {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusForbidden)
+			// Tagged error body — SPA can key off `error` to show a
+			// "need access code" UI instead of a generic failure.
+			_, _ = w.Write([]byte(`{"error":"nest_access_required","message":"WuNest is in closed beta — redeem an access code to use generation endpoints."}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
