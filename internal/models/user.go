@@ -51,16 +51,17 @@ type SessionUser struct {
 // API, PascalCase here in Go); the JSON→struct decode happens in the
 // wuapi package where the camelCase JSON tags are attached.
 type WuApiProfile struct {
-	ID              int64
-	Username        string
-	FirstName       string
-	APIKey          string
-	Tier            Tier
-	TierExpiresAt   *time.Time
-	GoldBalanceNano int64
-	ReferralCount   int
-	DailyLimit      int
-	UsedToday       int
-	CreatedAt       time.Time
-	Blocked         bool
+	ID                int64
+	Username          string
+	FirstName         string
+	APIKey            string
+	Tier              Tier
+	TierExpiresAt     *time.Time
+	GoldBalanceNano   int64
+	ReferralCount     int
+	DailyLimit        int
+	UsedToday         int
+	CreatedAt         time.Time
+	Blocked           bool
+	NestAccessGranted bool
 }

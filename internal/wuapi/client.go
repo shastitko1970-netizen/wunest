@@ -86,6 +86,10 @@ type MeResponse struct {
 	CreatedAt       time.Time  `json:"createdAt"`
 	UsedToday       int64      `json:"usedToday"`
 	DailyLimit      int        `json:"dailyLimit"`
+	// WuNest beta gate. FALSE by default; flips TRUE once the user
+	// redeems an access code on WuApi. SPA hides the in-app lock screen
+	// when this is true.
+	NestAccessGranted bool `json:"nestAccessGranted,omitempty"`
 	// Blocked isn't exposed by /api/me today — if WuApi ever adds it here
 	// as `blocked`, update the tag.
 	Blocked bool `json:"blocked,omitempty"`
@@ -127,6 +131,26 @@ func (c *Client) Proxy(ctx context.Context, path, sessionKey string) (io.ReadClo
 	resp, err := c.doGET(ctx, path, sessionKey)
 	if err != nil {
 		return nil, nil, err
+	}
+	return resp.Body, resp, nil
+}
+
+// ProxyPOST issues a POST to an arbitrary path on WuApi, forwarding the
+// caller's body verbatim. Used for mutating endpoints we don't need to
+// inspect — e.g. /api/me/nest-access/redeem, where WuApi validates the
+// code and flips the flag. Caller must Close the returned body.
+func (c *Client) ProxyPOST(ctx context.Context, path, sessionKey string, body io.Reader) (io.ReadCloser, *http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if sessionKey != "" {
+		req.Header.Set("Authorization", "Bearer "+sessionKey)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("do request: %w", err)
 	}
 	return resp.Body, resp, nil
 }

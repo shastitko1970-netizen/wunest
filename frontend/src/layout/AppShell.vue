@@ -52,14 +52,20 @@ onMounted(() => {
   if (authenticated.value && !accountProfile.value) void account.fetchProfile()
 })
 
-// Protected routes — anons hitting these should see the inline "sign
-// in to continue" card instead of the actual view. / and /docs* are
-// public; everything else requires a session.
-const PUBLIC_PATHS = ['/', '/docs']
-const isProtectedRoute = computed(() =>
-  !PUBLIC_PATHS.some(p => route.path === p || route.path.startsWith(p + '/')),
+// Routes reachable without a session OR without an activated access
+// code. `/account` is on the list so users who haven't redeemed a
+// code can still reach the form to enter one.
+const ALWAYS_ACCESSIBLE = ['/', '/docs', '/account']
+const isGatedRoute = computed(() =>
+  !ALWAYS_ACCESSIBLE.some(p => route.path === p || route.path.startsWith(p + '/')),
 )
-const showAuthPrompt = computed(() => !authenticated.value && isProtectedRoute.value)
+const showAuthPrompt = computed(() => !authenticated.value && isGatedRoute.value)
+// Authed but hasn't redeemed an access code yet — show the beta gate
+// prompt on any protected route. Public routes + Account are exempt.
+const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
+const showAccessPrompt = computed(() =>
+  authenticated.value && !nestAccessGranted.value && isGatedRoute.value,
+)
 
 const displayProfile = computed(() => accountProfile.value ?? profile.value)
 
@@ -142,8 +148,9 @@ const localeLabel = (code: string) => {
         @click="drawerOpen = !drawerOpen"
       />
 
-      <!-- Logo → /chat -->
-      <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/chat')">
+      <!-- Logo → home (landing). Consistent for authed and anon so the
+           page a logo click lands on is never surprising. -->
+      <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/')">
         <div class="nest-logo-mark">▲</div>
         <div class="nest-logo-text">WuNest</div>
       </div>
@@ -322,6 +329,24 @@ const localeLabel = (code: string) => {
           <button class="nest-auth-prompt-cta-secondary" @click="router.push('/')">
             <v-icon size="18" class="mr-2">mdi-arrow-left</v-icon>
             {{ t('authPrompt.backHome') }}
+          </button>
+        </div>
+      </div>
+      <!-- Authed but hasn't redeemed a beta access code yet. Same inline
+           pattern as the anon prompt but CTA sends them to Account where
+           the code form lives, not to login. -->
+      <div v-else-if="showAccessPrompt" class="nest-auth-prompt">
+        <v-icon size="48" color="surface-variant">mdi-ticket-confirmation-outline</v-icon>
+        <h2 class="nest-h2 mt-4">{{ t('accessGate.title') }}</h2>
+        <p class="nest-subtitle mt-2">{{ t('accessGate.body') }}</p>
+        <div class="nest-auth-prompt-ctas mt-4">
+          <button class="nest-auth-prompt-cta-primary" @click="router.push('/account')">
+            <v-icon size="18" class="mr-2">mdi-key-variant</v-icon>
+            {{ t('accessGate.goToAccount') }}
+          </button>
+          <button class="nest-auth-prompt-cta-secondary" @click="router.push('/docs')">
+            <v-icon size="18" class="mr-2">mdi-book-open-variant</v-icon>
+            {{ t('accessGate.readDocs') }}
           </button>
         </div>
       </div>

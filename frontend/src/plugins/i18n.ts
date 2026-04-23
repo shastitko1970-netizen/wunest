@@ -273,6 +273,13 @@ const messages = {
         manageTagline: 'Смена API-ключа, реферальные ссылки, оплаты и смена тарифа — всё в кабинете WuApi.',
         openWuApi: 'Открыть кабинет WuApi',
       },
+      access: {
+        title: 'Код доступа',
+        body: 'WuNest сейчас в закрытой бете. Введи код активации, чтобы разблокировать чат, библиотеку и настройки.',
+        placeholder: 'Например: ABCD-EFGH-JKMN',
+        submit: 'Активировать',
+        activatedBadge: 'Доступ активирован',
+      },
       periods: {
         today: 'Сегодня',
         week: 'Неделя',
@@ -744,6 +751,12 @@ const messages = {
       body: 'Эта часть WuNest доступна только авторизованным пользователям. Войди через WuApi — это быстро.',
       backHome: 'На главную',
     },
+    accessGate: {
+      title: 'Нужен код доступа',
+      body: 'WuNest сейчас в закрытой бете. Введи код активации в личном кабинете, чтобы разблокировать чат, библиотеку и настройки. Главная и документация работают без кода.',
+      goToAccount: 'Ввести код',
+      readDocs: 'Почитать доки',
+    },
   },
   en: {
     app: {
@@ -1011,6 +1024,13 @@ const messages = {
         manageTitle: 'Manage account',
         manageTagline: 'API key rotation, referral links, payments and plan changes — all live in WuApi\'s own dashboard.',
         openWuApi: 'Open WuApi dashboard',
+      },
+      access: {
+        title: 'Access code',
+        body: 'WuNest is currently in closed beta. Enter your activation code to unlock chat, library, and settings.',
+        placeholder: 'e.g. ABCD-EFGH-JKMN',
+        submit: 'Activate',
+        activatedBadge: 'Access activated',
       },
       periods: {
         today: 'Today',
@@ -1482,6 +1502,12 @@ const messages = {
       title: 'Sign in required',
       body: "This part of WuNest is only for signed-in users. It's a quick WuApi sign-in.",
       backHome: 'Back to home',
+    },
+    accessGate: {
+      title: 'Access code required',
+      body: "WuNest is in closed beta. Enter your activation code on the Account page to unlock chat, library, and settings. The landing and docs are open without a code.",
+      goToAccount: 'Enter code',
+      readDocs: 'Read the docs',
     },
   },
 }

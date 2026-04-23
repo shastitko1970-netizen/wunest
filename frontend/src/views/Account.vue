@@ -1,17 +1,51 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useAccountStore } from '@/stores/account'
+import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
 const account = useAccountStore()
+const auth = useAuthStore()
 const {
   profile, stats, transactions,
   loading, goldDisplay, memberSince, tierExpiresDisplay, quotaRemaining,
 } = storeToRefs(account)
+const { nestAccessGranted } = storeToRefs(auth)
 
 onMounted(() => account.refreshAll())
+
+// Redeem-code form state. Lives on Account because that's the only page
+// an un-activated user can reach alongside /, /docs; they'll find the
+// field on their own profile page.
+const redeemCode = ref('')
+const redeemBusy = ref(false)
+const redeemError = ref<string | null>(null)
+
+async function submitRedeem() {
+  redeemError.value = null
+  redeemBusy.value = true
+  try {
+    await auth.redeemAccessCode(redeemCode.value)
+    redeemCode.value = ''
+    // profile is refreshed inside the store; AppShell's gate flips
+    // automatically on the next reactive read of nestAccessGranted.
+  } catch (e) {
+    // apiFetch surfaces the upstream body as the message. WuApi returns
+    // {"error":"code not found"} / {"error":"code already used"}; try
+    // to extract that, fall back to the raw message.
+    const raw = (e as Error).message
+    try {
+      const parsed = JSON.parse(raw) as { error?: string }
+      redeemError.value = parsed.error ?? raw
+    } catch {
+      redeemError.value = raw
+    }
+  } finally {
+    redeemBusy.value = false
+  }
+}
 
 const topModels = computed(() => {
   const m = stats.value?.models ?? []
@@ -73,6 +107,48 @@ function kindChipColor(kind: string): string {
         {{ t('account.refresh') }}
       </v-btn>
     </div>
+
+    <!-- Access code section. Shown prominently when the user hasn't
+         activated yet; collapses to a tiny "access granted" badge once
+         they have so the Account page isn't cluttered. -->
+    <section v-if="!nestAccessGranted" class="nest-access-card">
+      <div class="nest-eyebrow">{{ t('account.access.title') }}</div>
+      <p class="nest-subtitle mt-2">{{ t('account.access.body') }}</p>
+      <div class="nest-access-form mt-3">
+        <v-text-field
+          v-model="redeemCode"
+          :placeholder="t('account.access.placeholder')"
+          :disabled="redeemBusy"
+          density="compact"
+          hide-details
+          spellcheck="false"
+          class="nest-access-input"
+          @keyup.enter="submitRedeem"
+        />
+        <v-btn
+          color="primary"
+          variant="flat"
+          :loading="redeemBusy"
+          :disabled="!redeemCode.trim()"
+          @click="submitRedeem"
+        >
+          {{ t('account.access.submit') }}
+        </v-btn>
+      </div>
+      <v-alert
+        v-if="redeemError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-3"
+      >
+        {{ redeemError }}
+      </v-alert>
+    </section>
+    <section v-else class="nest-access-activated">
+      <v-icon size="18" color="success">mdi-check-circle</v-icon>
+      <span>{{ t('account.access.activatedBadge') }}</span>
+    </section>
 
     <!-- Primary KPI row -->
     <div class="nest-kpi-grid">
@@ -238,6 +314,36 @@ function kindChipColor(kind: string): string {
   flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 28px;
+}
+
+// ─── Access-code card ───────────────────────────────────────
+// Prominent amber-outlined card while the user hasn't redeemed yet;
+// collapses to a small success pill once activated. Lives at the top of
+// Account so un-activated users don't miss it.
+.nest-access-card {
+  border: 1px dashed var(--nest-amber, #c9882a);
+  background: rgba(201, 136, 42, 0.08);
+  padding: 16px 18px;
+  border-radius: var(--nest-radius);
+  margin-bottom: 24px;
+}
+.nest-access-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nest-access-input { flex: 1 1 240px; min-width: 0; }
+.nest-access-activated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--nest-radius-pill);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  font-size: 12px;
+  color: var(--nest-text-secondary);
+  margin-bottom: 24px;
 }
 
 // ─── KPI cards ─────────────────────────────────────────────

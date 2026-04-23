@@ -123,6 +123,7 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
 	mux.Handle("GET /api/me/stats", authRequired(http.HandlerFunc(s.handleMeStats)))
 	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
+	mux.Handle("POST /api/me/nest-access/redeem", authRequired(http.HandlerFunc(s.handleNestRedeem)))
 	mux.Handle("GET /api/me/defaults", authRequired(http.HandlerFunc(s.handleGetDefaults)))
 	mux.Handle("PUT /api/me/defaults", authRequired(http.HandlerFunc(s.handleSetDefault)))
 	mux.Handle("GET /api/me/appearance", authRequired(http.HandlerFunc(s.handleGetAppearance)))
@@ -207,30 +208,58 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.users.Resolve(r.Context(), u.WuApi.ID)
 
 	type resp struct {
-		ID              int64      `json:"wuapi_user_id"`
-		Username        string     `json:"username"`
-		FirstName       string     `json:"first_name"`
-		Tier            string     `json:"tier"`
-		TierExpiresAt   *time.Time `json:"tier_expires_at,omitempty"`
-		GoldBalanceNano int64      `json:"gold_balance_nano"`
-		ReferralCount   int        `json:"referral_count"`
-		DailyLimit      int        `json:"daily_limit"`
-		UsedToday       int        `json:"used_today"`
-		CreatedAt       time.Time  `json:"created_at"`
+		ID                int64      `json:"wuapi_user_id"`
+		Username          string     `json:"username"`
+		FirstName         string     `json:"first_name"`
+		Tier              string     `json:"tier"`
+		TierExpiresAt     *time.Time `json:"tier_expires_at,omitempty"`
+		GoldBalanceNano   int64      `json:"gold_balance_nano"`
+		ReferralCount     int        `json:"referral_count"`
+		DailyLimit        int        `json:"daily_limit"`
+		UsedToday         int        `json:"used_today"`
+		CreatedAt         time.Time  `json:"created_at"`
+		NestAccessGranted bool       `json:"nest_access_granted"`
 	}
 
 	writeJSON(w, http.StatusOK, resp{
-		ID:              u.WuApi.ID,
-		Username:        u.WuApi.Username,
-		FirstName:       u.WuApi.FirstName,
-		Tier:            string(u.WuApi.Tier),
-		TierExpiresAt:   u.WuApi.TierExpiresAt,
-		GoldBalanceNano: u.WuApi.GoldBalanceNano,
-		ReferralCount:   u.WuApi.ReferralCount,
-		DailyLimit:      u.WuApi.DailyLimit,
-		UsedToday:       u.WuApi.UsedToday,
-		CreatedAt:       u.WuApi.CreatedAt,
+		ID:                u.WuApi.ID,
+		Username:          u.WuApi.Username,
+		FirstName:         u.WuApi.FirstName,
+		Tier:              string(u.WuApi.Tier),
+		TierExpiresAt:     u.WuApi.TierExpiresAt,
+		GoldBalanceNano:   u.WuApi.GoldBalanceNano,
+		ReferralCount:     u.WuApi.ReferralCount,
+		DailyLimit:        u.WuApi.DailyLimit,
+		UsedToday:         u.WuApi.UsedToday,
+		CreatedAt:         u.WuApi.CreatedAt,
+		NestAccessGranted: u.WuApi.NestAccessGranted,
 	})
+}
+
+// handleNestRedeem proxies POST /api/me/nest-access/redeem to WuApi so
+// the session cookie and CORS stay on one origin. WuApi validates the
+// code atomically and flips the users.nest_access_granted flag; on the
+// next /api/me the SPA sees the new value and drops the lock screen.
+//
+// Body / response pass through verbatim — WuApi already returns the
+// updated user JSON on success and a {error: ...} with the right status
+// on failure.
+func (s *Server) handleNestRedeem(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	if u.WuApi.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	body, resp, err := s.deps.WuApi.ProxyPOST(r.Context(), "/api/me/nest-access/redeem", u.WuApi.APIKey, r.Body)
+	if err != nil {
+		slog.Error("wuapi nest-access redeem", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
 }
 
 // handleMeStats proxies GET /api/me/stats from WuApi.

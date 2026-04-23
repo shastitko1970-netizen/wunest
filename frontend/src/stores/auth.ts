@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { apiFetch } from '@/api/client'
 
 export interface UserProfile {
@@ -10,6 +10,9 @@ export interface UserProfile {
   gold_balance_nano: number
   daily_limit: number
   used_today: number
+  /** Beta gate — TRUE once the user has redeemed a WuNest access code on
+   *  WuApi. Chat/Library/Settings stay locked until this flips. */
+  nest_access_granted: boolean
 }
 
 interface AuthCheckResponse {
@@ -22,6 +25,12 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(true)
   const loginUrl = ref<string | null>(null)
   const profile = ref<UserProfile | null>(null)
+
+  // Derived helper: convenience accessor for gates elsewhere. Falls back
+  // to `false` when profile isn't loaded yet (pre-/api/me), so the app
+  // defaults to "not activated" during the boot flicker — the locked
+  // state is the safer wrong state to show briefly.
+  const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
 
   async function check() {
     loading.value = true
@@ -41,9 +50,29 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** Redeem a WuNest access code. On success the server returns the
+   *  updated profile which we swap in. On failure the upstream status is
+   *  preserved so the UI can distinguish "not found" (404) from
+   *  "already used" (409) from unexpected errors. */
+  async function redeemAccessCode(code: string): Promise<void> {
+    const trimmed = code.trim()
+    if (!trimmed) throw new Error('empty code')
+    // apiFetch throws on non-2xx with the response body as the error message.
+    await apiFetch<void>('/api/me/nest-access/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code: trimmed }),
+    })
+    // Re-fetch the profile so nest_access_granted flips locally without
+    // a full page reload.
+    profile.value = await apiFetch<UserProfile>('/api/me')
+  }
+
   function redirectToLogin() {
     if (loginUrl.value) window.location.href = loginUrl.value
   }
 
-  return { authenticated, loading, loginUrl, profile, check, redirectToLogin }
+  return {
+    authenticated, loading, loginUrl, profile, nestAccessGranted,
+    check, redeemAccessCode, redirectToLogin,
+  }
 })
