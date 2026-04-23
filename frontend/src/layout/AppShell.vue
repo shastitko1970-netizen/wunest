@@ -80,12 +80,18 @@ interface NavItem {
   disabled?: boolean
 }
 
+// Chat and Library both require an activated beta code — the server
+// would reject any generation / library write anyway. Disable them
+// visibly in the nav so users understand why clicks do nothing, and
+// pass them through to the access banner's CTA (Account) for redemption.
+const gatedDisabled = computed(() => authenticated.value && !nestAccessGranted.value)
+
 const navItems = computed<NavItem[]>(() => [
-  { to: '/chat', icon: 'mdi-forum-outline', label: t('nav.chat') },
-  { to: '/library', icon: 'mdi-bookshelf', label: t('nav.library') },
-  { to: '/docs', icon: 'mdi-book-open-variant', label: t('nav.docs') },
-  { to: '/account', icon: 'mdi-account-circle-outline', label: t('nav.account') },
-  { to: '/settings', icon: 'mdi-cog-outline', label: t('nav.settings') },
+  { to: '/chat',     icon: 'mdi-forum-outline',        label: t('nav.chat'),     disabled: gatedDisabled.value },
+  { to: '/library',  icon: 'mdi-bookshelf',            label: t('nav.library'),  disabled: gatedDisabled.value },
+  { to: '/docs',     icon: 'mdi-book-open-variant',    label: t('nav.docs') },
+  { to: '/account',  icon: 'mdi-account-circle-outline', label: t('nav.account') },
+  { to: '/settings', icon: 'mdi-cog-outline',          label: t('nav.settings') },
   // /studio dropped — it was a permanently-disabled stub that only added
   // noise to the mobile drawer. If we ship the debug panel (regex tester,
   // raw prompts, logs) we'll add a real menu entry then.
@@ -159,17 +165,27 @@ const localeLabel = (code: string) => {
         <div class="nest-logo-text">WuNest</div>
       </div>
 
-      <!-- Desktop nav strip — between logo and right-side controls. -->
+      <!-- Desktop nav strip — between logo and right-side controls.
+           Gated items (Chat/Library for not-yet-activated users) are
+           rendered in a disabled visual state + a title tooltip so the
+           reason is obvious; clicks routed to /account instead so users
+           land on the redeem form. -->
       <nav v-if="isDesktop" class="nest-topnav">
         <button
           v-for="item in topbarNav"
           :key="item.to"
           class="nest-topnav-item"
-          :class="{ active: isNavActive(item.to) }"
-          @click="router.push(item.to)"
+          :class="{ active: isNavActive(item.to), disabled: item.disabled }"
+          :title="item.disabled ? t('accessBanner.body') : undefined"
+          @click="item.disabled ? router.push('/account') : router.push(item.to)"
         >
           <v-icon size="18" class="mr-1">{{ item.icon }}</v-icon>
           {{ item.label }}
+          <v-icon
+            v-if="item.disabled"
+            size="12"
+            class="ml-1 nest-topnav-lock"
+          >mdi-lock</v-icon>
         </button>
       </nav>
 
@@ -419,7 +435,20 @@ const localeLabel = (code: string) => {
     background: var(--nest-bg-elevated);
     box-shadow: inset 0 -2px 0 var(--nest-accent);
   }
+  // Beta-gate disabled state — dimmed + lock icon; click still routes
+  // so users don't wonder why nothing happens (it goes to /account
+  // where they can redeem a code).
+  &.disabled {
+    color: var(--nest-text-muted);
+    opacity: 0.55;
+    cursor: help;
+    &:hover {
+      background: transparent;
+      color: var(--nest-text-muted);
+    }
+  }
 }
+.nest-topnav-lock { opacity: 0.7; }
 
 .nest-sidebar {
   background: var(--nest-bg-elevated) !important;

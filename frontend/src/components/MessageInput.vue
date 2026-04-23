@@ -3,9 +3,17 @@ import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useModelsStore } from '@/stores/models'
+import { useAuthStore } from '@/stores/auth'
 import { countTokens } from '@/lib/tokens'  // sync; see lib/tokens.ts
 
 const { t } = useI18n()
+
+// Beta gate — sending is disabled until the user has redeemed an
+// access code. Whole UI stays visible (banner in AppShell explains),
+// but the Send button goes grey + shows a tooltip so the user can't
+// spend a turn on a request the server would reject.
+const auth = useAuthStore()
+const { nestAccessGranted } = storeToRefs(auth)
 
 const props = defineProps<{
   modelValue: string
@@ -30,7 +38,10 @@ const { options: modelOptions, selected: selectedModel } = storeToRefs(models)
 onMounted(() => { if (!models.loaded) void models.fetchList() })
 
 const canSend = computed(() =>
-  !props.disabled && !props.streaming && props.modelValue.trim().length > 0,
+  !props.disabled
+  && !props.streaming
+  && nestAccessGranted.value
+  && props.modelValue.trim().length > 0,
 )
 
 // Token estimation. Pure-sync char-heuristic (see lib/tokens.ts) so we
@@ -128,6 +139,7 @@ function onKeydown(e: KeyboardEvent) {
         variant="flat"
         size="small"
         :disabled="!canSend"
+        :title="!nestAccessGranted ? t('accessBanner.body') : undefined"
         append-icon="mdi-send"
         @click="emit('send')"
       >
