@@ -21,6 +21,10 @@ const emit = defineEmits<{
   (e: 'swipe', m: Message): void
   (e: 'select-swipe', m: Message, swipeID: number): void
   (e: 'edit', m: Message, newContent: string): void
+  // Bubbled from the author-supplied plate actions (data-nest-action).
+  // Chat.vue listens and forwards to the chats store / composer.
+  (e: 'plate-draft', text: string, send: boolean): void
+  (e: 'plate-toast', level: 'info' | 'success' | 'error', text: string): void
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -49,6 +53,34 @@ const currentSwipe = computed(() => props.message.swipe_id ?? 0)
 // "Приветствие 1/3" instead of a bare "1/3" and realize the chevrons
 // let them browse alternate_greetings from the character card.
 const isGreeting = computed(() => props.message.extras?.model === 'greeting')
+
+// ── Plate action bubble handler ─────────────────────────────────
+// Forwards a bubbled `data-nest-action` click from MessageContent to
+// the message-level action (swipe, regenerate, edit, delete) — same
+// handlers the toolbar uses, just triggered from inline buttons.
+function onPlateBubbleAction(name: 'swipe-prev' | 'swipe-next' | 'regenerate' | 'edit' | 'delete') {
+  switch (name) {
+    case 'swipe-prev':
+      if (currentSwipe.value > 0) {
+        emit('select-swipe', props.message, currentSwipe.value - 1)
+      }
+      break
+    case 'swipe-next':
+      if (totalSwipes.value > 0 && currentSwipe.value < totalSwipes.value - 1) {
+        emit('select-swipe', props.message, currentSwipe.value + 1)
+      }
+      break
+    case 'regenerate':
+      emit('regenerate', props.message)
+      break
+    case 'edit':
+      startEdit()
+      break
+    case 'delete':
+      emit('delete', props.message)
+      break
+  }
+}
 const tokensInfo = computed(() => {
   const ex = props.message.extras
   if (!ex?.tokens_out) return null
@@ -210,7 +242,13 @@ function onEditKeydown(e: KeyboardEvent) {
           <template v-if="streaming">
             <span class="nest-streaming-text">{{ liveSplit.rest }}</span><span class="nest-cursor">▍</span>
           </template>
-          <MessageContent v-else :content="message.content" />
+          <MessageContent
+            v-else
+            :content="message.content"
+            @bubble-action="onPlateBubbleAction"
+            @draft="(text, send) => emit('plate-draft', text, send)"
+            @toast="(level, text) => emit('plate-toast', level, text)"
+          />
         </div>
       </template>
     </div>

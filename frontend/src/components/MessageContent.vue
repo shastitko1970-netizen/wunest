@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import JsonPlate from './JsonPlate.vue'
 import { splitContent, type Part } from '@/lib/splitContent'
 import { useAppearanceStore } from '@/stores/appearance'
+import { dispatchAction, applyDomUpdate, type PlateAction } from '@/lib/plateActions'
 
 // MessageContent renders a single assistant/user message, with:
 //   - Markdown (bold, italic, lists, links, blockquotes)
@@ -22,6 +23,20 @@ const props = defineProps<{
   content: string
   // When true, suppress plate rendering (useful for preview in the edit box).
   raw?: boolean
+}>()
+
+/**
+ * Events the content can raise on behalf of author-supplied plate
+ * buttons. MessageBubble listens and routes to the chats store.
+ * `action` is the generic channel; payload carries the specific ask.
+ *
+ * `toast` surfaces a brief confirmation for copy/dice/etc. Forwarded
+ * up so the Chat.vue snackbar layer displays it.
+ */
+const emit = defineEmits<{
+  (e: 'bubble-action', name: 'swipe-prev' | 'swipe-next' | 'regenerate' | 'edit' | 'delete'): void
+  (e: 'draft', text: string, send: boolean): void
+  (e: 'toast', level: 'info' | 'success' | 'error', text: string): void
 }>()
 
 const appearance = useAppearanceStore()
@@ -118,10 +133,58 @@ function renderMd(body: string): string {
   // form works for our v-html injection either way.
   return String(DOMPurify.sanitize(raw, DP_CFG))
 }
+
+// ─── Plate action bridge (M32 interactive plates) ────────────────
+//
+// Author-supplied HTML can include `<button data-nest-action="...">`
+// which we wire up via a single delegated click listener on the
+// content root. dispatchAction() walks the DOM, looks the name up in
+// the whitelist, and returns a structured PlateAction we dispatch
+// based on kind:
+//   - 'toast' → emit('toast') → Chat.vue shows a snackbar
+//   - 'bubble' → emit('bubble-action') → MessageBubble invokes the
+//     corresponding message action (swipe, regenerate)
+//   - 'draft' → emit('draft') → Chat.vue fills composer + optionally sends
+//   - 'dom-update' → mutate the same author-controlled subtree
+//     (safe — no privileged data there)
+//
+// Event delegation means we attach ONE listener per message instead
+// of one per button, which matters for long stat-block plates.
+const contentRoot = ref<HTMLElement | null>(null)
+
+function onContentClick(event: MouseEvent) {
+  const result = dispatchAction(event, contentRoot.value)
+  if (!result) return
+  if (result.prevent) event.preventDefault()
+  runAction(result.action)
+}
+
+function runAction(action: PlateAction) {
+  switch (action.kind) {
+    case 'toast':
+      emit('toast', action.level, action.text)
+      break
+    case 'bubble':
+      emit('bubble-action', action.name)
+      break
+    case 'draft':
+      emit('draft', action.text, action.send ?? false)
+      break
+    case 'dom-update':
+      applyDomUpdate(action.update, action.target)
+      break
+    case 'noop':
+      break
+  }
+}
 </script>
 
 <template>
-  <div class="nest-message-content">
+  <div
+    ref="contentRoot"
+    class="nest-message-content"
+    @click="onContentClick"
+  >
     <template v-for="(part, i) in parts" :key="i">
       <JsonPlate
         v-if="part.kind === 'plate'"
@@ -260,10 +323,14 @@ function renderMd(body: string): string {
     accent-color: var(--nest-accent);
   }
 
-  // Buttons — rendered as decorative since we strip event handlers.
-  // They still look tappable which is usually what the author wants
-  // (e.g. "Action: [Attack] [Defend]" plates). A title hint explains
-  // that the click is dormant.
+  // Buttons. Base style for decorative ones (no data-nest-action =
+  // dormant, author-supplied onclick is stripped by DOMPurify so the
+  // click goes nowhere — show that honestly via cursor:not-allowed).
+  // Interactive buttons WITH a known `data-nest-action` get
+  // cursor:pointer + a subtle hover/active state so users feel the
+  // click respond. See frontend/src/lib/plateActions.ts for the
+  // whitelist (copy / dice / reroll / swipe-prev / swipe-next /
+  // regenerate / say / send / toggle-attr / toggle-class).
   :deep(button) {
     display: inline-block;
     padding: 4px 12px;
@@ -276,6 +343,20 @@ function renderMd(body: string): string {
     border-radius: var(--nest-radius-sm);
     cursor: not-allowed;
     opacity: 0.85;
+    transition: border-color var(--nest-transition-fast), background var(--nest-transition-fast);
+  }
+  :deep(button[data-nest-action]),
+  :deep([data-nest-action]) {
+    cursor: pointer;
+    opacity: 1;
+
+    &:hover {
+      border-color: var(--nest-accent);
+      background: color-mix(in srgb, var(--nest-accent) 12%, var(--nest-bg-elevated));
+    }
+    &:active {
+      transform: translateY(1px);
+    }
   }
 
   // Tables — authors use these for stat blocks; make them readable

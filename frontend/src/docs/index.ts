@@ -26,6 +26,8 @@ import safeModeRu from './pages/safe-mode.ru.md?raw'
 import safeModeEn from './pages/safe-mode.en.md?raw'
 import mobileRu from './pages/mobile.ru.md?raw'
 import mobileEn from './pages/mobile.en.md?raw'
+import plateActionsRu from './pages/plate-actions.ru.md?raw'
+import plateActionsEn from './pages/plate-actions.en.md?raw'
 
 // ─── TOC ───────────────────────────────────────────────────────────
 
@@ -95,6 +97,13 @@ export const TOPICS: DocTopic[] = [
     title:   { ru: 'На мобильном',                      en: 'On mobile' },
     summary: { ru: 'Навигация, свайпы, особенности верстки.', en: 'Navigation, swipes, layout quirks.' },
     content: { ru: mobileRu, en: mobileEn },
+  },
+  {
+    slug: 'plate-actions',
+    category: 'customization',
+    title:   { ru: 'Интерактивные плашки',                       en: 'Interactive plates' },
+    summary: { ru: 'Кликабельные кнопки в сообщениях через data-nest-action.', en: 'Clickable buttons in messages via data-nest-action.' },
+    content: { ru: plateActionsRu, en: plateActionsEn },
   },
 ]
 

@@ -171,6 +171,32 @@ async function onDeleteMessage(m: Message) {
   }
 }
 
+// ── Plate action bridge (M32 interactive plates) ─────────────────
+// Author-supplied <button data-nest-action="say|send"> bubbles up a
+// `plate-draft` here; we fill the composer with the text and optionally
+// send it immediately. `plate-toast` surfaces a brief snackbar for
+// confirmation-style actions (copy, dice roll results).
+function onPlateDraft(text: string, shouldSend: boolean) {
+  draft.value = text
+  if (shouldSend) {
+    // Defer a tick so the composer has the text painted before send
+    // fires (matches the user-typed send flow).
+    nextTick(() => { void send() })
+  }
+}
+
+// Plate snackbar. Separate from streamError (that's a persistent
+// inline alert for generation failures) — plate-toast is transient
+// and bottom-centered.
+const plateToast = ref<{ show: boolean; level: 'info' | 'success' | 'error'; text: string }>({
+  show: false,
+  level: 'info',
+  text: '',
+})
+function onPlateToast(level: 'info' | 'success' | 'error', text: string) {
+  plateToast.value = { show: true, level, text }
+}
+
 // Only the most recent assistant message can be regenerated in V1.
 const lastAssistantId = computed(() => {
   for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -346,6 +372,8 @@ const lastAssistantId = computed(() => {
                 @select-swipe="onSelectSwipe"
                 @edit="onEditMessage"
                 @delete="onDeleteMessage"
+                @plate-draft="onPlateDraft"
+                @plate-toast="onPlateToast"
               />
             </template>
             <v-alert
@@ -372,6 +400,19 @@ const lastAssistantId = computed(() => {
         </div>
       </template>
     </section>
+
+    <!-- Plate-action confirmation toast. Fires for copy/dice and other
+         transient feedback from author-supplied <button data-nest-action>
+         clicks. Separate from the streamError banner which is for
+         generation failures. -->
+    <v-snackbar
+      v-model="plateToast.show"
+      :color="plateToast.level"
+      :timeout="2400"
+      location="bottom"
+    >
+      {{ plateToast.text }}
+    </v-snackbar>
 
     <!-- Generation settings drawer — lazily mounts sampler form. -->
     <GenerationSettings v-model="settingsOpen" />
