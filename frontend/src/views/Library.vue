@@ -45,6 +45,11 @@ const createOpen = ref(false)
 const browseOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 const worldsDialogOpen = ref(false)
+// Edit-mode reuses NewCharacterDialog with a `character` prop. This ref
+// holds the target row while the dialog is open. When null and
+// createOpen=true → create; when non-null and editOpen=true → edit.
+const editOpen = ref(false)
+const editingCharacter = ref<Character | null>(null)
 const worldsDialogChar = ref<Character | null>(null)
 
 function onAttachWorlds(c: Character) {
@@ -57,9 +62,11 @@ onMounted(() => {
 })
 
 function onOpen(c: Character) {
-  // TODO: navigate to /library/character/:id detail page in a later PR.
-  // For now — noop-log until the detail view exists.
-  console.debug('open character', c.id)
+  // "Open" from the card's ⋯ menu means "Edit the character" — the only
+  // action users expect when clicking a pencil icon. We reuse the
+  // New-Character dialog in edit mode (pass the full character).
+  editingCharacter.value = c
+  editOpen.value = true
 }
 
 async function onChat(c: Character) {
@@ -245,6 +252,15 @@ async function confirmDelete() {
 
     <!-- Create-from-scratch dialog -->
     <NewCharacterDialog v-model="createOpen" />
+    <!-- Same dialog in edit mode — `character` prop triggers hydration
+         from the row + save writes PATCH instead of POST. Closing
+         (via @update:modelValue false) clears the ref so a subsequent
+         createOpen doesn't accidentally stay in edit mode. -->
+    <NewCharacterDialog
+      v-model="editOpen"
+      :character="editingCharacter"
+      @update:model-value="v => !v && (editingCharacter = null)"
+    />
 
     <!-- CHUB browse dialog -->
     <BrowseLibraryDialog v-model="browseOpen" />

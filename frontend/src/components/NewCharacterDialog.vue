@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { useCharactersStore } from '@/stores/characters'
+import type { Character } from '@/api/characters'
 
-// "New character" editor.
+// Character create / edit dialog. Same form serves both — when `character`
+// is provided on open, we hydrate from it and PATCH on save; otherwise we
+// start blank and POST a new row.
 //
 // Visual treatment: a compact multi-section form, grouped so the user
 // fills Identity → Profile → Scene top-down. On mobile we switch to a
@@ -16,14 +19,20 @@ const { smAndDown } = useDisplay()
 
 const props = defineProps<{
   modelValue: boolean
+  /** When present, dialog opens in EDIT mode — form hydrates from this
+   *  character and save calls store.update() instead of store.create(). */
+  character?: Character | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'created', id: string): void
+  (e: 'saved', id: string): void
 }>()
 
 const store = useCharactersStore()
+
+const isEdit = computed(() => !!props.character)
 
 // Everything in one reactive bag → single-line reset.
 const form = reactive({
@@ -40,8 +49,18 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const focusNameEl = ref<HTMLElement | null>(null)
 
-watch(() => props.modelValue, (open) => {
-  if (open) {
+watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
+  if (!open) return
+  if (ch) {
+    // Edit mode — hydrate from the character.
+    form.name = ch.name
+    form.avatar_url = ch.avatar_url ?? ''
+    form.tags = (ch.tags ?? []).join(', ')
+    form.description = ch.data?.description ?? ''
+    form.personality = ch.data?.personality ?? ''
+    form.scenario = ch.data?.scenario ?? ''
+    form.first_mes = ch.data?.first_mes ?? ''
+  } else {
     form.name = ''
     form.avatar_url = ''
     form.tags = ''
@@ -49,9 +68,9 @@ watch(() => props.modelValue, (open) => {
     form.personality = ''
     form.scenario = ''
     form.first_mes = ''
-    error.value = null
-    busy.value = false
   }
+  error.value = null
+  busy.value = false
 })
 
 function close() {
@@ -72,20 +91,43 @@ async function save() {
       .map(t2 => t2.trim())
       .filter(Boolean)
 
-    const created = await store.create({
-      name,
-      avatar_url: form.avatar_url.trim() || undefined,
-      data: {
+    if (props.character) {
+      // EDIT — PATCH the existing row, preserve data fields the form
+      // doesn't surface (alternate_greetings, creator_notes, character_book,
+      // extensions, etc.) by spreading the original data blob first.
+      const updated = await store.update(props.character.id, {
         name,
-        description: form.description.trim(),
-        personality: form.personality.trim(),
-        scenario: form.scenario.trim(),
-        first_mes: form.first_mes.trim(),
+        avatar_url: form.avatar_url.trim() || undefined,
+        data: {
+          ...props.character.data,
+          name,
+          description: form.description.trim(),
+          personality: form.personality.trim(),
+          scenario: form.scenario.trim(),
+          first_mes: form.first_mes.trim(),
+          tags,
+        },
         tags,
-      },
-      tags,
-    })
-    emit('created', created.id)
+      })
+      emit('saved', updated.id)
+    } else {
+      // CREATE — fresh row.
+      const created = await store.create({
+        name,
+        avatar_url: form.avatar_url.trim() || undefined,
+        data: {
+          name,
+          description: form.description.trim(),
+          personality: form.personality.trim(),
+          scenario: form.scenario.trim(),
+          first_mes: form.first_mes.trim(),
+          tags,
+        },
+        tags,
+      })
+      emit('created', created.id)
+      emit('saved', created.id)
+    }
     close()
   } catch (e) {
     error.value = (e as Error).message
@@ -107,7 +149,9 @@ async function save() {
       <v-card-title class="nest-create-title">
         <div>
           <div class="nest-eyebrow">{{ t('library.title') }}</div>
-          <span class="nest-h3 mt-1">{{ t('library.create.title') }}</span>
+          <span class="nest-h3 mt-1">
+            {{ isEdit ? t('library.edit.title') : t('library.create.title') }}
+          </span>
         </div>
         <v-btn icon="mdi-close" variant="text" size="small" @click="close" />
       </v-card-title>
@@ -228,7 +272,7 @@ async function save() {
           :disabled="!form.name.trim()"
           @click="save"
         >
-          {{ t('library.create.createBtn') }}
+          {{ isEdit ? t('common.save') : t('library.create.createBtn') }}
         </v-btn>
       </v-card-actions>
     </v-card>

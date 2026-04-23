@@ -356,6 +356,9 @@ const messages = {
         tagsHint: 'Через запятую',
         createBtn: 'Создать',
       },
+      edit: {
+        title: 'Редактировать персонажа',
+      },
       delete: {
         title: 'Удалить персонажа?',
         body: 'Это действие нельзя отменить.',
@@ -1189,6 +1192,9 @@ const messages = {
         tagsPlaceholder: 'fantasy, female, ...',
         tagsHint: 'Comma-separated',
         createBtn: 'Create',
+      },
+      edit: {
+        title: 'Edit character',
       },
       delete: {
         title: 'Delete character?',
