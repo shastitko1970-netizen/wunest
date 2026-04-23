@@ -12,6 +12,7 @@ import {
   type SendMessageInput,
   type StreamEvent,
 } from '@/api/chats'
+import { usePreferencesStore } from '@/stores/preferences'
 
 // The chats store is intentionally simple:
 //   - A flat list of chats (sidebar).
@@ -226,6 +227,11 @@ export const useChatsStore = defineStore('chats', () => {
           }
           case 'token': {
             if (assistantId === null) break
+            // When "disable streaming" is on, we buffer tokens server-side
+            // by simply not painting them to the row. The `done` event
+            // below still fires and sets the full content in one shot —
+            // so the UX is "Thinking…" → complete message, no jitter.
+            if (usePreferencesStore().disableStreaming) break
             const row = messages.value.find(m => m.id === assistantId)
             if (row) row.content += ev.data.content
             break

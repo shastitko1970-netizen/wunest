@@ -62,6 +62,37 @@ const htmlRendering = computed<boolean>({
   set: v => store.update({ htmlRendering: v }),
 })
 
+// Custom CSS disclosure — default closed once the field has content so
+// the long textarea doesn't dominate the page. Clicking the header
+// summary expands the editor. Summary shows the detected theme name
+// (pulled from the first /* Name: ... */ comment or a leading @title
+// comment) plus line count for orientation.
+const customCssOpen = ref(false)
+const customCssSummary = computed(() => {
+  const css = customCss.value.trim()
+  if (!css) return { name: '', lines: 0, empty: true }
+  const lines = css.split('\n').length
+
+  // Try a few common "theme label" conventions for ST/DokWCS themes:
+  //   /* Name: Purple Tavern */
+  //   /* Theme: Purple Tavern */
+  //   /*! Purple Tavern — v1 */   (banner comment style)
+  //   /* Purple Tavern */
+  const labelled = /\/\*\s*(?:name|theme|title)\s*:\s*([^\n*]{1,60}?)\s*\*\//i.exec(css)
+  if (labelled?.[1]) return { name: labelled[1].trim(), lines, empty: false }
+
+  const banner = /\/\*!\s*([^\n*]{3,60}?)\s*(?:[-—–]|\n|\*\/)/.exec(css)
+  if (banner?.[1]) return { name: banner[1].trim(), lines, empty: false }
+
+  const firstBlock = /\/\*\s*([^\n*]{3,60}?)\s*\*\//.exec(css)
+  if (firstBlock?.[1] && !/\d{3,}/.test(firstBlock[1])) {
+    // Reject obvious non-titles like date-y "2024 11 17".
+    return { name: firstBlock[1].trim(), lines, empty: false }
+  }
+
+  return { name: '', lines, empty: false }
+})
+
 const fileInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
 
@@ -265,21 +296,42 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
     </div>
     <p class="nest-subtitle nest-html-hint">{{ t('appearance.htmlRenderingHint') }}</p>
 
-    <!-- Custom CSS -->
-    <div class="nest-field">
-      <label class="nest-field-label">
-        {{ t('appearance.customCss') }}
-        <span class="nest-mono text-medium-emphasis">{{ t('appearance.customCssHint') }}</span>
-      </label>
+    <!-- Custom CSS — collapsed by default, summary shows theme name + line count -->
+    <div class="nest-field nest-css-block">
+      <button
+        class="nest-css-header"
+        :aria-expanded="customCssOpen"
+        @click="customCssOpen = !customCssOpen"
+      >
+        <v-icon size="18" class="nest-css-caret">
+          {{ customCssOpen ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
+        </v-icon>
+        <span class="nest-css-header-title">{{ t('appearance.customCss') }}</span>
+        <span v-if="customCssSummary.empty" class="nest-css-summary-empty">
+          {{ t('appearance.customCssEmpty') }}
+        </span>
+        <template v-else>
+          <span v-if="customCssSummary.name" class="nest-css-summary-name">
+            {{ customCssSummary.name }}
+          </span>
+          <span class="nest-css-summary-lines nest-mono">
+            {{ t('appearance.customCssLines', { n: customCssSummary.lines }) }}
+          </span>
+        </template>
+        <span class="nest-css-hint nest-mono text-medium-emphasis">
+          {{ t('appearance.customCssHint') }}
+        </span>
+      </button>
       <v-textarea
+        v-show="customCssOpen"
         v-model="customCss"
         :placeholder="t('appearance.customCssPlaceholder')"
-        rows="5"
+        rows="8"
         auto-grow
         density="compact"
         hide-details
         variant="outlined"
-        class="nest-mono-textarea"
+        class="nest-mono-textarea mt-2"
       />
     </div>
 
@@ -379,6 +431,61 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   font-family: var(--nest-font-mono);
   font-size: 12.5px;
   line-height: 1.5;
+}
+
+.nest-css-block { gap: 0; }
+.nest-css-header {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  background: var(--nest-bg-elevated);
+  cursor: pointer;
+  transition: border-color var(--nest-transition-fast), background var(--nest-transition-fast);
+  flex-wrap: wrap;
+
+  &:hover { border-color: var(--nest-border); }
+}
+.nest-css-caret { color: var(--nest-text-muted); flex-shrink: 0; }
+.nest-css-header-title {
+  font-size: 12.5px;
+  color: var(--nest-text);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.nest-css-summary-name {
+  font-size: 12px;
+  color: var(--nest-text);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--nest-surface);
+  border: 1px solid var(--nest-border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.nest-css-summary-lines {
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+  letter-spacing: 0.04em;
+}
+.nest-css-summary-empty {
+  font-size: 11.5px;
+  color: var(--nest-text-muted);
+  font-style: italic;
+}
+.nest-css-hint {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 520px) {
+  .nest-css-hint { display: none; }
 }
 
 .nest-io {

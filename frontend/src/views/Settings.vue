@@ -6,11 +6,14 @@ import { useI18n } from 'vue-i18n'
 import AppearancePanel from '@/components/AppearancePanel.vue'
 import BYOKPanel from '@/components/BYOKPanel.vue'
 import { useModelsStore } from '@/stores/models'
+import { usePreferencesStore } from '@/stores/preferences'
 import { apiFetch } from '@/api/client'
 
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
 const models = useModelsStore()
+const prefs = usePreferencesStore()
+const { disableStreaming } = storeToRefs(prefs)
 const { options: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
 const currentTheme = computed({
@@ -119,6 +122,22 @@ async function saveDefaultModel(v: string) {
       <div v-if="defaultModelSaved" class="nest-mono text-success mt-2" style="font-size: 11px">
         {{ t('settings.defaultModel.saved') }}
       </div>
+    </section>
+
+    <section class="nest-section">
+      <h2 class="nest-h2">{{ t('settings.streaming.title') }}</h2>
+      <p class="nest-subtitle mb-3">{{ t('settings.streaming.tagline') }}</p>
+      <v-switch
+        v-model="disableStreaming"
+        :label="t('settings.streaming.disableLabel')"
+        color="primary"
+        inset
+        hide-details
+        density="compact"
+      />
+      <p class="nest-subtitle mt-2" style="font-size: 11.5px">
+        {{ t('settings.streaming.disableHint') }}
+      </p>
     </section>
 
     <section class="nest-section">

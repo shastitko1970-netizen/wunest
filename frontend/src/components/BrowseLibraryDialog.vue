@@ -28,6 +28,32 @@ const page = ref(1)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+// Curated quick-filter chip groups. CHUB has thousands of tags but most
+// users only ever want to narrow by 3-4 axes (language, gender, genre,
+// purpose). Chips are additive — picking multiple within the same group
+// expands the match (OR within group, AND across groups). Tag strings
+// match CHUB's canonical lowercase form.
+interface TagGroup {
+  label: string      // i18n key under `browse.tagGroups.*`
+  tags: string[]
+}
+const TAG_GROUPS: TagGroup[] = [
+  { label: 'language', tags: ['english', 'russian', 'japanese', 'korean', 'chinese', 'spanish', 'french', 'german'] },
+  { label: 'gender',   tags: ['female', 'male', 'non-binary', 'futa', 'trap', 'group'] },
+  { label: 'genre',    tags: ['fantasy', 'sci-fi', 'slice-of-life', 'horror', 'romance', 'adventure', 'historical', 'modern', 'anime'] },
+  { label: 'purpose',  tags: ['roleplay', 'companion', 'storytelling', 'assistant', 'game-character'] },
+]
+// Flat active-tag set — preserves insertion order for readable URLs.
+const activeTags = ref<string[]>([])
+function toggleTag(t: string) {
+  const idx = activeTags.value.indexOf(t)
+  if (idx >= 0) activeTags.value.splice(idx, 1)
+  else activeTags.value.push(t)
+}
+function clearTags() {
+  activeTags.value = []
+}
+
 // fullPath → character ID, so we can render "Added" badges on cards the
 // user already imported from CHUB.
 const imported = ref<Record<string, string>>({})
@@ -49,7 +75,7 @@ watch(() => props.modelValue, (open) => {
   }
 })
 
-watch([query, sort, nsfw], () => {
+watch([query, sort, nsfw, activeTags], () => {
   // Debounce search 250ms — avoids hammering CHUB on every keystroke.
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
@@ -57,7 +83,7 @@ watch([query, sort, nsfw], () => {
     results.value = []
     void runSearch()
   }, 250)
-})
+}, { deep: true })
 
 async function runSearch() {
   if (!props.modelValue) return
@@ -71,6 +97,7 @@ async function runSearch() {
       per_page: 24,
       sort: sort.value,
       nsfw: nsfw.value,
+      tags: activeTags.value.length ? activeTags.value : undefined,
     })
     if (seq !== searchSeq) return // stale response
     if (page.value === 1) {
@@ -171,6 +198,38 @@ function stars(n: number): string {
           hide-details
           density="compact"
         />
+      </div>
+
+      <!-- Tag filter chips — curated quick-picks grouped by axis. -->
+      <div class="nest-browse-tags">
+        <div v-for="group in TAG_GROUPS" :key="group.label" class="nest-browse-tag-group">
+          <div class="nest-browse-tag-group-label">
+            {{ t('browse.tagGroups.' + group.label) }}
+          </div>
+          <div class="nest-browse-tag-row">
+            <v-chip
+              v-for="tag in group.tags"
+              :key="tag"
+              :variant="activeTags.includes(tag) ? 'tonal' : 'outlined'"
+              :color="activeTags.includes(tag) ? 'primary' : undefined"
+              size="small"
+              class="nest-browse-tag-chip"
+              @click="toggleTag(tag)"
+            >
+              {{ t('browse.tags.' + tag, tag) }}
+            </v-chip>
+          </div>
+        </div>
+        <v-btn
+          v-if="activeTags.length"
+          variant="text"
+          size="x-small"
+          prepend-icon="mdi-close"
+          @click="clearTags"
+        >
+          {{ t('browse.clearTags') }}
+          <span class="nest-mono ml-1 text-medium-emphasis">{{ activeTags.length }}</span>
+        </v-btn>
       </div>
 
       <!-- Grid -->
@@ -352,6 +411,45 @@ function stars(n: number): string {
 // floor at 160px; flex-wrap in the parent lets the sort/nsfw drop
 // below the input when there's not enough horizontal room.
 .nest-browse-search { flex: 1 1 160px; min-width: 0; }
+
+.nest-browse-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--nest-border);
+  background: var(--nest-bg);
+  flex-shrink: 0;
+}
+.nest-browse-tag-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nest-browse-tag-group-label {
+  font-family: var(--nest-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
+  min-width: 70px;
+}
+.nest-browse-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.nest-browse-tag-chip {
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .nest-browse-tags { padding: 8px 12px 10px; }
+  .nest-browse-tag-group-label { min-width: 0; flex-basis: 100%; }
+}
 
 .nest-browse-body {
   overflow-y: auto;
