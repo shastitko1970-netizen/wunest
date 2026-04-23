@@ -28,19 +28,35 @@ export interface CharacterData {
 export interface CharacterBook {
   name?: string
   description?: string
+  scan_depth?: number | null
+  token_budget?: number | null
+  recursive_scanning?: boolean | null
   entries?: CharacterBookEntry[]
   extensions?: Record<string, unknown>
 }
 
+/**
+ * CharacterBookEntry — mirrors SillyTavern V3 spec. Every field is
+ * surfaced in our editor; unknown ST fields round-trip via `extensions`.
+ *
+ * `position` is ST's string enum: "before_char" = splice into system
+ * prompt before character description, "after_char" = after. Some older
+ * cards use numeric positions; we normalize on import.
+ */
 export interface CharacterBookEntry {
   keys: string[]
   content: string
   enabled: boolean
   insertion_order: number
-  selective?: boolean
-  constant?: boolean
+  case_sensitive?: boolean | null
   priority?: number
+  id?: number
   comment?: string
+  selective?: boolean
+  secondary_keys?: string[]
+  constant?: boolean
+  position?: string              // "before_char" | "after_char"
+  name?: string
   extensions?: Record<string, unknown>
 }
 

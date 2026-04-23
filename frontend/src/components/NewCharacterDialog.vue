@@ -3,7 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { useCharactersStore } from '@/stores/characters'
-import type { Character } from '@/api/characters'
+import type { Character, CharacterBook } from '@/api/characters'
+import CharacterBookPanel from '@/components/CharacterBookPanel.vue'
 
 // Character create / edit dialog. Same form serves both — when `character`
 // is provided on open, we hydrate from it and PATCH on save; otherwise we
@@ -60,6 +61,9 @@ const form = reactive({
   creator: '',
   character_version: '',
   creator_notes: '',
+  // Embedded lorebook (V2/V3 character_book). null = no book; non-null =
+  // book exists. Full V3 spec — CharacterBookPanel renders + mutates.
+  character_book: null as CharacterBook | null,
 })
 
 const busy = ref(false)
@@ -82,6 +86,7 @@ function resetForm() {
   form.creator = ''
   form.character_version = ''
   form.creator_notes = ''
+  form.character_book = null
 }
 
 watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
@@ -106,6 +111,12 @@ watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
     form.creator = (ch.data as any)?.creator ?? ''
     form.character_version = (ch.data as any)?.character_version ?? ''
     form.creator_notes = (ch.data as any)?.creator_notes ?? ''
+    // Deep-clone the embedded book so in-dialog edits don't mutate the
+    // store's cached Character until the user saves.
+    const book = (ch.data as any)?.character_book
+    form.character_book = book
+      ? (JSON.parse(JSON.stringify(book)) as CharacterBook)
+      : null
   } else {
     resetForm()
   }
@@ -151,6 +162,15 @@ function buildData(base: Record<string, any> = {}): Record<string, any> {
 
   if (alternateGreetings.length > 0) out.alternate_greetings = alternateGreetings
   else delete out.alternate_greetings
+
+  // character_book — write when present (even empty), delete when null so
+  // cards without a book stay clean. Users who opt in to the book by
+  // clicking "Create book" get an empty shell they can add entries to.
+  if (form.character_book) {
+    out.character_book = form.character_book
+  } else {
+    delete out.character_book
+  }
 
   return out
 }
@@ -428,6 +448,26 @@ async function save() {
                 hide-details="auto"
                 persistent-hint
               />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- ─── Character Book — embedded lorebook (ST V2/V3) ─── -->
+          <v-expansion-panel>
+            <v-expansion-panel-title>
+              <v-icon size="16" class="mr-2">mdi-book-outline</v-icon>
+              {{ t('library.create.section.book') }}
+              <v-chip
+                v-if="form.character_book && (form.character_book.entries?.length ?? 0) > 0"
+                size="x-small"
+                variant="tonal"
+                color="primary"
+                class="nest-mono ml-2"
+              >
+                {{ form.character_book.entries?.length ?? 0 }}
+              </v-chip>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <CharacterBookPanel v-model="form.character_book" />
             </v-expansion-panel-text>
           </v-expansion-panel>
 
