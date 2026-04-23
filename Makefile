@@ -109,3 +109,17 @@ stop:
 rollback:
 	@echo "[rollback] Switching active color ..."
 	ssh $(SERVER) "bash $(APP_DIR)/scripts/rollback.sh"
+
+# ── Storage reaper ──────────────────────────────────
+# Install / reinstall the daily MinIO orphan-object reaper systemd timer.
+# Safe to re-run; daemon-reload + enable are idempotent.
+install-reaper: sync
+	ssh $(SERVER) "bash $(APP_DIR)/scripts/systemd/install-reaper.sh"
+
+# Kick off a one-shot reap NOW (doesn't wait for the timer).
+reap-now:
+	ssh $(SERVER) "systemctl start nest-storage-reaper.service && journalctl -u nest-storage-reaper.service -n 40 --no-pager"
+
+# Dry-run the reaper — logs would-delete entries but touches nothing.
+reap-dry:
+	ssh $(SERVER) "docker run --rm --network host --env-file $(APP_DIR)/.env wunest:latest /app/nest-storage-reaper --dry-run"

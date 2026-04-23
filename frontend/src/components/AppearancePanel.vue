@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useAppearanceStore, resolveScope } from '@/stores/appearance'
 import { fromST, toST, type AvatarStyle, type ChatDisplay, type STTheme } from '@/api/appearance'
+import { uploadBackground } from '@/api/uploads'
 import { auditDangerousSelectors, supportsCSSScope } from '@/lib/cssScope'
 
 // Detailed appearance controls. Lives as a section of /settings so users
@@ -118,6 +119,37 @@ const customCssSummary = computed(() => {
 const fileInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
 const importNotice = ref<string | null>(null)
+
+// ─── Background upload ────────────────────────────────────────────
+// User can upload their own chat background image instead of supplying
+// a URL. Upload flows through POST /api/uploads/background → MinIO,
+// then we set bgImageUrl to the returned URL and let the existing
+// debounced save handle the rest.
+const bgFileInput = ref<HTMLInputElement | null>(null)
+const bgUploading = ref(false)
+const bgUploadError = ref<string | null>(null)
+
+async function onBackgroundFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    bgUploading.value = true
+    bgUploadError.value = null
+    const res = await uploadBackground(file)
+    // Use the computed's setter → store.update(debounced) → server save.
+    bgImage.value = res.url
+  } catch (err: any) {
+    bgUploadError.value = err?.message || String(err)
+  } finally {
+    bgUploading.value = false
+    if (input) input.value = ''
+  }
+}
+
+function pickBackgroundFile() {
+  bgFileInput.value?.click()
+}
 
 async function onImportFile(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
@@ -284,12 +316,51 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
       </div>
       <div class="nest-field">
         <label class="nest-field-label">{{ t('appearance.bgImage') }}</label>
-        <v-text-field
-          v-model="bgImage"
-          :placeholder="t('appearance.bgImagePlaceholder')"
+        <div class="nest-bg-row">
+          <v-text-field
+            v-model="bgImage"
+            :placeholder="t('appearance.bgImagePlaceholder')"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <input
+            ref="bgFileInput"
+            type="file"
+            accept="image/*"
+            style="display:none"
+            @change="onBackgroundFilePicked"
+          />
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-upload"
+            :loading="bgUploading"
+            @click="pickBackgroundFile"
+          >
+            {{ t('appearance.bgUpload') }}
+          </v-btn>
+          <v-btn
+            v-if="bgImage"
+            size="small"
+            variant="text"
+            color="error"
+            icon="mdi-close"
+            :title="t('appearance.bgClear')"
+            @click="bgImage = ''"
+          />
+        </div>
+        <v-alert
+          v-if="bgUploadError"
+          type="error"
           density="compact"
-          hide-details
-        />
+          variant="tonal"
+          closable
+          class="mt-2"
+          @click:close="bgUploadError = null"
+        >
+          {{ bgUploadError }}
+        </v-alert>
       </div>
     </div>
 
@@ -577,6 +648,12 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   flex-wrap: wrap;
   gap: 24px;
   padding: 4px 0;
+}
+.nest-bg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .nest-field-label {
   display: flex;

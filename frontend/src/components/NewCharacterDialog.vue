@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { useCharactersStore } from '@/stores/characters'
 import type { Character, CharacterBook } from '@/api/characters'
+import { uploadAvatar } from '@/api/uploads'
 import CharacterBookPanel from '@/components/CharacterBookPanel.vue'
 
 // Character create / edit dialog. Same form serves both — when `character`
@@ -64,15 +65,54 @@ const form = reactive({
   // Embedded lorebook (V2/V3 character_book). null = no book; non-null =
   // book exists. Full V3 spec — CharacterBookPanel renders + mutates.
   character_book: null as CharacterBook | null,
+  // Full-size avatar URL (set by upload flow; empty until user uploads).
+  // Not editable by hand — the URL field covers that case.
+  avatar_original_url: '',
 })
 
 const busy = ref(false)
 const error = ref<string | null>(null)
 const focusNameEl = ref<HTMLElement | null>(null)
 
+// Avatar-upload state: a separate spinner + error so the URL field stays
+// usable during network activity and errors don't clobber the save error.
+const avatarUploading = ref(false)
+const avatarError = ref<string | null>(null)
+const avatarFileInput = ref<HTMLInputElement | null>(null)
+
+async function onAvatarFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    avatarUploading.value = true
+    avatarError.value = null
+    const res = await uploadAvatar(file)
+    form.avatar_url = res.avatar_url
+    form.avatar_original_url = res.avatar_original_url
+  } catch (err: any) {
+    avatarError.value = err?.message || String(err)
+  } finally {
+    avatarUploading.value = false
+    // Clear the input so selecting the same file twice re-triggers change.
+    if (input) input.value = ''
+  }
+}
+
+function pickAvatarFile() {
+  avatarFileInput.value?.click()
+}
+
+function clearAvatar() {
+  form.avatar_url = ''
+  form.avatar_original_url = ''
+  avatarError.value = null
+}
+
 function resetForm() {
   form.name = ''
   form.avatar_url = ''
+  form.avatar_original_url = ''
   form.tags = ''
   form.nickname = ''
   form.description = ''
@@ -87,6 +127,7 @@ function resetForm() {
   form.character_version = ''
   form.creator_notes = ''
   form.character_book = null
+  avatarError.value = null
 }
 
 watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
@@ -96,6 +137,7 @@ watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
     // fields default to empty so the form UI never sees undefined.
     form.name = ch.name
     form.avatar_url = ch.avatar_url ?? ''
+    form.avatar_original_url = ch.avatar_original_url ?? ''
     form.tags = (ch.tags ?? []).join(', ')
     form.nickname = (ch.data as any)?.nickname ?? ''
     form.description = ch.data?.description ?? ''
@@ -205,6 +247,7 @@ async function save() {
       const updated = await store.update(props.character.id, {
         name,
         avatar_url: form.avatar_url.trim() || undefined,
+        avatar_original_url: form.avatar_original_url.trim() || undefined,
         data,
         tags,
       })
@@ -216,6 +259,7 @@ async function save() {
       const created = await store.create({
         name,
         avatar_url: form.avatar_url.trim() || undefined,
+        avatar_original_url: form.avatar_original_url.trim() || undefined,
         data,
         tags,
       })
@@ -277,17 +321,71 @@ async function save() {
               hide-details="auto"
               persistent-hint
             />
-            <v-text-field
-              v-model="form.avatar_url"
-              :label="t('library.create.avatarUrl')"
-              :placeholder="t('library.create.avatarPlaceholder')"
-              :hint="t('library.create.avatarHint')"
-              density="compact"
-              variant="outlined"
-              hide-details="auto"
-              persistent-hint
-              class="nest-create-field-wide"
-            />
+            <!-- Avatar editor: preview + upload button + hand-editable URL.
+                 Upload writes to MinIO (POST /api/uploads/avatar) and
+                 populates both URL fields; user can still paste a remote
+                 URL directly if they prefer. -->
+            <div class="nest-create-field-wide nest-avatar-block">
+              <div class="nest-avatar-row">
+                <v-avatar
+                  :size="64"
+                  rounded="lg"
+                  :color="form.avatar_url ? undefined : 'surface-variant'"
+                  class="nest-avatar-preview"
+                >
+                  <img v-if="form.avatar_url" :src="form.avatar_url" :alt="form.name" />
+                  <v-icon v-else>mdi-account-circle</v-icon>
+                </v-avatar>
+                <div class="nest-avatar-actions">
+                  <input
+                    ref="avatarFileInput"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    style="display:none"
+                    @change="onAvatarFileChange"
+                  />
+                  <v-btn
+                    size="small"
+                    variant="tonal"
+                    :loading="avatarUploading"
+                    prepend-icon="mdi-upload"
+                    @click="pickAvatarFile"
+                  >
+                    {{ t('library.create.avatarUpload') }}
+                  </v-btn>
+                  <v-btn
+                    v-if="form.avatar_url"
+                    size="small"
+                    variant="text"
+                    color="error"
+                    prepend-icon="mdi-close"
+                    @click="clearAvatar"
+                  >
+                    {{ t('library.create.avatarClear') }}
+                  </v-btn>
+                </div>
+              </div>
+              <v-text-field
+                v-model="form.avatar_url"
+                :label="t('library.create.avatarUrl')"
+                :placeholder="t('library.create.avatarPlaceholder')"
+                :hint="t('library.create.avatarHint')"
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                persistent-hint
+              />
+              <v-alert
+                v-if="avatarError"
+                type="error"
+                density="compact"
+                variant="tonal"
+                closable
+                @click:close="avatarError = null"
+              >
+                {{ avatarError }}
+              </v-alert>
+            </div>
             <v-text-field
               v-model="form.nickname"
               :label="t('library.create.nickname')"
@@ -592,6 +690,28 @@ async function save() {
 
 .nest-create-field-wide {
   grid-column: 1 / -1;
+}
+
+// Avatar upload block — preview + actions + URL field stacked.
+.nest-avatar-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nest-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.nest-avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.nest-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .nest-create-actions {

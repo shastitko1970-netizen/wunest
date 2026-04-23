@@ -22,12 +22,21 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /out/wunest ./cmd/wunest
 
+# The storage reaper ships in the same image — a daily systemd timer on
+# the host invokes it via `docker run --rm ... /app/nest-storage-reaper`.
+# Keeps one image to deploy, and the reaper always matches the running
+# schema because it's built from the same source tree.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /out/nest-storage-reaper ./cmd/nest-storage-reaper
+
 # ── Stage 3: runtime ─────────────────────────────────
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata tini && \
     adduser -D -u 1000 nest
 WORKDIR /app
 COPY --from=backend /out/wunest /app/wunest
+COPY --from=backend /out/nest-storage-reaper /app/nest-storage-reaper
 COPY migrations /app/migrations
 USER nest
 

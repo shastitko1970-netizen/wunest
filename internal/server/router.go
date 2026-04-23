@@ -22,6 +22,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
+	"github.com/shastitko1970-netizen/wunest/internal/uploads"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
@@ -48,6 +49,7 @@ type Server struct {
 	personas   *personas.Handler
 	byok       *byok.Handler
 	byokRepo   *byok.Repository // stream hot path calls Reveal directly
+	uploads    *uploads.Handler
 }
 
 func New(deps Deps) *Server {
@@ -128,6 +130,7 @@ func New(deps Deps) *Server {
 			Users: resolver,
 		},
 		byokRepo: byokRepo,
+		uploads:  &uploads.Handler{Storage: storageClient},
 	}
 }
 
@@ -170,6 +173,9 @@ func (s *Server) Router() http.Handler {
 	if s.byok != nil && s.byok.Repo != nil {
 		s.byok.Register(mux, authRequired)
 	}
+	// Uploads endpoints register unconditionally; when MinIO isn't
+	// configured the handler returns 503 with a machine-readable error.
+	s.uploads.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))

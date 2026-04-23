@@ -1,0 +1,33 @@
+[Unit]
+Description=WuNest storage reaper — delete orphan objects from MinIO
+Documentation=https://github.com/shastitko1970-netizen/wunest/Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# One-shot: exits after a single scan. The `.timer` schedules it.
+#
+# --network host so the container reaches the host-local MinIO on
+# 127.0.0.1:9000 (same as the main wunest container).
+#
+# --env-file points at the same env file the app uses; the reaper reads
+# MINIO_ENDPOINT / DATABASE_URL etc. from there.
+#
+# Image tag `wunest:latest` is what `scripts/deploy.sh` tags the
+# currently-built image as on every deploy. If that tag ever gets
+# removed, update this unit.
+ExecStart=/usr/bin/docker run \
+    --rm \
+    --name nest-storage-reaper \
+    --network host \
+    --env-file /opt/wunest/.env \
+    wunest:latest \
+    /app/nest-storage-reaper
+
+# If the reaper fails, log it but don't retry — the timer will run again tomorrow.
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
