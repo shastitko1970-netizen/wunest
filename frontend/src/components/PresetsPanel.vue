@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { usePresetsStore } from '@/stores/presets'
 import { PRESET_TYPES, type Preset, type PresetType } from '@/api/presets'
 import ImportPresetDialog from '@/components/ImportPresetDialog.vue'
-import PresetEditorDialog from '@/components/PresetEditorDialog.vue'
+import PresetEditorForm from '@/components/PresetEditorForm.vue'
 
 /**
  * PresetsPanel — flat list of every preset the user has, with filter chips
@@ -24,11 +24,14 @@ const { items, loading, error } = storeToRefs(presets)
 
 const importOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
+// `expandedId` tracks which row is showing its inline editor. Unique
+// sentinel 'new' means "the new-preset draft row is open".
 const expandedId = ref<string | null>(null)
-
-const editorOpen = ref(false)
-const editingPreset = ref<Preset | null>(null)
-const editorType = ref<PresetType>('sampler')
+// When creating a new preset, which type is pre-selected in the draft row.
+const newDraftType = ref<PresetType>('sampler')
+// For the "view raw JSON" read-only fold (the {} button). Separate from
+// the editor because they're different intents (inspect vs tune).
+const jsonViewId = ref<string | null>(null)
 
 // Filter: "all" shows every preset, or one of PRESET_TYPES narrows to just
 // that type. Chip bar mirrors this.
@@ -50,14 +53,36 @@ function toast(text: string, color: string = 'success') {
 onMounted(() => presets.fetchAll())
 
 function openCreate(type: PresetType) {
-  editingPreset.value = null
-  editorType.value = type
-  editorOpen.value = true
+  newDraftType.value = type
+  expandedId.value = 'new'
+  // Close any open "view JSON" fold so the row isn't double-expanded.
+  jsonViewId.value = null
 }
 
 function openEdit(p: Preset) {
-  editingPreset.value = p
-  editorOpen.value = true
+  expandedId.value = expandedId.value === p.id ? null : p.id
+  jsonViewId.value = null
+}
+
+function onEditorSaved(preset: Preset, activated: boolean) {
+  if (expandedId.value === 'new') {
+    // New preset just created — close the draft row and confirm.
+    expandedId.value = null
+    toast(
+      activated
+        ? t('presets.snack.createdAndApplied', { name: preset.name })
+        : t('presets.snack.created', { name: preset.name }),
+      activated ? 'success' : 'info',
+    )
+  } else {
+    // Existing preset updated.
+    expandedId.value = null
+    toast(t('presets.snack.saved', { name: preset.name }))
+  }
+}
+
+function onEditorCancelled() {
+  expandedId.value = null
 }
 
 // Export preset as ST-compatible JSON download.
@@ -123,8 +148,10 @@ function onImported(_id: string, activated: boolean) {
   else toast(t('presets.snack.imported'), 'info')
 }
 
-function toggleExpand(id: string) {
-  expandedId.value = expandedId.value === id ? null : id
+function toggleJsonView(id: string) {
+  jsonViewId.value = jsonViewId.value === id ? null : id
+  // Opening the read-only JSON view closes any open editor on the same row.
+  if (jsonViewId.value && expandedId.value === id) expandedId.value = null
 }
 
 function rawJson(p: Preset): string {
@@ -222,12 +249,30 @@ function createForCurrentFilter() {
     </div>
 
     <!-- Flat list of presets. -->
-    <div v-if="filteredItems.length > 0" class="nest-preset-list">
+    <div v-if="filteredItems.length > 0 || expandedId === 'new'" class="nest-preset-list">
+      <!-- "Draft" row for a brand-new preset. Appears at the top when
+           user clicked a New menu entry. Contains just the inline
+           editor — no row metadata since nothing exists yet. -->
+      <div
+        v-if="expandedId === 'new'"
+        class="nest-preset-row is-draft"
+      >
+        <PresetEditorForm
+          :preset="null"
+          :initial-type="newDraftType"
+          @saved="onEditorSaved"
+          @cancelled="onEditorCancelled"
+        />
+      </div>
       <div
         v-for="p in filteredItems"
         :key="p.id"
         class="nest-preset-row"
-        :class="{ 'is-active': isActive(p), expanded: expandedId === p.id }"
+        :class="{
+          'is-active': isActive(p),
+          editing: expandedId === p.id,
+          'json-open': jsonViewId === p.id,
+        }"
       >
         <div class="nest-preset-main">
           <div class="nest-preset-title">
@@ -284,15 +329,17 @@ function createForCurrentFilter() {
           </v-btn>
           <v-btn
             size="x-small" variant="text"
-            :title="t('presets.actions.edit')"
-            icon="mdi-pencil-outline"
+            :title="expandedId === p.id ? t('common.close') : t('presets.actions.edit')"
+            :icon="expandedId === p.id ? 'mdi-close' : 'mdi-pencil-outline'"
+            :color="expandedId === p.id ? 'primary' : undefined"
             @click="openEdit(p)"
           />
           <v-btn
             size="x-small" variant="text"
             :title="t('presets.actions.view')"
             icon="mdi-code-braces"
-            @click="toggleExpand(p.id)"
+            :color="jsonViewId === p.id ? 'primary' : undefined"
+            @click="toggleJsonView(p.id)"
           />
           <v-btn
             size="x-small" variant="text"
@@ -308,10 +355,22 @@ function createForCurrentFilter() {
           />
         </div>
 
+        <!-- Read-only JSON inspector. Kept for users who want to SEE
+             what's under the hood without opening the editor. -->
         <pre
-          v-if="expandedId === p.id"
+          v-if="jsonViewId === p.id"
           class="nest-preset-json"
         >{{ rawJson(p) }}</pre>
+
+        <!-- Inline editor (P3) — lives inside the row so the rest of
+             the list stays visible. No modal, no scroll trap. -->
+        <div v-if="expandedId === p.id" class="nest-preset-edit">
+          <PresetEditorForm
+            :preset="p"
+            @saved="onEditorSaved"
+            @cancelled="onEditorCancelled"
+          />
+        </div>
       </div>
     </div>
 
@@ -350,11 +409,6 @@ function createForCurrentFilter() {
     </div>
 
     <ImportPresetDialog v-model="importOpen" @imported="onImported" />
-    <PresetEditorDialog
-      v-model="editorOpen"
-      :preset="editingPreset"
-      :initial-type="editorType"
-    />
 
     <!-- Confirmation toast — fires on apply / unapply / import. Bottom-
          right position keeps it out of the way of the Action buttons. -->
@@ -452,7 +506,22 @@ function createForCurrentFilter() {
     border-color: var(--nest-accent);
     background: color-mix(in srgb, var(--nest-accent) 6%, var(--nest-surface));
   }
-  &.expanded { grid-template-areas: "main actions" "json json"; }
+
+  // States where the row expands to show content below the
+  // name/actions line — editor or read-only JSON.
+  &.json-open   { grid-template-areas: "main actions" "json json"; }
+  &.editing {
+    grid-template-areas: "main actions" "edit edit";
+    border-color: var(--nest-accent);
+  }
+
+  // Draft row (for a new preset) is all-editor, no name/actions line.
+  &.is-draft {
+    display: block;
+    border-color: var(--nest-accent);
+    border-style: dashed;
+    padding: 14px 16px;
+  }
 }
 
 .nest-preset-main {
@@ -510,6 +579,16 @@ function createForCurrentFilter() {
   color: var(--nest-text-secondary);
   overflow-x: auto;
   white-space: pre;
+}
+
+// Inline editor container — sits below the row's name/actions line
+// when .editing is active. Separator line on top to visually detach
+// it from the row metadata.
+.nest-preset-edit {
+  grid-area: edit;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--nest-border-subtle);
 }
 
 // Unified empty state — one central plate, two CTAs.

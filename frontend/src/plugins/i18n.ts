@@ -527,6 +527,41 @@ const messages = {
         unapplied: 'Убран: {name} (нет активного шаблона этого типа)',
         imported: 'Импортирован: {name}',
         importedAndApplied: 'Импортирован и сразу применён',
+        created: 'Создан: {name}',
+        createdAndApplied: 'Создан и сразу применён: {name}',
+        saved: 'Сохранён: {name}',
+      },
+      // Progressive-disclosure section labels for the expandable editor.
+      section: {
+        advanced: 'Расширенные',
+        samplingAdv: 'Тонкая настройка сэмплинга',
+        penalties: 'Penalties (повторы)',
+        reasoning: 'Рассуждение (reasoning)',
+      },
+      // Starter templates — one-click fills for a new sampler preset.
+      starter: {
+        useHint: 'Начать с готового шаблона:',
+        creative: 'Creative',
+        balanced: 'Balanced',
+        deterministic: 'Deterministic',
+        reasoning: 'Reasoning',
+      },
+      // Per-field hints — shown as tooltip on an "i" icon next to the
+      // label. Keep short and practical; ranges/defaults beat textbook
+      // definitions for our target users.
+      hint: {
+        temperature: 'Случайность выбора следующего слова. 0 — полностью детерминировано, 2 — хаотично. Ролевой играм обычно подходит 0.8–1.2.',
+        topP: 'Отсекает маловероятные варианты. 1.0 = выключено, 0.9 — разумный дефолт для большинства моделей.',
+        topK: 'Ограничивает сэмплинг N наиболее вероятными токенами. Пусто = выключено. Работает только на текстовых моделях (OpenAI-compat игнорирует).',
+        minP: 'Минимальная вероятность для рассмотрения. 0.05 = «отсекай всё маловероятнее 5% от топа». Локальные модели.',
+        maxTokens: 'Максимальная длина ответа в токенах. Пусто = ограничение модели (обычно 4k-8k).',
+        seed: 'Фиксирует генератор случайности. Полезно чтобы воспроизвести ответ байт-в-байт. Пусто = случайный.',
+        stop: 'Строки на которых модель остановится. Через запятую. Например: «Human:, USER:».',
+        freqPenalty: 'Штраф за часто встречающиеся токены (частотность в уже сгенерированном). 0-0.5 нормально. OpenAI-style.',
+        presPenalty: 'Штраф за повторное употребление любого токена (присутствие). 0-0.5. Борется с монотонностью.',
+        repPenalty: 'Множитель понижения вероятности повторов. 1.0 = выключено, 1.05-1.15 часто помогает от зацикливания. Локальные модели.',
+        systemPrompt: 'Системное сообщение модели — инструкция о роли, стиле, правилах. Подставляется в начало диалога.',
+        reasoning: 'Для моделей с «thinking»-блоками (o1 / Claude / DeepSeek-R1). По умолчанию — как решит провайдер.',
       },
       editor: {
         newTitle: 'Новый шаблон',
@@ -535,6 +570,11 @@ const messages = {
         nameLabel: 'Название',
         namePlaceholder: 'Например: Creative',
         nameRequired: 'Название обязательно',
+        // Tabs inside the editor: typed form vs raw JSON power-user mode.
+        tabForm: 'Форма',
+        tabRaw: 'Raw JSON',
+        rawHint: 'Здесь можно редактировать поля которые не показаны в форме (mirostat, tfs, xtc, dry_*). При сохранении валидация JSON.',
+        rawPlaceholder: '{\n  "temperature": 0.9,\n  …\n}',
         instruct: {
           inputSeq: 'Префикс пользователя',
           outputSeq: 'Префикс ассистента',
@@ -1321,6 +1361,36 @@ const messages = {
         unapplied: 'Removed: {name} (no active template of this type)',
         imported: 'Imported: {name}',
         importedAndApplied: 'Imported and applied',
+        created: 'Created: {name}',
+        createdAndApplied: 'Created and applied: {name}',
+        saved: 'Saved: {name}',
+      },
+      section: {
+        advanced: 'Advanced',
+        samplingAdv: 'Advanced sampling',
+        penalties: 'Penalties',
+        reasoning: 'Reasoning',
+      },
+      starter: {
+        useHint: 'Start with a template:',
+        creative: 'Creative',
+        balanced: 'Balanced',
+        deterministic: 'Deterministic',
+        reasoning: 'Reasoning',
+      },
+      hint: {
+        temperature: 'Randomness of next-token pick. 0 = fully deterministic, 2 = chaotic. Roleplay sweet-spot is usually 0.8–1.2.',
+        topP: 'Cumulative-probability cutoff. 1.0 = off, 0.9 is a sensible default for most models.',
+        topK: 'Restrict sampling to the top N most-likely tokens. Empty = off. Ignored by OpenAI-compat APIs.',
+        minP: 'Minimum probability to consider a token. 0.05 = drop anything under 5% of the top. Local models.',
+        maxTokens: 'Response length cap. Empty = model default (usually 4k-8k).',
+        seed: 'Fix the RNG. Useful to reproduce an answer byte-for-byte. Empty = random.',
+        stop: 'Strings that halt generation. Comma-separated, e.g. "Human:, USER:".',
+        freqPenalty: 'Penalty for frequently-used tokens (by count in the generated text). 0-0.5 is normal. OpenAI-style.',
+        presPenalty: 'Penalty for any token that has appeared at all (presence). 0-0.5. Fights monotony.',
+        repPenalty: 'Multiplicative downweight for repeated tokens. 1.0 = off, 1.05-1.15 often helps loops. Local models.',
+        systemPrompt: 'The system message — role, style, and rules. Injected at the start of the conversation.',
+        reasoning: 'For models with a "thinking" block (o1 / Claude / DeepSeek-R1). Default defers to the provider.',
       },
       editor: {
         newTitle: 'New template',
@@ -1329,6 +1399,10 @@ const messages = {
         nameLabel: 'Name',
         namePlaceholder: 'e.g. Creative',
         nameRequired: 'Name is required',
+        tabForm: 'Form',
+        tabRaw: 'Raw JSON',
+        rawHint: 'Edit fields the form doesn\'t surface (mirostat, tfs, xtc, dry_*). JSON is validated on save.',
+        rawPlaceholder: '{\n  "temperature": 0.9,\n  …\n}',
         instruct: {
           inputSeq: 'User prefix',
           outputSeq: 'Assistant prefix',
