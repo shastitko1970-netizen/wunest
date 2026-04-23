@@ -30,7 +30,7 @@ func (h *Handler) streamChatRegen(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
-	apiKey string,
+	ups upstream,
 	userName string,
 	personaDesc string,
 	in SendMessageInput,
@@ -88,18 +88,22 @@ func (h *Handler) streamChatRegen(
 	}
 	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model})
 
-	h.pipeStream(w, flusher, ctx, placeholder, model, apiKey, in, up)
+	h.pipeStream(w, flusher, ctx, placeholder, model, ups, in, up)
 }
 
-// pipeStream runs the upstream WuApi call + SSE pass-through + persistence.
+// pipeStream runs the upstream call + SSE pass-through + persistence.
 // Extracted so streamChat and streamChatRegen share the same hot loop.
+//
+// `ups` determines where the request actually goes: empty BaseURL →
+// WuApi proxy (the default), non-empty BaseURL → direct BYOK call to
+// the user's provider.
 func (h *Handler) pipeStream(
 	w http.ResponseWriter,
 	flusher http.Flusher,
 	ctx context.Context,
 	placeholder *Message,
 	model string,
-	apiKey string,
+	ups upstream,
 	in SendMessageInput,
 	up []map[string]any,
 ) {
@@ -121,7 +125,7 @@ func (h *Handler) pipeStream(
 		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
 	}
 
-	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
+	body, resp, err := h.openChatStream(ctx, ups, req)
 	if err != nil {
 		finalizeError(ctx, h, placeholder.ID, model, err)
 		writeSSEError(w, flusher, "upstream_connect", err)
@@ -234,7 +238,7 @@ func (h *Handler) streamChat(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
-	apiKey string,
+	ups upstream,
 	userName string,
 	personaDesc string,
 	in SendMessageInput,
@@ -333,8 +337,9 @@ func (h *Handler) streamChat(
 
 	started := time.Now()
 
-	// 6. Start upstream stream.
-	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
+	// 6. Start upstream stream. Routes to WuApi proxy by default, or
+	//    direct to a BYOK-provided URL when the chat is pinned to a BYOK key.
+	body, resp, err := h.openChatStream(ctx, ups, req)
 	if err != nil {
 		finalizeError(ctx, h, placeholder.ID, model, err)
 		writeSSEError(w, flusher, "upstream_connect", err)
@@ -530,7 +535,7 @@ func (h *Handler) streamChatSwipe(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
-	apiKey string,
+	ups upstream,
 	userName string,
 	personaDesc string,
 	targetMessageID int64,
@@ -603,7 +608,7 @@ func (h *Handler) streamChatSwipe(
 	// writes by id.
 	placeholder := &Message{ID: targetMessageID}
 
-	h.pipeStreamSwipe(w, flusher, ctx, chatID, placeholder, model, apiKey, in, up)
+	h.pipeStreamSwipe(w, flusher, ctx, chatID, placeholder, model, ups, in, up)
 }
 
 // pipeStreamSwipe is the swipe-aware twin of pipeStream: on done it also
@@ -616,7 +621,7 @@ func (h *Handler) pipeStreamSwipe(
 	chatID uuid.UUID,
 	placeholder *Message,
 	model string,
-	apiKey string,
+	ups upstream,
 	in SendMessageInput,
 	up []map[string]any,
 ) {
@@ -638,7 +643,7 @@ func (h *Handler) pipeStreamSwipe(
 		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
 	}
 
-	body, resp, err := h.WuApi.ChatCompletionsStream(ctx, apiKey, req)
+	body, resp, err := h.openChatStream(ctx, ups, req)
 	if err != nil {
 		finalizeError(ctx, h, placeholder.ID, model, err)
 		writeSSEError(w, flusher, "upstream_connect", err)

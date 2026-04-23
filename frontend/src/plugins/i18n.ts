@@ -55,6 +55,7 @@ const messages = {
         tagline: 'Как отображается ответ модели.',
         disableLabel: 'Ждать полный ответ (без потоковой печати)',
         disableHint: 'С выключенной опцией показывается «Думает…», а готовое сообщение появляется целиком. Экономит зрение, если смотреть на токены раздражает.',
+        disableHintShort: 'Показывать готовый ответ целиком, а не по токенам.',
       },
     },
     byok: {
@@ -75,10 +76,15 @@ const messages = {
         labelPlaceholder: 'Например: личный Anthropic',
         key: 'API-ключ',
         keyPlaceholder: 'sk-...',
+        baseUrl: 'Base URL',
+        baseUrlHint: 'дефолт подставится, можно переопределить',
+        baseUrlRequired: 'обязательно для custom',
+        compatNote: 'Нативные API Anthropic/Google отличаются от OpenAI. Дефолт указывает на их OpenAI-совместимые endpoint\'ы — могут понадобиться дополнительные заголовки или прокси через OpenRouter.',
         save: 'Сохранить ключ',
       },
       errors: {
         keyRequired: 'Поле ключа обязательно',
+        urlRequired: 'Base URL обязателен для custom-провайдера',
       },
       delete: {
         title: 'Удалить ключ?',
@@ -680,6 +686,7 @@ const messages = {
         tagline: 'How the assistant\'s reply is rendered.',
         disableLabel: 'Wait for the full response (no token-by-token streaming)',
         disableHint: 'When off, "Thinking…" shows while the reply is generated, and the full message appears in one shot. The server still streams; the client just buffers the display.',
+        disableHintShort: 'Paint the full reply at once instead of per-token.',
       },
     },
     byok: {
@@ -700,10 +707,15 @@ const messages = {
         labelPlaceholder: 'e.g. personal Anthropic',
         key: 'API key',
         keyPlaceholder: 'sk-...',
+        baseUrl: 'Base URL',
+        baseUrlHint: 'default auto-fills, override if needed',
+        baseUrlRequired: 'required for custom',
+        compatNote: "Anthropic & Google native APIs aren't OpenAI-compatible by default. The URL above points at their opt-in OpenAI-compat endpoints — may need extra headers or a proxy like OpenRouter instead.",
         save: 'Save key',
       },
       errors: {
         keyRequired: 'Key is required',
+        urlRequired: 'Base URL is required for custom provider',
       },
       delete: {
         title: 'Delete key?',

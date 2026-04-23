@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { useChatsStore } from '@/stores/chats'
 import { usePresetsStore } from '@/stores/presets'
+import { usePreferencesStore } from '@/stores/preferences'
 import type { AuthorsNote, ChatSamplerMetadata } from '@/api/chats'
 import type { Preset, SamplerData } from '@/api/presets'
 
@@ -23,6 +25,12 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const chats = useChatsStore()
 const presets = usePresetsStore()
+// Global streaming preference (persists to localStorage, syncs across
+// tabs). Exposing it here next to the sampler knobs because that's the
+// "how my reply comes out" drawer — and users asked to have the toggle
+// somewhere they actually see while chatting, not buried in Settings.
+const prefs = usePreferencesStore()
+const { disableStreaming } = storeToRefs(prefs)
 
 // Drawer width adapts to viewport. On mobile we go full-width so the
 // two-column field rows have room to breathe; on desktop 420px stays
@@ -292,6 +300,21 @@ function close() {
     </div>
 
     <div class="nest-sampler-body">
+      <!-- Streaming toggle — lives here so it's one tap from the chat.
+           Flipping it takes effect on the next turn. Preference is global
+           and persists; no per-chat override today. -->
+      <div class="nest-field nest-stream-toggle">
+        <v-switch
+          v-model="disableStreaming"
+          :label="t('settings.streaming.disableLabel')"
+          color="primary"
+          inset
+          hide-details
+          density="compact"
+        />
+        <div class="nest-field-hint">{{ t('settings.streaming.disableHintShort') }}</div>
+      </div>
+
       <!-- Preset picker -->
       <div class="nest-field">
         <label class="nest-field-label">{{ t('chat.sampler.preset.label') }}</label>
@@ -706,6 +729,13 @@ function close() {
   font-size: 10.5px;
   color: var(--nest-green);
   letter-spacing: 0.05em;
+}
+
+.nest-stream-toggle {
+  padding: 8px 10px;
+  border: 1px dashed var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  background: var(--nest-bg);
 }
 
 // Phones. Drawer goes full-width, and the half-half field rows stack

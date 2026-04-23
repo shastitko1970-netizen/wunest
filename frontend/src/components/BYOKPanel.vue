@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
-import { byokApi, type BYOKKey } from '@/api/byok'
+import { byokApi, type BYOKKey, type BYOKProviderInfo } from '@/api/byok'
 
 // BYOKPanel — manage "bring-your-own" provider API keys. Keys are
 // encrypted at rest server-side using AES-GCM and never round-trip
 // back to the client in plaintext. The list shows a masked preview
 // (e.g. "sk-…6411"); to use a key, pin it to a chat via the chat-
 // header picker.
+//
+// Each key also carries the `base_url` it routes to, so when the chat
+// stream dispatches to this key it goes DIRECTLY to the provider
+// (openai.com, openrouter, etc.) rather than through WuApi. That's what
+// makes a raw `sk-proj-...` OpenAI key actually work.
 
 const { t } = useI18n()
 const { smAndDown } = useDisplay()
 
 const items = ref<BYOKKey[]>([])
-const providers = ref<string[]>([])
+const providers = ref<BYOKProviderInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -22,9 +27,21 @@ const error = ref<string | null>(null)
 const formProvider = ref('openai')
 const formLabel = ref('')
 const formKey = ref('')
+const formBaseURL = ref('')
 const saving = ref(false)
 const addOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
+
+const currentProviderInfo = computed(() =>
+  providers.value.find(p => p.id === formProvider.value) ?? null,
+)
+
+// Whenever the user picks a new provider, reset the base URL to that
+// provider's canonical default. User can still override afterwards.
+watch(formProvider, (p) => {
+  const info = providers.value.find(x => x.id === p)
+  formBaseURL.value = info?.default_url ?? ''
+})
 
 onMounted(async () => {
   loading.value = true
@@ -35,8 +52,8 @@ onMounted(async () => {
     ])
     items.value = list.items
     providers.value = provs.items
-    if (provs.items.length > 0 && !provs.items.includes(formProvider.value)) {
-      formProvider.value = provs.items[0]
+    if (provs.items.length > 0 && !provs.items.some(p => p.id === formProvider.value)) {
+      formProvider.value = provs.items[0].id
     }
   } catch (e) {
     error.value = (e as Error).message
@@ -46,9 +63,11 @@ onMounted(async () => {
 })
 
 function openAdd() {
-  formProvider.value = providers.value[0] ?? 'openai'
+  const first = providers.value[0]
+  formProvider.value = first?.id ?? 'openai'
   formLabel.value = ''
   formKey.value = ''
+  formBaseURL.value = first?.default_url ?? ''
   error.value = null
   addOpen.value = true
 }
@@ -58,6 +77,10 @@ async function save() {
     error.value = t('byok.errors.keyRequired')
     return
   }
+  if (formProvider.value === 'custom' && !formBaseURL.value.trim()) {
+    error.value = t('byok.errors.urlRequired')
+    return
+  }
   saving.value = true
   error.value = null
   try {
@@ -65,11 +88,13 @@ async function save() {
       provider: formProvider.value,
       label: formLabel.value.trim() || undefined,
       key: formKey.value.trim(),
+      base_url: formBaseURL.value.trim() || undefined,
     })
     items.value = [created, ...items.value]
     // Wipe local plaintext buffer immediately after persist succeeds.
     formKey.value = ''
     formLabel.value = ''
+    formBaseURL.value = ''
     addOpen.value = false
   } catch (e) {
     error.value = (e as Error).message
@@ -147,6 +172,9 @@ function formatDate(iso: string): string {
                 {{ k.label || t('byok.unnamed') }}
               </div>
               <div class="nest-byok-mask nest-mono">{{ k.masked }}</div>
+              <div v-if="k.base_url" class="nest-byok-url nest-mono" :title="k.base_url">
+                {{ k.base_url.replace(/^https?:\/\//, '') }}
+              </div>
             </div>
             <div class="nest-byok-actions">
               <span class="nest-mono nest-byok-date">{{ formatDate(k.created_at) }}</span>
@@ -178,13 +206,36 @@ function formatDate(iso: string): string {
             <label class="nest-field-label">{{ t('byok.form.provider') }}</label>
             <v-select
               v-model="formProvider"
-              :items="providers.map(p => ({ value: p, title: providerLabel(p) }))"
+              :items="providers.map(p => ({ value: p.id, title: providerLabel(p.id) }))"
               item-title="title"
               item-value="value"
               density="compact"
               hide-details
             />
           </div>
+
+          <!-- Base URL — pre-filled from the picked provider's default,
+               but editable so power users can point at a custom proxy
+               (e.g. self-hosted LiteLLM, a regional OpenAI endpoint, or
+               a local llama.cpp server). Required when provider=custom. -->
+          <div class="nest-field mt-3">
+            <label class="nest-field-label">
+              {{ t('byok.form.baseUrl') }}
+              <span class="nest-field-hint-inline">
+                {{ formProvider === 'custom'
+                  ? t('byok.form.baseUrlRequired')
+                  : t('byok.form.baseUrlHint') }}
+              </span>
+            </label>
+            <v-text-field
+              v-model="formBaseURL"
+              :placeholder="currentProviderInfo?.default_url || 'https://api.openai.com/v1'"
+              density="compact"
+              hide-details
+              spellcheck="false"
+            />
+          </div>
+
           <div class="nest-field mt-3">
             <label class="nest-field-label">
               {{ t('byok.form.label') }}
@@ -208,6 +259,20 @@ function formatDate(iso: string): string {
               hide-details
             />
           </div>
+
+          <!-- Gentle notice for anthropic/google — their native APIs are
+               not OpenAI-compat by default; the default URL we ship is
+               their opt-in compat endpoint which may need extra headers. -->
+          <v-alert
+            v-if="formProvider === 'anthropic' || formProvider === 'google'"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mt-3"
+            style="font-size: 11.5px"
+          >
+            {{ t('byok.form.compatNote') }}
+          </v-alert>
         </v-card-text>
         <v-card-actions class="px-6 pb-4">
           <v-spacer />
@@ -309,6 +374,15 @@ function formatDate(iso: string): string {
   font-size: 12px;
   color: var(--nest-text-muted);
   margin-top: 2px;
+}
+.nest-byok-url {
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+  opacity: 0.8;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nest-byok-actions {

@@ -424,8 +424,8 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
-	if apiKey == "" {
+	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	if up.APIKey == "" {
 		http.Error(w, "no api key available", http.StatusPreconditionFailed)
 		return
 	}
@@ -440,31 +440,42 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
 	// Stream.
-	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
+	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, up, userName, userDesc, in)
 }
 
-// resolveAPIKey picks the upstream auth key for a chat turn. Order:
+// upstream describes where a chat turn should send its chat-completions
+// request. WuApi is the default (empty BaseURL → our own /v1 proxy);
+// when BYOK is pinned the Key + BaseURL route directly to the user's
+// provider, bypassing WuApi entirely so a raw `sk-proj-*` key works.
+type upstream struct {
+	APIKey  string
+	BaseURL string // empty → use the WuApi client
+}
+
+// resolveUpstream picks the upstream auth key AND URL for a chat turn.
+// Order:
 //
-//  1. chat_metadata.byok_id present AND repo can decrypt it → BYOK plaintext.
-//  2. Otherwise → the user's session WuApi key.
+//  1. chat_metadata.byok_id present AND repo can decrypt it → BYOK key
+//     at its stored BaseURL (direct provider call, skip WuApi).
+//  2. Otherwise → the user's session WuApi key, WuApi as upstream.
 //
-// When a BYOK reveal fails (deleted row, bad nonce, rotated SECRETS_KEY)
-// we log and fall back to the WuApi key silently — an opaque auth error
-// from the upstream is less confusing for the user than a silent 502.
-func (h *Handler) resolveAPIKey(ctx context.Context, userID uuid.UUID, metadata []byte, wuapiKey string) string {
+// On BYOK reveal failure (deleted row, bad nonce, rotated SECRETS_KEY)
+// we log and silently fall back to WuApi — better than surfacing an
+// opaque auth error to the user mid-generation.
+func (h *Handler) resolveUpstream(ctx context.Context, userID uuid.UUID, metadata []byte, wuapiKey string) upstream {
 	if h.BYOK == nil {
-		return wuapiKey
+		return upstream{APIKey: wuapiKey}
 	}
 	byokID := readBYOKID(metadata)
 	if byokID == uuid.Nil {
-		return wuapiKey
+		return upstream{APIKey: wuapiKey}
 	}
-	plain, err := h.BYOK.Reveal(ctx, userID, byokID)
+	rev, err := h.BYOK.Reveal(ctx, userID, byokID)
 	if err != nil {
 		slog.Warn("byok: reveal failed, falling back to wuapi key", "err", err, "byok_id", byokID)
-		return wuapiKey
+		return upstream{APIKey: wuapiKey}
 	}
-	return plain
+	return upstream{APIKey: rev.Key, BaseURL: rev.BaseURL}
 }
 
 // applyUserDefaults populates SendMessageInput fields from per-user settings
@@ -1008,8 +1019,8 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
-	if apiKey == "" {
+	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	if up.APIKey == "" {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return
 	}
@@ -1023,7 +1034,7 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
-	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, apiKey, userName, userDesc, mid, newSwipeID, in)
+	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, up, userName, userDesc, mid, newSwipeID, in)
 }
 
 // selectSwipe picks an existing variant for the message. Body: {swipe_id}.
@@ -1108,8 +1119,8 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	apiKey := h.resolveAPIKey(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
-	if apiKey == "" {
+	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	if up.APIKey == "" {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return
 	}
@@ -1121,7 +1132,7 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
-	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, apiKey, userName, userDesc, in)
+	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, up, userName, userDesc, in)
 }
 
 // --- helpers ---

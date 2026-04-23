@@ -47,6 +47,7 @@ type createReq struct {
 	Provider string `json:"provider"`
 	Label    string `json:"label"`
 	Key      string `json:"key"`
+	BaseURL  string `json:"base_url"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +64,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	req.Provider = strings.ToLower(strings.TrimSpace(req.Provider))
 	req.Label = strings.TrimSpace(req.Label)
 	req.Key = strings.TrimSpace(req.Key)
+	req.BaseURL = strings.TrimSpace(req.BaseURL)
 
 	if !IsSupportedProvider(req.Provider) {
 		http.Error(w, "unsupported provider", http.StatusBadRequest)
@@ -78,11 +80,27 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key too long", http.StatusBadRequest)
 		return
 	}
+	// Base URL validation: must start with http(s):// or be empty (we'll
+	// fill the default per provider). "custom" REQUIRES an explicit URL.
+	if req.BaseURL != "" {
+		if !strings.HasPrefix(req.BaseURL, "http://") && !strings.HasPrefix(req.BaseURL, "https://") {
+			http.Error(w, "base_url must start with http:// or https://", http.StatusBadRequest)
+			return
+		}
+		// Strip trailing slash so we can concatenate `/chat/completions` later
+		// without producing double slashes.
+		req.BaseURL = strings.TrimRight(req.BaseURL, "/")
+	}
+	if req.Provider == "custom" && req.BaseURL == "" {
+		http.Error(w, "base_url required for custom provider", http.StatusBadRequest)
+		return
+	}
 	created, err := h.Repo.Create(r.Context(), CreateInput{
 		UserID:   user.ID,
 		Provider: req.Provider,
 		Label:    req.Label,
 		Key:      req.Key,
+		BaseURL:  req.BaseURL,
 	})
 	if err != nil {
 		h.writeErr(w, err)
@@ -113,8 +131,23 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ProviderInfo is a single entry in the providers allow-list returned to
+// the SPA. The UI uses DefaultURL to pre-fill the base-URL field when
+// the user picks a provider.
+type ProviderInfo struct {
+	ID         string `json:"id"`
+	DefaultURL string `json:"default_url,omitempty"`
+}
+
 func (h *Handler) providers(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": SupportedProviders})
+	items := make([]ProviderInfo, 0, len(SupportedProviders))
+	for _, id := range SupportedProviders {
+		items = append(items, ProviderInfo{
+			ID:         id,
+			DefaultURL: DefaultBaseURL(id),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // ─── helpers ───────────────────────────────────────────────────────

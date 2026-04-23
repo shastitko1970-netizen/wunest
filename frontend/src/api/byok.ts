@@ -7,13 +7,22 @@ export interface BYOKKey {
   provider: string
   label?: string
   masked: string       // e.g. "sk-…6411"
+  base_url: string     // where this key routes to (OpenAI-compat /v1 root)
   created_at: string
 }
 
 export interface BYOKCreateInput {
   provider: string
   label?: string
-  key: string         // plaintext; server encrypts before storing
+  key: string          // plaintext; server encrypts before storing
+  base_url?: string    // required for "custom"; pre-fills from defaults for known providers
+}
+
+/** Metadata per provider — populates the BYOK form's base-URL default.
+ *  Served by `/api/byok/providers` so the UI doesn't hardcode URLs. */
+export interface BYOKProviderInfo {
+  id: string
+  default_url?: string   // empty for "custom" (user must provide)
 }
 
 // ─── API ──────────────────────────────────────────────────────────────
@@ -21,7 +30,7 @@ export interface BYOKCreateInput {
 export const byokApi = {
   list: () => apiFetch<{ items: BYOKKey[] }>('/api/byok'),
 
-  providers: () => apiFetch<{ items: string[] }>('/api/byok/providers'),
+  providers: () => apiFetch<{ items: BYOKProviderInfo[] }>('/api/byok/providers'),
 
   create: (input: BYOKCreateInput) =>
     apiFetch<BYOKKey>('/api/byok', {
