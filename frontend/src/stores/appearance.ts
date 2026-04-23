@@ -17,10 +17,33 @@ import { appearanceApi, type Appearance } from '@/api/appearance'
 const LS_KEY = 'nest:appearance'
 const CUSTOM_STYLE_ID = 'nest-custom-appearance-css'
 
+/**
+ * Safe mode flag — read once at boot from the URL query string.
+ * When `?safe` (or `?safe=1`) is present, we skip injecting the user's
+ * custom CSS and their background image so the app's own chrome stays
+ * usable even if the user's theme rules broke layout. The user can then
+ * open Settings → Appearance and either Reset or edit out the bad CSS.
+ *
+ * Recovery instructions for a completely broken shell:
+ *   Tap the browser URL bar, append `?safe` to the host, reload.
+ *
+ * This is read once on module init — Vue's reactivity doesn't need to
+ * re-read it; a URL change reloads the SPA anyway.
+ */
+export const SAFE_MODE = (() => {
+  if (typeof window === 'undefined') return false
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.has('safe') || params.has('nest-safe')
+  } catch { return false }
+})()
+
 export const useAppearanceStore = defineStore('appearance', () => {
   const appearance = ref<Appearance>({})
   const loaded = ref(false)
   const saving = ref(false)
+  // Exposed as a ref so the SafeModeBanner can react without re-reading URL.
+  const safeMode = ref(SAFE_MODE)
 
   // Load from localStorage so first-paint reflects user choice.
   try {
@@ -74,7 +97,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
     save()
   }
 
-  return { appearance, loaded, saving, fetchFromServer, update, reset }
+  return { appearance, loaded, saving, safeMode, fetchFromServer, update, reset }
 })
 
 // ─── CSS applier ──────────────────────────────────────────────────────
@@ -144,10 +167,11 @@ function applyAppearance(a: Appearance) {
     root.style.removeProperty('--nest-transition-base')
   }
 
-  // Background image.
+  // Background image. Skipped in safe mode so an unreachable / oversized
+  // remote image can't be the reason the page won't paint.
   if (typeof document !== 'undefined') {
     const body = document.body
-    if (a.bgImageUrl) {
+    if (a.bgImageUrl && !SAFE_MODE) {
       body.style.backgroundImage = `url("${cssEscape(a.bgImageUrl)}")`
       body.style.backgroundSize = 'cover'
       body.style.backgroundPosition = 'center'
@@ -166,9 +190,11 @@ function applyAppearance(a: Appearance) {
 
   // Custom CSS — inject as a <style> tag so users can hand-write selectors.
   // Trusting the authenticated user's own input; the CSP would block any
-  // external loads anyway.
+  // external loads anyway. SKIP in safe mode: this is the most common
+  // reason the app's own shell breaks, so `?safe` in the URL always gets
+  // the user back to a working Settings page.
   let styleEl = document.getElementById(CUSTOM_STYLE_ID) as HTMLStyleElement | null
-  if (a.customCss && a.customCss.trim()) {
+  if (a.customCss && a.customCss.trim() && !SAFE_MODE) {
     if (!styleEl) {
       styleEl = document.createElement('style')
       styleEl.id = CUSTOM_STYLE_ID

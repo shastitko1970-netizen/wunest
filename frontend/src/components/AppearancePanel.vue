@@ -332,6 +332,8 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         hide-details
         variant="outlined"
         class="nest-mono-textarea mt-2"
+        spellcheck="false"
+        wrap="off"
       />
     </div>
 
@@ -431,6 +433,15 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   font-family: var(--nest-font-mono);
   font-size: 12.5px;
   line-height: 1.5;
+  // Preserve whitespace + line breaks AS TYPED; scroll horizontally when a
+  // line is too long rather than soft-wrapping mid-token. Makes pasted
+  // ST theme CSS readable — default word-break chopped selectors like
+  // `.mes_reasoning_header` mid-identifier, which is unreadable and hides
+  // the actual rule boundaries.
+  white-space: pre;
+  overflow-x: auto;
+  // Same for tabs so indentation survives paste.
+  tab-size: 2;
 }
 
 .nest-css-block { gap: 0; }

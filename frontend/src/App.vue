@@ -5,10 +5,12 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
 import AppShell from '@/layout/AppShell.vue'
 import LoginGate from '@/views/LoginGate.vue'
+import SafeModeBanner from '@/components/SafeModeBanner.vue'
 
 const auth = useAuthStore()
 const appearance = useAppearanceStore()
 const { authenticated, loading } = storeToRefs(auth)
+const { safeMode } = storeToRefs(appearance)
 
 // Boot: check session once.
 onMounted(() => {
@@ -29,6 +31,12 @@ const showLogin = computed(() => !loading.value && !authenticated.value)
 
 <template>
   <v-app>
+    <!-- Safe mode banner renders above everything when ?safe is in the URL.
+         Custom CSS injection is already suppressed by the store; this UI
+         just gives the user a way to purge the broken CSS or exit safe
+         mode without typing a new URL. -->
+    <SafeModeBanner v-if="safeMode" />
+
     <div v-if="loading" class="nest-boot">
       <div class="nest-boot-spinner">▲</div>
     </div>

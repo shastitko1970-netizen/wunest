@@ -620,6 +620,11 @@ const messages = {
       tagline: 'Продвинутые инструменты (regex отладчик, макросы, сырые промпты, логи).',
       coming: 'Появится в v2.',
     },
+    safe: {
+      banner: 'Безопасный режим: кастомный CSS отключён, чтобы восстановить управление.',
+      reset: 'Очистить CSS',
+      exit: 'Выйти',
+    },
   },
   en: {
     app: {
@@ -1234,6 +1239,11 @@ const messages = {
       title: 'Studio',
       tagline: 'Power tools (regex debugger, macros playground, raw prompt view, logs).',
       coming: 'Coming in v2.',
+    },
+    safe: {
+      banner: 'Safe mode: custom CSS is disabled so the app chrome stays reachable.',
+      reset: 'Clear CSS',
+      exit: 'Exit',
     },
   },
 }

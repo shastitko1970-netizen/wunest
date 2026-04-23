@@ -225,8 +225,13 @@ const lastAssistantId = computed(() => {
           </div>
         </header>
 
-        <!-- Scrollable messages -->
-        <div ref="scroller" class="nest-chat-scroll">
+        <!-- Scrollable messages.
+             ST-compat: `#chat` is the canonical SillyTavern container ID
+             users target in custom CSS (e.g. `#chat { background: ... }`).
+             Adding it as an alias makes ST themes Just Work™ for the chat
+             surface. The React-equivalent conflict (one id per doc) is
+             fine: there's only ever one open chat at a time. -->
+        <div ref="scroller" class="nest-chat-scroll" id="chat">
           <div class="nest-chat-messages">
             <div v-if="messagesLoading" class="nest-state">
               <v-progress-circular indeterminate size="24" />
@@ -264,8 +269,9 @@ const lastAssistantId = computed(() => {
           </div>
         </div>
 
-        <!-- Input -->
-        <div class="nest-chat-input">
+        <!-- Input. ST-compat id `send_form` so ST CSS targeting the
+             composer area (e.g. `#send_form { background: ... }`) hits. -->
+        <div class="nest-chat-input" id="send_form">
           <MessageInput
             v-model="draft"
             :streaming="streaming"

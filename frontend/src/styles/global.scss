@@ -10,9 +10,11 @@
 
 // ── Tokens ───────────────────────────────────────────
 :root {
-  // Fonts
+  // Fonts — body font routes through --SmartThemeBodyFont when a
+  // ST-flavoured user CSS defines one, so themes that only set that
+  // variable propagate without needing to also declare `body{font-family}`.
   --nest-font-display: 'Fraunces', 'Outfit', Georgia, serif;
-  --nest-font-body:    'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --nest-font-body:    var(--SmartThemeBodyFont, 'Outfit'), system-ui, -apple-system, 'Segoe UI', sans-serif;
   --nest-font-mono:    'JetBrains Mono', 'Fira Code', Consolas, monospace;
 
   // Spacing (4px grid)
@@ -44,16 +46,23 @@
 }
 
 // ── Dark palette (default) ───────────────────────────
+// Each WuNest token falls back through the matching SillyTavern var first.
+// Result: when a user pastes an ST theme that sets --SmartThemeBodyColor /
+// --SmartThemeBorderColor etc. (even scoped inside `body { ... }`), the
+// WuNest shell picks them up automatically because CSS vars inherit DOWN
+// the tree. If the user has made an explicit pick via the Appearance UI,
+// the store writes an inline style on :root (higher specificity than any
+// stylesheet rule), so user picks still win.
 .v-theme--nestDark {
-  --nest-bg:             #080808;
-  --nest-bg-elevated:    #0f0f0f;
-  --nest-surface:        #141414;
-  --nest-border:         #222;
-  --nest-border-subtle:  #1a1a1a;
-  --nest-text:           #f0f0f0;
-  --nest-text-secondary: #999;
-  --nest-text-muted:     #666;
-  --nest-accent:         #ef4444;
+  --nest-bg:             var(--SmartThemeBlurTintColor, #080808);
+  --nest-bg-elevated:    var(--SmartThemeChatTintColor, #0f0f0f);
+  --nest-surface:        var(--SmartThemeChatTintColor, #141414);
+  --nest-border:         var(--SmartThemeBorderColor, #222);
+  --nest-border-subtle:  var(--SmartThemeBorderColor, #1a1a1a);
+  --nest-text:           var(--SmartThemeBodyColor, #f0f0f0);
+  --nest-text-secondary: var(--SmartThemeBodyColor, #999);
+  --nest-text-muted:     var(--SmartThemeBodyColor, #666);
+  --nest-accent:         var(--SmartThemeQuoteColor, #ef4444);
   --nest-gold:           #f7c948;
   --nest-green:          #22c55e;
   --nest-blue:           #60a5fa;
@@ -61,24 +70,24 @@
 }
 
 // ── Light palette (Dossier-inspired paper, coral accent) ───────────
-// Accent (CTA / focus / primary) intentionally matches the dark theme so
-// brand recognition carries across themes — it's the same product, the
-// surface is just different.
+// Same ST fallback chain as the dark palette. ST themes that opt into
+// these vars apply to both modes without a matrix of overrides.
 .v-theme--nestLight {
-  --nest-bg:             #FAFAF7;
-  --nest-bg-elevated:    #F3F2EC;
-  --nest-surface:        #FFFFFF;
-  --nest-border:         #E2DFD6;
-  --nest-border-subtle:  #EFECE4;
-  --nest-text:           #141412;
-  --nest-text-secondary: #4A4740;
-  --nest-text-muted:     #7A756C;
-  --nest-accent:         #ef4444;  // coral (synced with dark theme)
+  --nest-bg:             var(--SmartThemeBlurTintColor, #FAFAF7);
+  --nest-bg-elevated:    var(--SmartThemeChatTintColor, #F3F2EC);
+  --nest-surface:        var(--SmartThemeChatTintColor, #FFFFFF);
+  --nest-border:         var(--SmartThemeBorderColor, #E2DFD6);
+  --nest-border-subtle:  var(--SmartThemeBorderColor, #EFECE4);
+  --nest-text:           var(--SmartThemeBodyColor, #141412);
+  --nest-text-secondary: var(--SmartThemeBodyColor, #4A4740);
+  --nest-text-muted:     var(--SmartThemeBodyColor, #7A756C);
+  --nest-accent:         var(--SmartThemeQuoteColor, #ef4444);
   --nest-gold:           #b45309;  // bronze (decorative, light-friendly)
   --nest-green:          #4c8b4f;
   --nest-blue:           #1e6fd9;
-  --nest-ember:          #ef4444;  // synced with accent
+  --nest-ember:          var(--SmartThemeQuoteColor, #ef4444);
 }
+
 
 // ── Base elements ────────────────────────────────────
 // Using `min-height` not `height` so long pages (Settings, Library panels,

@@ -69,6 +69,7 @@ function onKeydown(e: KeyboardEvent) {
   <div class="nest-input-wrap">
     <textarea
       ref="textarea"
+      id="send_textarea"
       class="nest-input"
       :value="modelValue"
       :placeholder="placeholder ?? t('chat.input.placeholder')"
@@ -122,6 +123,7 @@ function onKeydown(e: KeyboardEvent) {
       </v-btn>
       <v-btn
         v-else
+        id="send_but"
         color="primary"
         variant="flat"
         size="small"

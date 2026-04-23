@@ -131,9 +131,20 @@ function onEditKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="nest-msg" :class="{ 'is-user': isUser, 'is-streaming': streaming }">
+  <!-- ST-compat aliases: `mes` + last-of-type marker `last_mes` surface the
+       same hooks an ST theme would target. WuNest's own styles stay on the
+       `nest-*` classes; the aliases are layout-silent. -->
+  <div
+    class="nest-msg mes"
+    :class="{
+      'is-user': isUser,
+      'is-streaming': streaming,
+      'mes_user': isUser,
+      'mes_char': !isUser,
+    }"
+  >
     <div class="nest-msg-header">
-      <span class="nest-msg-name">{{ displayName }}</span>
+      <span class="nest-msg-name mes_name">{{ displayName }}</span>
       <span class="nest-msg-time nest-mono">{{ timestamp }}</span>
     </div>
 
@@ -160,7 +171,7 @@ function onEditKeydown(e: KeyboardEvent) {
       <div class="nest-reasoning-body">{{ liveSplit.live }}<span class="nest-cursor">▍</span></div>
     </div>
 
-    <div class="nest-msg-body" :class="{ 'is-error': hasError }">
+    <div class="nest-msg-body mes_block" :class="{ 'is-error': hasError }">
       <template v-if="editing">
         <textarea
           ref="editArea"
@@ -186,7 +197,7 @@ function onEditKeydown(e: KeyboardEvent) {
         <span class="nest-thinking">▍</span>
       </template>
       <template v-else>
-        <div class="nest-msg-content">
+        <div class="nest-msg-content mes_text">
           <!-- Streaming: while tokens fly in, render as plain text so we
                don't re-parse markdown on every chunk. Once the stream ends,
                swap to rich markdown + JSON plate rendering. -->
@@ -274,6 +285,12 @@ function onEditKeydown(e: KeyboardEvent) {
   border-radius: var(--nest-radius);
   background: var(--nest-surface);
   max-width: 100%;
+  // Defensive floor — a hostile user CSS targeting `.mes { max-width: 60px }`
+  // or similar shouldn't starve the message to unreadable width. Min-width
+  // ensures the bubble keeps room for at least one word across devices.
+  // We intentionally DON'T use !important so users can still override
+  // this consciously (e.g. compact density themes).
+  min-width: min(100%, 240px);
 
   &.is-user {
     background: var(--nest-bg-elevated);
