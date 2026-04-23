@@ -193,10 +193,22 @@ function renderMd(body: string): string {
   :deep(h2) { font-size: 18px; }
   :deep(h3) { font-size: 16px; }
   :deep(h4) { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nest-text-muted); }
+  // Horizontal rule. Markdown `---` maps here. The previous 1px dashed
+  // border on --nest-border was basically invisible on the dark chat
+  // bubble — users complained they couldn't see their scene-breaks.
+  // Now solid, 2px, with a gradient fade at the edges so it reads as
+  // "section break" without being a heavy divider.
   :deep(hr) {
     border: none;
-    border-top: 1px dashed var(--nest-border);
-    margin: 12px 0;
+    height: 2px;
+    margin: 16px 10%;
+    background: linear-gradient(
+      to right,
+      transparent 0%,
+      color-mix(in srgb, var(--nest-accent) 55%, transparent) 50%,
+      transparent 100%
+    );
+    border-radius: 1px;
   }
 
   // ── Interactive / structural elements ──────────────────────────
