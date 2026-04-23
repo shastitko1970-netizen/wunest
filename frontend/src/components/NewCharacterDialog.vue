@@ -34,44 +34,133 @@ const store = useCharactersStore()
 
 const isEdit = computed(() => !!props.character)
 
-// Everything in one reactive bag → single-line reset.
+// Everything in one reactive bag → single-line reset. Fields mirror the
+// SillyTavern V2/V3 character-card spec so imports round-trip through the
+// form unchanged. Less-common fields (mes_example, system_prompt,
+// creator meta) live behind expansion panels so the first-time flow
+// stays short; power users expand them as needed.
 const form = reactive({
+  // Identity
   name: '',
   avatar_url: '',
   tags: '',
+  nickname: '',
+  // Profile
   description: '',
   personality: '',
   scenario: '',
+  // Greetings
   first_mes: '',
+  alternate_greetings: [] as string[],
+  mes_example: '',
+  // Prompt injection (rarely edited but ST-critical)
+  system_prompt: '',
+  post_history_instructions: '',
+  // Meta
+  creator: '',
+  character_version: '',
+  creator_notes: '',
 })
 
 const busy = ref(false)
 const error = ref<string | null>(null)
 const focusNameEl = ref<HTMLElement | null>(null)
 
+function resetForm() {
+  form.name = ''
+  form.avatar_url = ''
+  form.tags = ''
+  form.nickname = ''
+  form.description = ''
+  form.personality = ''
+  form.scenario = ''
+  form.first_mes = ''
+  form.alternate_greetings = []
+  form.mes_example = ''
+  form.system_prompt = ''
+  form.post_history_instructions = ''
+  form.creator = ''
+  form.character_version = ''
+  form.creator_notes = ''
+}
+
 watch(() => [props.modelValue, props.character] as const, ([open, ch]) => {
   if (!open) return
   if (ch) {
-    // Edit mode — hydrate from the character.
+    // Edit mode — hydrate from the character. Array / optional-string
+    // fields default to empty so the form UI never sees undefined.
     form.name = ch.name
     form.avatar_url = ch.avatar_url ?? ''
     form.tags = (ch.tags ?? []).join(', ')
+    form.nickname = (ch.data as any)?.nickname ?? ''
     form.description = ch.data?.description ?? ''
     form.personality = ch.data?.personality ?? ''
     form.scenario = ch.data?.scenario ?? ''
     form.first_mes = ch.data?.first_mes ?? ''
+    form.alternate_greetings = Array.isArray((ch.data as any)?.alternate_greetings)
+      ? [...(ch.data as any).alternate_greetings]
+      : []
+    form.mes_example = (ch.data as any)?.mes_example ?? ''
+    form.system_prompt = (ch.data as any)?.system_prompt ?? ''
+    form.post_history_instructions = (ch.data as any)?.post_history_instructions ?? ''
+    form.creator = (ch.data as any)?.creator ?? ''
+    form.character_version = (ch.data as any)?.character_version ?? ''
+    form.creator_notes = (ch.data as any)?.creator_notes ?? ''
   } else {
-    form.name = ''
-    form.avatar_url = ''
-    form.tags = ''
-    form.description = ''
-    form.personality = ''
-    form.scenario = ''
-    form.first_mes = ''
+    resetForm()
   }
   error.value = null
   busy.value = false
 })
+
+/**
+ * Build the typed `data` payload from the form state. Preserves any
+ * fields we don't surface (character_book, assets, extensions, etc.)
+ * via the `...base` spread so import → save doesn't lose data.
+ *
+ * Empty strings / empty arrays become null/unset so the DB blob stays
+ * clean and re-exports don't carry stale blank fields.
+ */
+function buildData(base: Record<string, any> = {}): Record<string, any> {
+  const tags = form.tags.split(',').map(t2 => t2.trim()).filter(Boolean)
+  const alternateGreetings = form.alternate_greetings
+    .map(g => g.trim())
+    .filter(Boolean)
+  const out: Record<string, any> = { ...base }
+  out.name = form.name.trim()
+  out.description = form.description.trim()
+  out.personality = form.personality.trim()
+  out.scenario = form.scenario.trim()
+  out.first_mes = form.first_mes.trim()
+  out.tags = tags
+
+  // Optional fields — write only if non-empty so the JSONB stays
+  // trimmed when the user hasn't touched them.
+  const setOrDel = (key: string, value: string) => {
+    const trimmed = value.trim()
+    if (trimmed) out[key] = trimmed
+    else delete out[key]
+  }
+  setOrDel('nickname', form.nickname)
+  setOrDel('mes_example', form.mes_example)
+  setOrDel('system_prompt', form.system_prompt)
+  setOrDel('post_history_instructions', form.post_history_instructions)
+  setOrDel('creator', form.creator)
+  setOrDel('character_version', form.character_version)
+  setOrDel('creator_notes', form.creator_notes)
+
+  if (alternateGreetings.length > 0) out.alternate_greetings = alternateGreetings
+  else delete out.alternate_greetings
+
+  return out
+}
+
+function addGreeting() {
+  form.alternate_greetings.push('')
+}
+function removeGreeting(idx: number) {
+  form.alternate_greetings.splice(idx, 1)
+}
 
 function close() {
   emit('update:modelValue', false)
@@ -86,43 +175,28 @@ async function save() {
   busy.value = true
   error.value = null
   try {
-    const tags = form.tags
-      .split(',')
-      .map(t2 => t2.trim())
-      .filter(Boolean)
+    const tags = form.tags.split(',').map(t2 => t2.trim()).filter(Boolean)
 
     if (props.character) {
-      // EDIT — PATCH the existing row, preserve data fields the form
-      // doesn't surface (alternate_greetings, creator_notes, character_book,
-      // extensions, etc.) by spreading the original data blob first.
+      // EDIT — preserve character_book / assets / extensions / anything
+      // else we don't surface by spreading ch.data into the base. buildData
+      // overwrites surfaced fields + deletes cleared optional ones.
+      const data = buildData((props.character.data ?? {}) as Record<string, any>) as any
       const updated = await store.update(props.character.id, {
         name,
         avatar_url: form.avatar_url.trim() || undefined,
-        data: {
-          ...props.character.data,
-          name,
-          description: form.description.trim(),
-          personality: form.personality.trim(),
-          scenario: form.scenario.trim(),
-          first_mes: form.first_mes.trim(),
-          tags,
-        },
+        data,
         tags,
       })
       emit('saved', updated.id)
     } else {
-      // CREATE — fresh row.
+      // CREATE — start with an empty base. No preservation needed since
+      // there's no prior row.
+      const data = buildData({}) as any
       const created = await store.create({
         name,
         avatar_url: form.avatar_url.trim() || undefined,
-        data: {
-          name,
-          description: form.description.trim(),
-          personality: form.personality.trim(),
-          scenario: form.scenario.trim(),
-          first_mes: form.first_mes.trim(),
-          tags,
-        },
+        data,
         tags,
       })
       emit('created', created.id)
@@ -194,6 +268,14 @@ async function save() {
               persistent-hint
               class="nest-create-field-wide"
             />
+            <v-text-field
+              v-model="form.nickname"
+              :label="t('library.create.nickname')"
+              :placeholder="t('library.create.nicknamePlaceholder')"
+              density="compact"
+              variant="outlined"
+              hide-details="auto"
+            />
           </div>
         </section>
 
@@ -246,8 +328,148 @@ async function save() {
             density="compact"
             variant="outlined"
             hide-details="auto"
+            class="mb-3"
           />
+
+          <!-- Alternate greetings — ST V2/V3 field. Each entry = a
+               different opening message the user can pick at chat
+               start. Presented as a dynamic array of textareas with
+               add/remove buttons. -->
+          <div class="nest-alt-greetings">
+            <div class="nest-alt-greetings-head">
+              <label class="nest-alt-greetings-label">
+                {{ t('library.create.alternateGreetings') }}
+              </label>
+              <v-btn
+                size="x-small"
+                variant="text"
+                prepend-icon="mdi-plus"
+                @click="addGreeting"
+              >
+                {{ t('library.create.addGreeting') }}
+              </v-btn>
+            </div>
+            <div
+              v-for="(_, idx) in form.alternate_greetings"
+              :key="idx"
+              class="nest-alt-greeting-row"
+            >
+              <v-textarea
+                v-model="form.alternate_greetings[idx]"
+                :placeholder="t('library.create.alternateGreetingPlaceholder', { n: idx + 2 })"
+                rows="2"
+                auto-grow
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                class="flex-grow-1"
+              />
+              <v-btn
+                size="x-small"
+                variant="text"
+                color="error"
+                icon="mdi-delete-outline"
+                :title="t('common.delete')"
+                @click="removeGreeting(idx)"
+              />
+            </div>
+            <div
+              v-if="form.alternate_greetings.length === 0"
+              class="nest-alt-greetings-empty"
+            >
+              {{ t('library.create.alternateGreetingsEmpty') }}
+            </div>
+          </div>
         </section>
+
+        <!-- ─── Advanced — mes_example + system_prompt + post_history ─── -->
+        <v-expansion-panels variant="accordion" class="nest-create-adv">
+          <v-expansion-panel>
+            <v-expansion-panel-title>
+              <v-icon size="16" class="mr-2">mdi-format-quote-close</v-icon>
+              {{ t('library.create.section.advanced') }}
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <v-textarea
+                v-model="form.mes_example"
+                :label="t('library.create.mesExample')"
+                :placeholder="t('library.create.mesExamplePlaceholder')"
+                :hint="t('library.create.mesExampleHint')"
+                rows="5"
+                auto-grow
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                persistent-hint
+                class="mb-3 nest-create-mono"
+              />
+              <v-textarea
+                v-model="form.system_prompt"
+                :label="t('library.create.systemPrompt')"
+                :placeholder="t('library.create.systemPromptPlaceholder')"
+                :hint="t('library.create.systemPromptHint')"
+                rows="3"
+                auto-grow
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                persistent-hint
+                class="mb-3"
+              />
+              <v-textarea
+                v-model="form.post_history_instructions"
+                :label="t('library.create.postHistory')"
+                :placeholder="t('library.create.postHistoryPlaceholder')"
+                :hint="t('library.create.postHistoryHint')"
+                rows="3"
+                auto-grow
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                persistent-hint
+              />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- ─── Meta — creator / version / notes ─── -->
+          <v-expansion-panel>
+            <v-expansion-panel-title>
+              <v-icon size="16" class="mr-2">mdi-information-outline</v-icon>
+              {{ t('library.create.section.meta') }}
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <div class="nest-create-grid">
+                <v-text-field
+                  v-model="form.creator"
+                  :label="t('library.create.creator')"
+                  :placeholder="t('library.create.creatorPlaceholder')"
+                  density="compact"
+                  variant="outlined"
+                  hide-details="auto"
+                />
+                <v-text-field
+                  v-model="form.character_version"
+                  :label="t('library.create.characterVersion')"
+                  :placeholder="t('library.create.characterVersionPlaceholder')"
+                  density="compact"
+                  variant="outlined"
+                  hide-details="auto"
+                />
+              </div>
+              <v-textarea
+                v-model="form.creator_notes"
+                :label="t('library.create.creatorNotes')"
+                :placeholder="t('library.create.creatorNotesPlaceholder')"
+                rows="3"
+                auto-grow
+                density="compact"
+                variant="outlined"
+                hide-details="auto"
+                class="mt-3"
+              />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
 
         <v-alert
           v-if="error && form.name.trim()"
@@ -335,6 +557,64 @@ async function save() {
 .nest-create-actions {
   padding: 12px 20px 16px;
   border-top: 1px solid var(--nest-border-subtle);
+}
+
+// Alternate greetings dynamic list.
+.nest-alt-greetings {
+  margin-top: 4px;
+}
+.nest-alt-greetings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.nest-alt-greetings-label {
+  font-size: 12px;
+  color: var(--nest-text-secondary);
+  text-transform: none;
+}
+.nest-alt-greeting-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.nest-alt-greetings-empty {
+  font-size: 12px;
+  color: var(--nest-text-muted);
+  font-style: italic;
+  padding: 4px 2px;
+}
+
+// Collapsible advanced/meta sections — less visual weight than the
+// always-visible Profile/Scene sections above, so they read as optional.
+.nest-create-adv {
+  margin-top: 12px;
+
+  :deep(.v-expansion-panel-title) {
+    min-height: 44px !important;
+    padding: 10px 14px !important;
+    font-size: 13px;
+  }
+  :deep(.v-expansion-panel-text__wrapper) {
+    padding: 12px 14px 16px !important;
+  }
+  :deep(.v-expansion-panel) {
+    background: var(--nest-surface) !important;
+    border: 1px solid var(--nest-border-subtle) !important;
+    border-radius: var(--nest-radius-sm) !important;
+    margin-top: 6px;
+  }
+}
+
+// mes_example is dialogue-shaped — monospace makes it readable.
+.nest-create-mono {
+  :deep(textarea) {
+    font-family: var(--nest-font-mono) !important;
+    font-size: 12.5px !important;
+    line-height: 1.55 !important;
+  }
 }
 
 @media (max-width: 600px) {
