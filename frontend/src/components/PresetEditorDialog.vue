@@ -199,7 +199,11 @@ async function save() {
     if (props.preset) {
       saved = await presets.update(props.preset.id, { name: name.value.trim(), data })
     } else {
-      saved = await presets.create(type.value, name.value.trim(), data)
+      // Auto-activate behavior inside store: if user has no active preset
+      // of this type yet, the new one becomes active immediately. Most
+      // "Create preset" flows = "use it now", so this matches intent.
+      const result = await presets.create(type.value, name.value.trim(), data)
+      saved = result.preset
     }
     emit('saved', saved)
     emit('update:modelValue', false)

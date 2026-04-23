@@ -34,6 +34,19 @@ const editorType = ref<PresetType>('sampler')
 // that type. Chip bar mirrors this.
 const filter = ref<PresetType | 'all'>('all')
 
+// Snackbar feedback — visible confirmation that "Apply" / "Imported" /
+// "Saved" actually did something. Users kept missing the subtle
+// border-highlight on the active row, so a corner toast tells them
+// explicitly what just happened.
+const snack = ref<{ open: boolean; text: string; color: string }>({
+  open: false,
+  text: '',
+  color: 'success',
+})
+function toast(text: string, color: string = 'success') {
+  snack.value = { open: true, text, color }
+}
+
 onMounted(() => presets.fetchAll())
 
 function openCreate(type: PresetType) {
@@ -91,11 +104,23 @@ function typeColor(tp: PresetType): string {
 
 function isActive(p: Preset): boolean { return presets.isActive(p) }
 
-async function toggleActive(p: Preset) {
-  // Exclusive per type: flipping one ON auto-clears whoever was active
-  // before (the server stores one id per type slot anyway).
-  if (isActive(p)) await presets.setActive(p.type, null)
-  else await presets.setActive(p.type, p.id)
+async function apply(p: Preset) {
+  // Exclusive per type: setActive auto-clears the previous active one.
+  await presets.setActive(p.type, p.id)
+  toast(t('presets.snack.applied', { name: p.name }))
+}
+
+async function unapply(p: Preset) {
+  // User explicitly deactivated — no active preset for this type after.
+  await presets.setActive(p.type, null)
+  toast(t('presets.snack.unapplied', { name: p.name }), 'info')
+}
+
+// Called by the import dialog. `activated` is true when the store
+// auto-activated the new preset (no prior active preset of that type).
+function onImported(_id: string, activated: boolean) {
+  if (activated) toast(t('presets.snack.importedAndApplied'))
+  else toast(t('presets.snack.imported'), 'info')
 }
 
 function toggleExpand(id: string) {
@@ -232,15 +257,31 @@ function createForCurrentFilter() {
         </div>
 
         <div class="nest-preset-actions">
-          <v-switch
-            :model-value="isActive(p)"
+          <!-- The big "Apply" / "Applied ✓" action. Explicit verb
+               instead of an abstract v-switch — users kept treating
+               the switch as a feature-flag. Clicking when already
+               applied deactivates (no active preset of this type). -->
+          <v-btn
+            v-if="!isActive(p)"
+            size="small"
+            variant="outlined"
+            color="primary"
+            prepend-icon="mdi-play-circle-outline"
+            @click="apply(p)"
+          >
+            {{ t('presets.actions.apply') }}
+          </v-btn>
+          <v-btn
+            v-else
+            size="small"
+            variant="flat"
             color="success"
-            hide-details
-            density="compact"
-            inset
-            :title="isActive(p) ? t('presets.actions.deactivate') : t('presets.actions.activate')"
-            @update:model-value="toggleActive(p)"
-          />
+            prepend-icon="mdi-check-circle"
+            :title="t('presets.actions.clickToDeactivate')"
+            @click="unapply(p)"
+          >
+            {{ t('presets.actions.applied') }}
+          </v-btn>
           <v-btn
             size="x-small" variant="text"
             :title="t('presets.actions.edit')"
@@ -308,12 +349,23 @@ function createForCurrentFilter() {
       </div>
     </div>
 
-    <ImportPresetDialog v-model="importOpen" />
+    <ImportPresetDialog v-model="importOpen" @imported="onImported" />
     <PresetEditorDialog
       v-model="editorOpen"
       :preset="editingPreset"
       :initial-type="editorType"
     />
+
+    <!-- Confirmation toast — fires on apply / unapply / import. Bottom-
+         right position keeps it out of the way of the Action buttons. -->
+    <v-snackbar
+      v-model="snack.open"
+      :color="snack.color"
+      :timeout="2400"
+      location="bottom right"
+    >
+      {{ snack.text }}
+    </v-snackbar>
 
     <v-dialog
       :model-value="confirmDeleteId !== null"

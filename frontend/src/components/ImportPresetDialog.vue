@@ -18,7 +18,8 @@ const { smAndDown } = useDisplay()
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
-  (e: 'imported', id: string): void
+  /** `activated` is true when auto-activation kicked in (no prior active preset of this type). */
+  (e: 'imported', id: string, activated: boolean): void
 }>()
 
 const presets = usePresetsStore()
@@ -120,8 +121,15 @@ async function doImport() {
   busy.value = true
   apiError.value = null
   try {
-    const created = await presets.create(effectiveType.value, name.value.trim(), parsed.value)
-    emit('imported', created.id)
+    // Auto-activate if no preset of this type is currently active. Most
+    // users imported because they want to USE this preset — don't make
+    // them hunt for an Apply toggle afterwards.
+    const { preset, activated } = await presets.create(
+      effectiveType.value,
+      name.value.trim(),
+      parsed.value,
+    )
+    emit('imported', preset.id, activated)
     close()
   } catch (e) {
     apiError.value = (e as Error).message

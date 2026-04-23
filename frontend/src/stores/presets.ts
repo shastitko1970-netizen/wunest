@@ -66,14 +66,36 @@ export const usePresetsStore = defineStore('presets', () => {
     }
   }
 
-  async function create(type: PresetType, name: string, data: unknown): Promise<Preset> {
+  /**
+   * Create a preset. If no preset of the same type is currently active
+   * AND the caller didn't explicitly opt out (`autoActivate: false`), the
+   * new preset is activated automatically — most users' intent after an
+   * import is "use this now", not "save for later".
+   *
+   * Returns `{preset, activated}` so the caller can show an accurate
+   * confirmation ("imported and applied" vs just "imported").
+   */
+  async function create(
+    type: PresetType,
+    name: string,
+    data: unknown,
+    options: { autoActivate?: boolean } = {},
+  ): Promise<{ preset: Preset; activated: boolean }> {
     const p = await presetsApi.create({ type, name, data })
     items.value = [...items.value, p].sort((a, b) => a.name.localeCompare(b.name))
-    return p
+
+    let activated = false
+    const shouldAutoActivate = options.autoActivate !== false
+    if (shouldAutoActivate && !active.value[type]) {
+      await setActive(type, p.id)
+      activated = true
+    }
+    return { preset: p, activated }
   }
 
   async function createSampler(name: string, data: SamplerData): Promise<Preset> {
-    return create('sampler', name, data)
+    const result = await create('sampler', name, data)
+    return result.preset
   }
 
   async function update(id: string, patch: { name?: string; data?: unknown }) {

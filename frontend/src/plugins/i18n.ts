@@ -491,17 +491,17 @@ const messages = {
     presets: {
       title: 'Параметры',
       headline: 'Шаблоны генерации',
-      tagline: 'Один активный шаблон на тип — применяется ко всем чатам сразу. Переключай активный, редактируй через карандаш, импортируй из SillyTavern.',
-      activeBadge: 'активен',
+      tagline: 'Один шаблон на тип может быть «применён» — он и используется во всех чатах. Кнопка «Применить» справа у ряда сразу подставляет шаблон. Импорт/создание первого шаблона включает его автоматически.',
+      activeBadge: 'применён',
       defaultBadge: 'по умолчанию',
       empty: 'Нет сохранённых шаблонов типа «{type}».',
       emptyAll: {
         title: 'Пока нет шаблонов',
-        body: 'Импортируй из SillyTavern или создай первый. Шаблон можно активировать одним переключателем — он сразу подхватится во всех чатах.',
+        body: 'Импортируй из SillyTavern или создай свой. Первый шаблон каждого типа автоматически станет активным — применится во всех чатах сразу.',
       },
       emptyType: {
         title: 'Нет шаблонов типа «{type}»',
-        body: 'Создай или импортируй файл этого типа — он автоматически встанет в список.',
+        body: 'Создай или импортируй файл этого типа — первый автоматически станет активным.',
       },
       filter: {
         all: 'Все',
@@ -514,10 +514,19 @@ const messages = {
         edit: 'Редактировать',
         view: 'Показать JSON',
         export: 'Экспорт .json',
+        apply: 'Применить',
+        applied: 'Применён',
+        clickToDeactivate: 'Убрать из активных',
         activate: 'Сделать активным',
         deactivate: 'Убрать из активных',
         setDefault: 'Сделать по умолчанию',
         unsetDefault: 'Убрать по умолчанию',
+      },
+      snack: {
+        applied: 'Применён: {name}',
+        unapplied: 'Убран: {name} (нет активного шаблона этого типа)',
+        imported: 'Импортирован: {name}',
+        importedAndApplied: 'Импортирован и сразу применён',
       },
       editor: {
         newTitle: 'Новый шаблон',
@@ -1276,17 +1285,17 @@ const messages = {
     presets: {
       title: 'Parameters',
       headline: 'Generation templates',
-      tagline: 'One active template per type — applies to every chat instantly. Flip the toggle to activate, edit with the pencil, import from SillyTavern.',
-      activeBadge: 'active',
+      tagline: 'One template per type can be "applied" — that\'s the one used in every chat. Click Apply on any row to switch. Import or create your first template and it\'s auto-applied.',
+      activeBadge: 'applied',
       defaultBadge: 'default',
       empty: 'No saved "{type}" templates.',
       emptyAll: {
         title: 'No templates yet',
-        body: "Import from SillyTavern or build your first. Flip the toggle once created — it applies to every chat instantly.",
+        body: 'Import from SillyTavern or build your first. The first template of each type is auto-applied — it takes effect across every chat immediately.',
       },
       emptyType: {
         title: 'No "{type}" templates',
-        body: 'Create or import a file of that type — it shows up here automatically.',
+        body: 'Create or import a file of that type — the first one is auto-applied.',
       },
       filter: {
         all: 'All',
@@ -1299,10 +1308,19 @@ const messages = {
         edit: 'Edit',
         view: 'Show JSON',
         export: 'Export .json',
+        apply: 'Apply',
+        applied: 'Applied',
+        clickToDeactivate: 'Click to deactivate',
         activate: 'Make active',
         deactivate: 'Deactivate',
         setDefault: 'Make default',
         unsetDefault: 'Unset default',
+      },
+      snack: {
+        applied: 'Applied: {name}',
+        unapplied: 'Removed: {name} (no active template of this type)',
+        imported: 'Imported: {name}',
+        importedAndApplied: 'Imported and applied',
       },
       editor: {
         newTitle: 'New template',
