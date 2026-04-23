@@ -27,6 +27,17 @@ const parseError = ref<string | null>(null)
 const busy = ref(false)
 const apiError = ref<string | null>(null)
 
+// Ref to the hidden <input type="file"> so the "Choose file" button can
+// trigger it programmatically. We used to rely on a <label> wrapping
+// both input + button, but Vuetify 3 v-btn renders as a real <button>
+// regardless of the legacy `component="span"` prop, and <button>-in-
+// <label> swallows the click instead of forwarding it to the input.
+const fileInputEl = ref<HTMLInputElement | null>(null)
+
+function openFilePicker() {
+  fileInputEl.value?.click()
+}
+
 watch(() => props.modelValue, (open) => {
   if (open) {
     name.value = ''
@@ -128,11 +139,12 @@ async function doImport() {
           class="mb-3"
         />
 
-        <label class="nest-file-picker">
+        <div class="nest-file-picker">
           <span class="nest-file-text">
             {{ file ? file.name : t('worlds.import.pickFile') }}
           </span>
           <input
+            ref="fileInputEl"
             type="file"
             accept="application/json,.json"
             hidden
@@ -142,11 +154,11 @@ async function doImport() {
             variant="outlined"
             size="small"
             prepend-icon="mdi-file-upload-outline"
-            component="span"
+            @click="openFilePicker"
           >
             {{ t('worlds.import.choose') }}
           </v-btn>
-        </label>
+        </div>
 
         <v-alert v-if="parseError" type="error" variant="tonal" density="compact" class="mt-3">
           {{ parseError }}
