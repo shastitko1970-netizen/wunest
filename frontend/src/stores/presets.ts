@@ -7,16 +7,27 @@ import {
   type PresetType,
   type SamplerData,
 } from '@/api/presets'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * Presets store — holds every type of preset the user has saved, plus the
- * map of per-type defaults (settings.default_presets on the server).
+ * map of per-type *active* presets (server settings.default_presets JSONB;
+ * exposed as user.active_presets on /api/me from M30).
+ *
+ * Active vs default: M30 "variant-1" treats the active preset as THE
+ * global source for prompt assembly. There is one active preset per type
+ * per user; it applies to every chat (existing + new) until the user
+ * flips a different one. The legacy `default` naming on the server stays
+ * for backward compat, but the UI concept is "active".
  *
  * Fetch is lazy: drawers / manager pages call fetchAll() on mount.
  */
 export const usePresetsStore = defineStore('presets', () => {
   const items = ref<Preset[]>([])
-  const defaults = ref<Record<string, string>>({})
+  // active[type] = preset id (UUID string). Empty/missing = none active.
+  // Kept in sync with auth.profile.active_presets after every server write
+  // so the two views never diverge.
+  const active = ref<Record<string, string>>({})
   const loading = ref(false)
   const loaded = ref(false)
   const error = ref<string | null>(null)
@@ -34,12 +45,19 @@ export const usePresetsStore = defineStore('presets', () => {
     loading.value = true
     error.value = null
     try {
-      const [list, defs] = await Promise.all([
-        presetsApi.list(),
-        defaultsApi.list(),
-      ])
+      // Pull the preset list alongside the active map. Active comes from
+      // auth.profile (cached from /api/me) when available; falls back to
+      // the dedicated defaultsApi call for callers that ran before auth
+      // resolved.
+      const list = await presetsApi.list()
       items.value = list.items
-      defaults.value = defs.default_presets ?? {}
+      const auth = useAuthStore()
+      if (auth.profile?.active_presets) {
+        active.value = { ...auth.profile.active_presets }
+      } else {
+        const defs = await defaultsApi.list()
+        active.value = defs.default_presets ?? {}
+      }
       loaded.value = true
     } catch (e) {
       error.value = (e as Error).message
@@ -69,31 +87,54 @@ export const usePresetsStore = defineStore('presets', () => {
   async function remove(id: string) {
     await presetsApi.delete(id)
     items.value = items.value.filter(x => x.id !== id)
-    // Also drop the default if we just nuked the active one.
-    for (const [type, def] of Object.entries(defaults.value)) {
-      if (def === id) delete defaults.value[type]
+    // Also drop the active pointer if we just nuked the current one.
+    for (const [type, def] of Object.entries(active.value)) {
+      if (def === id) delete active.value[type]
     }
+    syncAuthMirror()
   }
 
-  /** Set (or clear) the user's default preset for `type`. */
-  async function setDefault(type: PresetType, presetID: string | null) {
+  /**
+   * Set `presetID` as the active preset for `type`, or clear it with null.
+   * Writes through to the server and mirrors the new value into auth.profile
+   * so any other consumer (chat header chips, etc.) reactively updates.
+   */
+  async function setActive(type: PresetType, presetID: string | null) {
     await defaultsApi.set(type, presetID)
     if (presetID) {
-      defaults.value = { ...defaults.value, [type]: presetID }
+      active.value = { ...active.value, [type]: presetID }
     } else {
-      const next = { ...defaults.value }
+      const next = { ...active.value }
       delete next[type]
-      defaults.value = next
+      active.value = next
     }
+    syncAuthMirror()
   }
 
-  function isDefault(p: Preset): boolean {
-    return defaults.value[p.type] === p.id
+  function isActive(p: Preset): boolean {
+    return active.value[p.type] === p.id
+  }
+
+  function activeID(type: PresetType): string | null {
+    return active.value[type] ?? null
+  }
+
+  function activePreset(type: PresetType): Preset | null {
+    const id = active.value[type]
+    if (!id) return null
+    return items.value.find(p => p.id === id) ?? null
+  }
+
+  function syncAuthMirror() {
+    const auth = useAuthStore()
+    if (auth.profile) {
+      auth.profile.active_presets = { ...active.value }
+    }
   }
 
   return {
-    items, defaults, samplers, loading, loaded, error,
-    byType, isDefault,
-    fetchAll, create, createSampler, update, remove, setDefault,
+    items, active, samplers, loading, loaded, error,
+    byType, isActive, activeID, activePreset,
+    fetchAll, create, createSampler, update, remove, setActive,
   }
 })

@@ -491,16 +491,31 @@ const messages = {
     presets: {
       title: 'Параметры',
       headline: 'Шаблоны генерации',
-      tagline: 'Сэмплеры, инструкт-шаблоны, контекст, систем-промпты и рассуждение — собираешь один раз, применяешь к любому чату.',
+      tagline: 'Один активный шаблон на тип — применяется ко всем чатам сразу. Переключай активный, редактируй через карандаш, импортируй из SillyTavern.',
+      activeBadge: 'активен',
       defaultBadge: 'по умолчанию',
       empty: 'Нет сохранённых шаблонов типа «{type}».',
+      emptyAll: {
+        title: 'Пока нет шаблонов',
+        body: 'Импортируй из SillyTavern или создай первый. Шаблон можно активировать одним переключателем — он сразу подхватится во всех чатах.',
+      },
+      emptyType: {
+        title: 'Нет шаблонов типа «{type}»',
+        body: 'Создай или импортируй файл этого типа — он автоматически встанет в список.',
+      },
+      filter: {
+        all: 'Все',
+      },
       actions: {
         import: 'Импорт',
+        new: 'Создать',
         newForType: 'Создать',
         create: 'Создать',
         edit: 'Редактировать',
         view: 'Показать JSON',
         export: 'Экспорт .json',
+        activate: 'Сделать активным',
+        deactivate: 'Убрать из активных',
         setDefault: 'Сделать по умолчанию',
         unsetDefault: 'Убрать по умолчанию',
       },
@@ -668,6 +683,11 @@ const messages = {
       },
       import: {
         btn: 'Импорт .jsonl',
+      },
+      preset: {
+        none: 'Без пресета (дефолты провайдера)',
+        noneChip: 'пресет не выбран',
+        switchTitle: 'Переключить активный сэмплер',
       },
       authorsNote: {
         label: 'Author\'s Note',
@@ -1256,16 +1276,31 @@ const messages = {
     presets: {
       title: 'Parameters',
       headline: 'Generation templates',
-      tagline: 'Samplers, instruct templates, context, system prompts, and reasoning — save once, reuse across chats.',
+      tagline: 'One active template per type — applies to every chat instantly. Flip the toggle to activate, edit with the pencil, import from SillyTavern.',
+      activeBadge: 'active',
       defaultBadge: 'default',
       empty: 'No saved "{type}" templates.',
+      emptyAll: {
+        title: 'No templates yet',
+        body: "Import from SillyTavern or build your first. Flip the toggle once created — it applies to every chat instantly.",
+      },
+      emptyType: {
+        title: 'No "{type}" templates',
+        body: 'Create or import a file of that type — it shows up here automatically.',
+      },
+      filter: {
+        all: 'All',
+      },
       actions: {
         import: 'Import',
+        new: 'New',
         newForType: 'New',
         create: 'Create',
         edit: 'Edit',
         view: 'Show JSON',
         export: 'Export .json',
+        activate: 'Make active',
+        deactivate: 'Deactivate',
         setDefault: 'Make default',
         unsetDefault: 'Unset default',
       },
@@ -1433,6 +1468,11 @@ const messages = {
       },
       import: {
         btn: 'Import .jsonl',
+      },
+      preset: {
+        none: 'No preset (provider defaults)',
+        noneChip: 'no preset',
+        switchTitle: 'Switch active sampler',
       },
       authorsNote: {
         label: "Author's Note",

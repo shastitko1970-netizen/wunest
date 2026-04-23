@@ -13,6 +13,10 @@ export interface UserProfile {
   /** Beta gate — TRUE once the user has redeemed a WuNest access code on
    *  WuApi. Chat/Library/Settings stay locked until this flips. */
   nest_access_granted: boolean
+  /** M30: which preset is globally active per type (map: type → preset id).
+   *  Missing key = no active preset for that type. Updated via the presets
+   *  store (which calls PUT /api/me/defaults, shared endpoint). */
+  active_presets: Record<string, string>
 }
 
 interface AuthCheckResponse {

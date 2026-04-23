@@ -14,6 +14,7 @@ import GenerationSettings from '@/components/GenerationSettings.vue'
 import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
 import BYOKPickerDialog from '@/components/BYOKPickerDialog.vue'
 import { usePersonasStore } from '@/stores/personas'
+import { usePresetsStore } from '@/stores/presets'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
 import { chatsApi } from '@/api/chats'
 import { useDisplay } from 'vuetify'
@@ -49,7 +50,26 @@ const hasBYOKPin = computed(() => {
 })
 
 const personas = usePersonasStore()
-onMounted(() => personas.fetchAll())
+const presets = usePresetsStore()
+onMounted(() => {
+  personas.fetchAll()
+  presets.fetchAll()
+})
+
+// Quick-switch chip for the chat header: shows the currently active
+// sampler preset so the user can flip it without opening the drawer. Only
+// rendered when the user has at least one sampler preset — for fresh
+// accounts the chip would just say "none" and waste space.
+const samplerChipLabel = computed<string | null>(() => {
+  const active = presets.activePreset('sampler')
+  if (active) return active.name
+  if (presets.samplers.length === 0) return null  // hide the chip entirely
+  return t('chat.preset.noneChip')
+})
+
+async function pickActiveSampler(id: string | null) {
+  await presets.setActive('sampler', id)
+}
 
 // Resolved "playing as" label for the chat header chip.
 const activePersonaLabel = computed(() => {
@@ -217,6 +237,46 @@ const lastAssistantId = computed(() => {
             </div>
           </div>
           <div class="nest-chat-tools">
+            <!-- Active-sampler chip: instant preset switcher without
+                 opening the settings drawer. Click → menu of all sampler
+                 presets (+ "none" option). Hidden when user has no
+                 sampler presets at all. -->
+            <v-menu
+              v-if="samplerChipLabel"
+              location="bottom end"
+              offset="4"
+            >
+              <template #activator="{ props: menuProps }">
+                <button
+                  v-bind="menuProps"
+                  class="nest-preset-chip nest-mono"
+                  :title="t('chat.preset.switchTitle')"
+                >
+                  <v-icon size="12" class="mr-1">mdi-tune-variant</v-icon>
+                  {{ samplerChipLabel }}
+                  <v-icon size="12" class="ml-1">mdi-menu-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" min-width="200">
+                <v-list-item
+                  v-for="p in presets.samplers"
+                  :key="p.id"
+                  :active="presets.isActive(p)"
+                  @click="pickActiveSampler(p.id)"
+                >
+                  <v-list-item-title>{{ p.name }}</v-list-item-title>
+                </v-list-item>
+                <v-divider />
+                <v-list-item
+                  :active="!presets.activeID('sampler')"
+                  @click="pickActiveSampler(null)"
+                >
+                  <v-list-item-title class="text-medium-emphasis">
+                    {{ t('chat.preset.none') }}
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
             <span
               v-if="contextTokens > 0"
               class="nest-mono nest-ctx-chip"
@@ -411,6 +471,31 @@ const lastAssistantId = computed(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+// Active-preset chip in the chat header. Visually kin to the nav-chip
+// pattern used elsewhere — subtle outline, gets a primary-accent border
+// on hover so it reads as an interactive control.
+.nest-preset-chip {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--nest-text-secondary);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-pill);
+  cursor: pointer;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color var(--nest-transition-fast), color var(--nest-transition-fast);
+
+  &:hover {
+    border-color: var(--nest-accent);
+    color: var(--nest-text);
+  }
 }
 .nest-ctx-chip {
   font-size: 11px;

@@ -7,14 +7,20 @@ import { PRESET_TYPES, type Preset, type PresetType } from '@/api/presets'
 import ImportPresetDialog from '@/components/ImportPresetDialog.vue'
 import PresetEditorDialog from '@/components/PresetEditorDialog.vue'
 
-// PresetsPanel — the whole "templates" experience, embedded inside a
-// Library tab. Previously lived at /presets as its own page; pulled into
-// Library so users have one place for everything they create/import.
+/**
+ * PresetsPanel — flat list of every preset the user has, with filter chips
+ * per type and an "Active" toggle that immediately applies the preset to
+ * all chats (M30 "variant-1" semantics: one active per type, global).
+ *
+ * Replaces the earlier grouped layout with five per-type empty states
+ * ("Нет сохранённых шаблонов типа…") which was mostly whitespace on a
+ * fresh account. Now empty = one message + two CTAs.
+ */
 
 const { t } = useI18n()
 
 const presets = usePresetsStore()
-const { items, loading, error, defaults } = storeToRefs(presets)
+const { items, loading, error } = storeToRefs(presets)
 
 const importOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
@@ -23,6 +29,10 @@ const expandedId = ref<string | null>(null)
 const editorOpen = ref(false)
 const editingPreset = ref<Preset | null>(null)
 const editorType = ref<PresetType>('sampler')
+
+// Filter: "all" shows every preset, or one of PRESET_TYPES narrows to just
+// that type. Chip bar mirrors this.
+const filter = ref<PresetType | 'all'>('all')
 
 onMounted(() => presets.fetchAll())
 
@@ -49,16 +59,43 @@ function exportPreset(p: Preset) {
   URL.revokeObjectURL(url)
 }
 
-const groups = computed<Array<{ type: PresetType; items: Preset[] }>>(() =>
-  PRESET_TYPES.map(type => ({ type, items: presets.byType(type) })),
-)
+const filteredItems = computed<Preset[]>(() => {
+  if (filter.value === 'all') return items.value
+  return items.value.filter(p => p.type === filter.value)
+})
+
+// Typed counts for the filter bar chips. Computed once per preset list
+// change rather than per-chip render.
+const typeCounts = computed<Record<string, number>>(() => {
+  const c: Record<string, number> = { all: items.value.length }
+  for (const tp of PRESET_TYPES) c[tp] = 0
+  for (const p of items.value) c[p.type] = (c[p.type] ?? 0) + 1
+  return c
+})
 
 function typeLabel(tp: PresetType): string { return t(`presets.type.${tp}`) }
-function isDefault(p: Preset): boolean { return defaults.value[p.type] === p.id }
 
-async function toggleDefault(p: Preset) {
-  if (isDefault(p)) await presets.setDefault(p.type, null)
-  else await presets.setDefault(p.type, p.id)
+// Visual accent per preset type — makes the chip glanceable at a distance
+// (what kind of preset this row represents) without reading the label.
+function typeColor(tp: PresetType): string {
+  switch (tp) {
+    case 'sampler':   return 'primary'
+    case 'instruct':  return 'purple'
+    case 'context':   return 'orange'
+    case 'sysprompt': return 'success'
+    case 'reasoning': return 'teal'
+    case 'openai':    return 'secondary'
+    default:          return ''
+  }
+}
+
+function isActive(p: Preset): boolean { return presets.isActive(p) }
+
+async function toggleActive(p: Preset) {
+  // Exclusive per type: flipping one ON auto-clears whoever was active
+  // before (the server stores one id per type slot anyway).
+  if (isActive(p)) await presets.setActive(p.type, null)
+  else await presets.setActive(p.type, p.id)
 }
 
 function toggleExpand(id: string) {
@@ -76,25 +113,57 @@ async function doDelete() {
 }
 
 function formatDate(iso: string): string { return new Date(iso).toLocaleDateString() }
+
+// When the user clicks "New" with a specific type filter active, pre-pick
+// that type in the editor. "All" filter falls through to sampler (the most
+// common type users create first).
+function createForCurrentFilter() {
+  if (filter.value === 'all') openCreate('sampler')
+  else openCreate(filter.value)
+}
 </script>
 
 <template>
   <div class="nest-presets-panel">
-    <!-- Inline header: small, tab-internal framing (no page hero). -->
+    <!-- Header -->
     <div class="nest-panel-head">
       <div class="nest-panel-head-text">
         <h3 class="nest-h3">{{ t('presets.headline') }}</h3>
         <p class="nest-subtitle">{{ t('presets.tagline') }}</p>
       </div>
-      <v-btn
-        color="primary"
-        variant="flat"
-        prepend-icon="mdi-upload"
-        size="small"
-        @click="importOpen = true"
-      >
-        {{ t('presets.actions.import') }}
-      </v-btn>
+      <div class="nest-panel-head-actions">
+        <v-btn
+          variant="outlined"
+          prepend-icon="mdi-upload"
+          size="small"
+          @click="importOpen = true"
+        >
+          {{ t('presets.actions.import') }}
+        </v-btn>
+        <v-menu offset="4">
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              v-bind="menuProps"
+              color="primary"
+              variant="flat"
+              prepend-icon="mdi-plus"
+              append-icon="mdi-menu-down"
+              size="small"
+            >
+              {{ t('presets.actions.new') }}
+            </v-btn>
+          </template>
+          <v-list density="compact" min-width="200">
+            <v-list-item
+              v-for="tp in PRESET_TYPES"
+              :key="tp"
+              @click="openCreate(tp)"
+            >
+              <v-list-item-title>{{ typeLabel(tp) }}</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
+      </div>
     </div>
 
     <div v-if="loading && !items.length" class="nest-state">
@@ -102,96 +171,142 @@ function formatDate(iso: string): string { return new Date(iso).toLocaleDateStri
     </div>
     <v-alert v-else-if="error" type="error" variant="tonal" class="mt-4">{{ error }}</v-alert>
 
-    <section
-      v-for="group in groups"
-      :key="group.type"
-      class="nest-preset-group"
+    <!-- Filter bar — only relevant when the user has at least one preset. -->
+    <div v-if="items.length > 0" class="nest-filter-bar">
+      <v-chip
+        size="small"
+        :variant="filter === 'all' ? 'flat' : 'outlined'"
+        :color="filter === 'all' ? 'primary' : ''"
+        @click="filter = 'all'"
+      >
+        {{ t('presets.filter.all') }}
+        <span class="nest-mono ml-1">{{ typeCounts.all }}</span>
+      </v-chip>
+      <v-chip
+        v-for="tp in PRESET_TYPES"
+        :key="tp"
+        size="small"
+        :variant="filter === tp ? 'flat' : 'outlined'"
+        :color="filter === tp ? typeColor(tp) : ''"
+        :disabled="typeCounts[tp] === 0"
+        @click="filter = tp"
+      >
+        {{ typeLabel(tp) }}
+        <span class="nest-mono ml-1">{{ typeCounts[tp] ?? 0 }}</span>
+      </v-chip>
+    </div>
+
+    <!-- Flat list of presets. -->
+    <div v-if="filteredItems.length > 0" class="nest-preset-list">
+      <div
+        v-for="p in filteredItems"
+        :key="p.id"
+        class="nest-preset-row"
+        :class="{ 'is-active': isActive(p), expanded: expandedId === p.id }"
+      >
+        <div class="nest-preset-main">
+          <div class="nest-preset-title">
+            <v-chip
+              size="x-small"
+              :color="typeColor(p.type)"
+              variant="tonal"
+              class="nest-preset-typechip nest-mono"
+            >
+              {{ typeLabel(p.type) }}
+            </v-chip>
+            <span class="nest-preset-name">{{ p.name }}</span>
+            <v-chip
+              v-if="isActive(p)"
+              size="x-small"
+              color="success"
+              variant="flat"
+              prepend-icon="mdi-check"
+              class="nest-mono ml-1"
+            >
+              {{ t('presets.activeBadge') }}
+            </v-chip>
+          </div>
+          <div class="nest-mono nest-preset-meta">
+            {{ formatDate(p.updated_at) }}
+          </div>
+        </div>
+
+        <div class="nest-preset-actions">
+          <v-switch
+            :model-value="isActive(p)"
+            color="success"
+            hide-details
+            density="compact"
+            inset
+            :title="isActive(p) ? t('presets.actions.deactivate') : t('presets.actions.activate')"
+            @update:model-value="toggleActive(p)"
+          />
+          <v-btn
+            size="x-small" variant="text"
+            :title="t('presets.actions.edit')"
+            icon="mdi-pencil-outline"
+            @click="openEdit(p)"
+          />
+          <v-btn
+            size="x-small" variant="text"
+            :title="t('presets.actions.view')"
+            icon="mdi-code-braces"
+            @click="toggleExpand(p.id)"
+          />
+          <v-btn
+            size="x-small" variant="text"
+            :title="t('presets.actions.export')"
+            icon="mdi-download-outline"
+            @click="exportPreset(p)"
+          />
+          <v-btn
+            size="x-small" variant="text" color="error"
+            :title="t('common.delete')"
+            icon="mdi-delete-outline"
+            @click="confirmDeleteId = p.id"
+          />
+        </div>
+
+        <pre
+          v-if="expandedId === p.id"
+          class="nest-preset-json"
+        >{{ rawJson(p) }}</pre>
+      </div>
+    </div>
+
+    <!-- Single unified empty state — replaces five per-group
+         "Нет сохранённых шаблонов типа Х" messages. -->
+    <div
+      v-else-if="!loading"
+      class="nest-preset-empty"
     >
-      <div class="nest-group-header">
-        <h4 class="nest-h4 mb-0">{{ typeLabel(group.type) }}</h4>
-        <span class="nest-mono nest-group-count">{{ group.items.length }}</span>
-        <v-spacer />
+      <v-icon size="40" color="surface-variant">mdi-tune-vertical-variant</v-icon>
+      <h4 class="nest-h4 mt-3">
+        {{ filter === 'all'
+          ? t('presets.emptyAll.title')
+          : t('presets.emptyType.title', { type: typeLabel(filter as PresetType) }) }}
+      </h4>
+      <p class="nest-subtitle mt-1">
+        {{ filter === 'all' ? t('presets.emptyAll.body') : t('presets.emptyType.body') }}
+      </p>
+      <div class="nest-empty-cta mt-4">
         <v-btn
-          size="small"
           variant="outlined"
+          prepend-icon="mdi-upload"
+          @click="importOpen = true"
+        >
+          {{ t('presets.actions.import') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          variant="flat"
           prepend-icon="mdi-plus"
-          @click="openCreate(group.type)"
+          @click="createForCurrentFilter"
         >
           {{ t('presets.actions.newForType') }}
         </v-btn>
       </div>
-
-      <div v-if="group.items.length === 0" class="nest-group-empty">
-        {{ t('presets.empty', { type: typeLabel(group.type) }) }}
-      </div>
-
-      <div v-else class="nest-preset-list">
-        <div
-          v-for="p in group.items"
-          :key="p.id"
-          class="nest-preset-row"
-          :class="{ expanded: expandedId === p.id }"
-        >
-          <div class="nest-preset-main">
-            <div class="nest-preset-title">
-              <span class="nest-preset-name">{{ p.name }}</span>
-              <v-chip
-                v-if="isDefault(p)"
-                size="x-small"
-                color="secondary"
-                variant="tonal"
-                class="nest-mono ml-2"
-              >
-                {{ t('presets.defaultBadge') }}
-              </v-chip>
-            </div>
-            <div class="nest-mono nest-preset-meta">
-              {{ formatDate(p.updated_at) }}
-            </div>
-          </div>
-
-          <div class="nest-preset-actions">
-            <v-btn
-              size="x-small" variant="text"
-              :title="t('presets.actions.edit')"
-              icon="mdi-pencil-outline"
-              @click="openEdit(p)"
-            />
-            <v-btn
-              size="x-small" variant="text"
-              :title="t('presets.actions.view')"
-              icon="mdi-code-braces"
-              @click="toggleExpand(p.id)"
-            />
-            <v-btn
-              size="x-small" variant="text"
-              :title="t('presets.actions.export')"
-              icon="mdi-download-outline"
-              @click="exportPreset(p)"
-            />
-            <v-btn
-              size="x-small"
-              :variant="isDefault(p) ? 'tonal' : 'text'"
-              :color="isDefault(p) ? 'secondary' : undefined"
-              :title="isDefault(p) ? t('presets.actions.unsetDefault') : t('presets.actions.setDefault')"
-              :icon="isDefault(p) ? 'mdi-star' : 'mdi-star-outline'"
-              @click="toggleDefault(p)"
-            />
-            <v-btn
-              size="x-small" variant="text" color="error"
-              :title="t('common.delete')"
-              icon="mdi-delete-outline"
-              @click="confirmDeleteId = p.id"
-            />
-          </div>
-
-          <pre
-            v-if="expandedId === p.id"
-            class="nest-preset-json"
-          >{{ rawJson(p) }}</pre>
-        </div>
-      </div>
-    </section>
+    </div>
 
     <ImportPresetDialog v-model="importOpen" />
     <PresetEditorDialog
@@ -229,12 +344,18 @@ function formatDate(iso: string): string { return new Date(iso).toLocaleDateStri
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .nest-panel-head-text .nest-subtitle {
   font-size: 13px;
   margin: 4px 0 0;
+}
+.nest-panel-head-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .nest-state {
@@ -243,39 +364,21 @@ function formatDate(iso: string): string { return new Date(iso).toLocaleDateStri
   place-items: center;
 }
 
-.nest-preset-group {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid var(--nest-border-subtle);
-}
-.nest-preset-group:first-of-type {
-  border-top: none;
-  padding-top: 0;
-  margin-top: 12px;
-}
-
-.nest-group-header {
+// Filter chip bar — horizontal, wraps on narrow viewports.
+.nest-filter-bar {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.nest-group-count {
-  font-size: 11.5px;
-  color: var(--nest-text-muted);
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--nest-border-subtle);
 }
 
-.nest-group-empty {
-  margin-top: 6px;
-  color: var(--nest-text-muted);
-  font-size: 13px;
-}
-
+// Flat list.
 .nest-preset-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
 }
 
 .nest-preset-row {
@@ -283,38 +386,63 @@ function formatDate(iso: string): string { return new Date(iso).toLocaleDateStri
   grid-template-columns: 1fr auto;
   grid-template-areas: "main actions";
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--nest-border-subtle);
   border-radius: var(--nest-radius-sm);
   background: var(--nest-surface);
   align-items: center;
-  transition: border-color var(--nest-transition-fast);
+  transition: border-color var(--nest-transition-fast), background var(--nest-transition-fast);
 
-  &:hover { border-color: var(--nest-border); }
+  &:hover {
+    border-color: var(--nest-border);
+  }
+  &.is-active {
+    border-color: var(--nest-accent);
+    background: color-mix(in srgb, var(--nest-accent) 6%, var(--nest-surface));
+  }
   &.expanded { grid-template-areas: "main actions" "json json"; }
 }
 
-.nest-preset-main { grid-area: main; min-width: 0; }
+.nest-preset-main {
+  grid-area: main;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
 .nest-preset-title {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 14px;
   color: var(--nest-text);
 }
 
-.nest-preset-name { font-weight: 500; }
+.nest-preset-typechip {
+  text-transform: lowercase;
+}
+
+.nest-preset-name {
+  font-weight: 500;
+}
 
 .nest-preset-meta {
   font-size: 11px;
   color: var(--nest-text-muted);
-  margin-top: 2px;
 }
 
 .nest-preset-actions {
   grid-area: actions;
   display: flex;
   gap: 2px;
+  align-items: center;
+
+  // Tighter switch so it sits nicely next to icon buttons.
+  :deep(.v-switch__track) {
+    min-width: 32px !important;
+  }
 }
 
 .nest-preset-json {
@@ -332,8 +460,38 @@ function formatDate(iso: string): string { return new Date(iso).toLocaleDateStri
   white-space: pre;
 }
 
+// Unified empty state — one central plate, two CTAs.
+.nest-preset-empty {
+  text-align: center;
+  padding: 56px 24px;
+  border: 1px dashed var(--nest-border-subtle);
+  border-radius: var(--nest-radius);
+  background: var(--nest-surface);
+  margin-top: 8px;
+}
+.nest-empty-cta {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .nest-confirm {
   background: var(--nest-surface) !important;
   border: 1px solid var(--nest-border);
+}
+
+// Mobile — let the actions row wrap under the main text instead of
+// overlapping it on narrow screens.
+@media (max-width: 560px) {
+  .nest-preset-row {
+    grid-template-columns: 1fr;
+    grid-template-areas: "main" "actions";
+    &.expanded { grid-template-areas: "main" "actions" "json"; }
+  }
+  .nest-preset-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
 }
 </style>

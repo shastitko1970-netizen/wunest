@@ -120,6 +120,15 @@ func (p Preset) AsSampler() SamplerData {
 	return s
 }
 
+// AsSysprompt parses Data as SyspromptData. Same zero-on-failure policy as
+// AsSampler — callers fall through to defaults rather than propagating
+// decode errors into prompt assembly.
+func (p Preset) AsSysprompt() SyspromptData {
+	var s SyspromptData
+	_ = json.Unmarshal(p.Data, &s)
+	return s
+}
+
 // CreateInput is the payload for POST /api/presets.
 type CreateInput struct {
 	UserID uuid.UUID

@@ -6,11 +6,21 @@ import { useDisplay } from 'vuetify'
 import { useChatsStore } from '@/stores/chats'
 import { usePresetsStore } from '@/stores/presets'
 import { usePreferencesStore } from '@/stores/preferences'
-import type { AuthorsNote, ChatSamplerMetadata } from '@/api/chats'
+import type { AuthorsNote } from '@/api/chats'
 import type { Preset, SamplerData } from '@/api/presets'
 
-// Drawer that edits chat_metadata.sampler (per-chat) with preset
-// load/save shortcuts. Non-modal so users can see the chat while tweaking.
+// Drawer that edits the user's ACTIVE sampler preset (M30 variant-1: one
+// active per type, applies globally). Non-modal so users can see the chat
+// while tweaking.
+//
+// What changed vs. the pre-M30 drawer:
+//   • Hydration reads presets.activePreset('sampler'), NOT chat_metadata.
+//   • Save writes back to the active preset, so edits propagate to every
+//     chat immediately (no per-chat sampler copies anymore).
+//   • The preset dropdown switches which preset is active (exclusive —
+//     flipping one on clears the previous); it no longer "applies to this
+//     chat only".
+//   • Save As creates a new preset and makes it active.
 //
 // Layout: core generation knobs stay visible; the long tail of power-user
 // fields (top_k, min_p, rep penalty, seed, stop strings, reasoning toggle)
@@ -93,67 +103,65 @@ const saveAsError = ref<string | null>(null)
 
 watch(
   () => [props.modelValue, chats.currentChat?.id] as const,
-  ([open]) => {
+  async ([open]) => {
     if (!open) return
-    void presets.fetchAll()
-    hydrateFromChat()
+    await presets.fetchAll()
+    hydrateFromActive()
   },
   { immediate: true },
 )
 
-function hydrateFromChat() {
-  const meta = chats.currentChat?.chat_metadata
-  const s = meta?.sampler
-  if (!s) {
+// Re-hydrate the form whenever the active sampler preset changes under us
+// (e.g. the user switched active via the PresetsPanel toggle while the
+// drawer was already open).
+watch(
+  () => presets.activeID('sampler'),
+  () => { if (props.modelValue) hydrateFromActive() },
+)
+
+function hydrateFromActive() {
+  const active = presets.activePreset('sampler')
+  if (!active) {
     form.value = defaultForm()
     selectedPresetId.value = null
   } else {
+    const d = active.data as SamplerData
     form.value = {
-      temperature: s.temperature ?? 1.0,
-      top_p: s.top_p ?? 1.0,
-      top_k: s.top_k ?? null,
-      min_p: s.min_p ?? null,
-      max_tokens: s.max_tokens ?? null,
-      frequency_penalty: s.frequency_penalty ?? null,
-      presence_penalty: s.presence_penalty ?? null,
-      repetition_penalty: s.repetition_penalty ?? null,
-      seed: s.seed ?? null,
-      stop: s.stop ? [...s.stop] : [],
-      reasoning_enabled: s.reasoning_enabled ?? null,
-      system_prompt: s.system_prompt ?? '',
+      temperature: d.temperature ?? 1.0,
+      top_p: d.top_p ?? 1.0,
+      top_k: d.top_k ?? null,
+      min_p: d.min_p ?? null,
+      max_tokens: d.max_tokens ?? null,
+      frequency_penalty: d.frequency_penalty ?? null,
+      presence_penalty: d.presence_penalty ?? null,
+      repetition_penalty: d.repetition_penalty ?? null,
+      seed: d.seed ?? null,
+      stop: d.stop ? [...d.stop] : [],
+      reasoning_enabled: d.reasoning_enabled ?? null,
+      system_prompt: d.system_prompt ?? '',
     }
-    selectedPresetId.value = s.preset_id ?? null
+    selectedPresetId.value = active.id
   }
-  // Author's Note hydrates independently from chat_metadata.authors_note.
+  // Author's Note is still per-chat (not part of M30 rework).
+  const meta = chats.currentChat?.chat_metadata
   const an = meta?.authors_note
   note.value = an
     ? { content: an.content, depth: an.depth ?? 4, role: an.role ?? 'system' }
     : { content: '', depth: 4, role: 'system' }
 }
 
-function applyPreset(id: string | null) {
+/**
+ * Switch active sampler preset. Writes through to the server so every
+ * chat picks up the new active one on the next message. Then reloads the
+ * form so the drawer shows the new values.
+ */
+async function applyPreset(id: string | null) {
   selectedPresetId.value = id
-  if (!id) return
-  const p = presets.samplers.find((x: Preset) => x.id === id)
-  if (!p) return
-  const d = p.data as SamplerData
-  form.value = {
-    temperature: d.temperature ?? 1.0,
-    top_p: d.top_p ?? 1.0,
-    top_k: d.top_k ?? null,
-    min_p: d.min_p ?? null,
-    max_tokens: d.max_tokens ?? null,
-    frequency_penalty: d.frequency_penalty ?? null,
-    presence_penalty: d.presence_penalty ?? null,
-    repetition_penalty: d.repetition_penalty ?? null,
-    seed: d.seed ?? null,
-    stop: d.stop ? [...d.stop] : [],
-    reasoning_enabled: d.reasoning_enabled ?? null,
-    system_prompt: d.system_prompt ?? '',
-  }
+  await presets.setActive('sampler', id)
+  hydrateFromActive()
 }
 
-function toWire(): ChatSamplerMetadata {
+function toSamplerData(): SamplerData {
   return {
     temperature: form.value.temperature,
     top_p: form.value.top_p,
@@ -167,16 +175,24 @@ function toWire(): ChatSamplerMetadata {
     stop: form.value.stop.length ? form.value.stop : null,
     reasoning_enabled: form.value.reasoning_enabled,
     system_prompt: form.value.system_prompt.trim() || null,
-    preset_id: selectedPresetId.value,
   }
 }
 
+/**
+ * Save = write form changes back to the active preset. If there is no
+ * active preset yet, fall through to Save-As so the user can name it
+ * first (otherwise we'd silently create an "Untitled" preset).
+ */
 async function save() {
-  if (!chats.currentChat) return
+  const activeId = presets.activeID('sampler')
+  if (!activeId) {
+    openSaveAs()
+    return
+  }
   saving.value = true
   savedHint.value = false
   try {
-    await chats.setSampler(toWire())
+    await presets.update(activeId, { data: toSamplerData() })
     savedHint.value = true
     setTimeout(() => (savedHint.value = false), 1500)
   } finally {
@@ -224,23 +240,11 @@ async function saveAsPreset() {
   saveAsBusy.value = true
   saveAsError.value = null
   try {
-    const data: SamplerData = {
-      temperature: form.value.temperature,
-      top_p: form.value.top_p,
-      top_k: form.value.top_k,
-      min_p: form.value.min_p,
-      max_tokens: form.value.max_tokens,
-      frequency_penalty: form.value.frequency_penalty,
-      presence_penalty: form.value.presence_penalty,
-      repetition_penalty: form.value.repetition_penalty,
-      seed: form.value.seed,
-      stop: form.value.stop.length ? form.value.stop : null,
-      reasoning_enabled: form.value.reasoning_enabled,
-      system_prompt: form.value.system_prompt.trim() || null,
-    }
-    const created = await presets.createSampler(name, data)
+    const created = await presets.createSampler(name, toSamplerData())
+    // New preset auto-becomes active — matches user expectation of
+    // "saved + now using it".
+    await presets.setActive('sampler', created.id)
     selectedPresetId.value = created.id
-    await chats.setSampler(toWire())
     saveAsOpen.value = false
   } catch (e) {
     saveAsError.value = (e as Error).message
@@ -253,7 +257,11 @@ async function deletePreset() {
   if (!selectedPresetId.value) return
   const id = selectedPresetId.value
   await presets.remove(id)
-  if (selectedPresetId.value === id) selectedPresetId.value = null
+  if (selectedPresetId.value === id) {
+    selectedPresetId.value = null
+    // presets.remove also clears active; reload the form to reflect that.
+    hydrateFromActive()
+  }
 }
 
 const presetOptions = computed(() => [

@@ -201,24 +201,41 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 // Pass-through of WuApi's /api/me plus our local wuapi_user_id. Does NOT
 // include the API key — that's private to the session cookie and server-
 // side code, never travels to the browser.
+//
+// active_presets is also inlined (was a separate /api/me/defaults call) so
+// the SPA's first paint already knows which presets are active and can
+// render chip labels without a second round-trip.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 
 	// Ensure the local nest_users row exists (upsert) and bump last_active.
-	_, _ = s.users.Resolve(r.Context(), u.WuApi.ID)
+	nu, _ := s.users.Resolve(r.Context(), u.WuApi.ID)
+
+	// Best-effort load of active presets. On failure we return an empty
+	// map rather than a 500 — the UI will just show "no active preset"
+	// which is correct for a fresh user anyway.
+	active := map[string]string{}
+	if nu != nil {
+		if settings, err := s.users.LoadSettings(r.Context(), nu.ID); err == nil && settings != nil {
+			for t, id := range settings.DefaultPresets {
+				active[t] = id.String()
+			}
+		}
+	}
 
 	type resp struct {
-		ID                int64      `json:"wuapi_user_id"`
-		Username          string     `json:"username"`
-		FirstName         string     `json:"first_name"`
-		Tier              string     `json:"tier"`
-		TierExpiresAt     *time.Time `json:"tier_expires_at,omitempty"`
-		GoldBalanceNano   int64      `json:"gold_balance_nano"`
-		ReferralCount     int        `json:"referral_count"`
-		DailyLimit        int        `json:"daily_limit"`
-		UsedToday         int        `json:"used_today"`
-		CreatedAt         time.Time  `json:"created_at"`
-		NestAccessGranted bool       `json:"nest_access_granted"`
+		ID                int64             `json:"wuapi_user_id"`
+		Username          string            `json:"username"`
+		FirstName         string            `json:"first_name"`
+		Tier              string            `json:"tier"`
+		TierExpiresAt     *time.Time        `json:"tier_expires_at,omitempty"`
+		GoldBalanceNano   int64             `json:"gold_balance_nano"`
+		ReferralCount     int               `json:"referral_count"`
+		DailyLimit        int               `json:"daily_limit"`
+		UsedToday         int               `json:"used_today"`
+		CreatedAt         time.Time         `json:"created_at"`
+		NestAccessGranted bool              `json:"nest_access_granted"`
+		ActivePresets     map[string]string `json:"active_presets"`
 	}
 
 	writeJSON(w, http.StatusOK, resp{
@@ -233,6 +250,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		UsedToday:         u.WuApi.UsedToday,
 		CreatedAt:         u.WuApi.CreatedAt,
 		NestAccessGranted: u.WuApi.NestAccessGranted,
+		ActivePresets:     active,
 	})
 }
 

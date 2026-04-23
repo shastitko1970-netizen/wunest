@@ -136,15 +136,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		name = "New chat"
 	}
 
-	// Seed chat_metadata.sampler from the user's default sampler preset if
-	// one is set. The metadata payload wins if the caller explicitly sent
-	// one — default is applied only to a bare Metadata.
+	// M30: Sampler state moved out of chat_metadata into per-user active
+	// presets. Chats no longer carry their own sampler snapshot; every turn
+	// reads the user's active sampler + sysprompt from settings at send
+	// time. New chats start with an empty metadata envelope; per-chat
+	// persona / byok / authors_note are still stored inline here.
 	metadata := req.Metadata
-	if len(metadata) == 0 {
-		if seeded, err := h.seedDefaultSampler(r.Context(), user.ID); err == nil && seeded != nil {
-			metadata = seeded
-		}
-	}
 
 	chat, err := h.Repo.CreateChat(r.Context(), CreateChatInput{
 		UserID:      user.ID,
@@ -445,10 +442,11 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 
 	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 
-	// Apply chat_metadata.sampler as the baseline; explicit fields in the
-	// request body override (common pattern: drawer sliders set chat
-	// defaults once, per-turn overrides are rare).
-	in = applyChatSampler(in, readSampler(chat.Metadata))
+	// M30: Fill in sampler + sysprompt from the user's active presets
+	// (global; one active per type, applies to every chat). Per-turn
+	// overrides in the request body win; chat_metadata.sampler is no
+	// longer consulted (old chats may still carry it in DB — ignored).
+	in = h.applyActivePresets(r.Context(), user.ID, in)
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
@@ -506,6 +504,68 @@ func (h *Handler) applyUserDefaults(ctx context.Context, userID uuid.UUID, in Se
 	if s.DefaultModel != "" {
 		in.Model = s.DefaultModel
 	}
+	return in
+}
+
+// applyActivePresets fills SendMessageInput fields from the user's currently
+// active presets (M30 "variant 1": presets are global, one active per type,
+// applies to every chat the user runs).
+//
+// Sources, lowest to highest priority:
+//   1. Request body (explicit per-turn override).
+//   2. Active sysprompt preset (only if sampler system prompt is unset).
+//   3. Active sampler preset (fills numeric knobs + stop + reasoning flag).
+//
+// Each source only writes fields the higher-priority source left unset, so
+// a request can tweak one slider without dropping everything else from the
+// active preset. Errors loading settings are logged-and-ignored — generation
+// should degrade to raw upstream defaults, not 500.
+func (h *Handler) applyActivePresets(ctx context.Context, userID uuid.UUID, in SendMessageInput) SendMessageInput {
+	if h.Users == nil || h.Presets == nil {
+		return in
+	}
+	settings, err := h.Users.LoadSettings(ctx, userID)
+	if err != nil || settings == nil || len(settings.DefaultPresets) == 0 {
+		return in
+	}
+
+	// Sampler — numeric knobs + stop + reasoning + fallback system prompt.
+	if id, ok := settings.DefaultPresets[string(presets.TypeSampler)]; ok && id != uuid.Nil {
+		if p, err := h.Presets.Get(ctx, userID, id); err == nil && p != nil {
+			s := p.AsSampler()
+			if in.Temperature == nil && s.Temperature != nil {
+				in.Temperature = s.Temperature
+			}
+			if in.TopP == nil && s.TopP != nil {
+				in.TopP = s.TopP
+			}
+			if in.MaxTokens == nil && s.MaxTokens != nil {
+				in.MaxTokens = s.MaxTokens
+			}
+			if in.FrequencyPenalty == nil && s.FrequencyPenalty != nil {
+				in.FrequencyPenalty = s.FrequencyPenalty
+			}
+			if in.PresencePenalty == nil && s.PresencePenalty != nil {
+				in.PresencePenalty = s.PresencePenalty
+			}
+			if in.SystemPromptOverride == "" && s.SystemPromptOverride != "" {
+				in.SystemPromptOverride = s.SystemPromptOverride
+			}
+		}
+	}
+
+	// Sysprompt — wins over the sampler's own system_prompt for users who
+	// keep a dedicated sysprompt preset active. The sampler-level override
+	// above already ran, so only fills when still unset.
+	if id, ok := settings.DefaultPresets[string(presets.TypeSysprompt)]; ok && id != uuid.Nil {
+		if p, err := h.Presets.Get(ctx, userID, id); err == nil && p != nil {
+			sp := p.AsSysprompt()
+			if in.SystemPromptOverride == "" && sp.Content != "" {
+				in.SystemPromptOverride = sp.Content
+			}
+		}
+	}
+
 	return in
 }
 
@@ -1043,7 +1103,7 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 	}
 	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
-	in = applyChatSampler(in, readSamplerFromChat(chat))
+	in = h.applyActivePresets(r.Context(), user.ID, in)
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
@@ -1139,9 +1199,9 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
 
-	// Same sampler merge as sendMessage so a regenerate honours the same
-	// drawer-saved defaults.
-	in = applyChatSampler(in, readSamplerFromChat(chat))
+	// Same active-preset merge as sendMessage so a regenerate honours the
+	// user's current sampler + sysprompt.
+	in = h.applyActivePresets(r.Context(), user.ID, in)
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
