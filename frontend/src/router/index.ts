@@ -92,3 +92,36 @@ router.beforeEach(async (to) => {
   if (!isGated(to.path)) return true           // /, /docs, /account, /settings
   return { path: '/account' }
 })
+
+// ── Stale-bundle recovery ─────────────────────────────────────────────
+//
+// After a deploy, hashed chunk filenames change. Any tab that's still
+// running the PRE-deploy index.html will try to dynamic-import chunk
+// names that no longer exist (e.g. Account-B-lf6Oog.js → 404). Vue
+// Router surfaces that as an onError with message "Failed to fetch
+// dynamically imported module".
+//
+// The fix is simple: the user has an outdated entrypoint in memory, so
+// do a hard navigation to the target path. The browser re-requests
+// index.html (no-cache, so it gets the fresh one from the server),
+// which pulls the fresh chunk map.
+//
+// We only reload for dynamic-import failures to avoid a reload loop on
+// actually-broken routes — other errors should surface normally.
+const STALE_CHUNK_PATTERNS = [
+  /Failed to fetch dynamically imported module/i,
+  /Importing a module script failed/i,
+  /error loading dynamically imported module/i,
+]
+
+router.onError((error, to) => {
+  const msg = (error as Error | undefined)?.message ?? ''
+  if (STALE_CHUNK_PATTERNS.some(r => r.test(msg))) {
+    // Hard-navigate so index.html is re-fetched fresh. Use the intended
+    // destination's fullPath (or the current URL as a fallback) so the
+    // user lands where they were trying to go, not on the root.
+    const target = to?.fullPath || window.location.pathname + window.location.search
+    console.warn('[router] stale chunk, reloading to', target)
+    window.location.replace(target)
+  }
+})
