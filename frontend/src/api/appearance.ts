@@ -36,6 +36,13 @@ export interface Appearance {
   // Custom CSS — appended to <head> after all other styles.
   customCss?: string
 
+  /** Where user CSS applies. `chat` (default) wraps it in `@scope (#chat)`
+   *  so rules for `body`/`input`/`textarea` don't paint over settings /
+   *  library / menu — they only hit elements inside the chat container.
+   *  `global` applies raw, matching classic ST behaviour. User picks in
+   *  Appearance → Custom CSS. */
+  customCssScope?: 'chat' | 'global'
+
   // Render inline HTML in messages (sanitized). On by default; turn off if
   // you're worried about models smuggling markup in.
   htmlRendering?: boolean

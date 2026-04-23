@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { appearanceApi, type Appearance } from '@/api/appearance'
+import { scopeCSS } from '@/lib/cssScope'
 
 /**
  * Appearance store — user-authored theming.
@@ -193,6 +194,12 @@ function applyAppearance(a: Appearance) {
   // external loads anyway. SKIP in safe mode: this is the most common
   // reason the app's own shell breaks, so `?safe` in the URL always gets
   // the user back to a working Settings page.
+  //
+  // The scope is `chat` by default: we wrap user CSS in @scope(#chat) {…}
+  // (or a manual prefix fallback on Firefox), keeping rules like
+  // `textarea { bg: #111 }` from painting over settings / library /
+  // menu controls. Power users can flip to `global` for the classic
+  // paste-ST-theme-everywhere behaviour.
   let styleEl = document.getElementById(CUSTOM_STYLE_ID) as HTMLStyleElement | null
   if (a.customCss && a.customCss.trim() && !SAFE_MODE) {
     if (!styleEl) {
@@ -200,7 +207,10 @@ function applyAppearance(a: Appearance) {
       styleEl.id = CUSTOM_STYLE_ID
       document.head.appendChild(styleEl)
     }
-    styleEl.textContent = a.customCss
+    const scope = a.customCssScope ?? 'chat'
+    styleEl.textContent = scope === 'chat'
+      ? scopeCSS(a.customCss, '#chat')
+      : a.customCss
   } else if (styleEl) {
     styleEl.remove()
   }
