@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { useCharactersStore } from '@/stores/characters'
 
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 defineProps<{
   modelValue: boolean
@@ -77,7 +79,8 @@ function fileKind(f: File): 'png' | 'json' | 'unknown' {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="520"
+    :max-width="smAndDown ? undefined : 520"
+    :fullscreen="smAndDown"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-import">

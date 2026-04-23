@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { usePersonasStore } from '@/stores/personas'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
@@ -12,6 +13,7 @@ import type { Chat } from '@/api/chats'
 // + a "Use default (or session name)" option that clears the per-chat
 // override. Applies immediately on click.
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{
   modelValue: boolean
@@ -89,7 +91,8 @@ function initialsFor(name: string): string {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="440"
+    :max-width="smAndDown ? undefined : 440"
+    :fullscreen="smAndDown"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-persona-pick">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { usePresetsStore } from '@/stores/presets'
 import { PRESET_TYPES, type PresetType } from '@/api/presets'
 import { detectPresetType } from '@/lib/presetDetect'
@@ -12,6 +13,7 @@ import { detectPresetType } from '@/lib/presetDetect'
 // as a fallback for files whose shape we can't classify, or for the
 // occasional user who explicitly wants to misfile one.
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -132,7 +134,9 @@ async function doImport() {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="560"
+    :max-width="smAndDown ? undefined : 560"
+    :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-import-preset">

@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { useWorldsStore } from '@/stores/worlds'
 import { worldsApi } from '@/api/worlds'
 import type { Character } from '@/api/characters'
@@ -10,6 +11,7 @@ import type { Character } from '@/api/characters'
 // lorebooks a character pulls context from. Multi-select; writes happen
 // one-at-a-time so we don't need a batch endpoint.
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{
   modelValue: boolean
@@ -68,7 +70,8 @@ function close() {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="480"
+    :max-width="smAndDown ? undefined : 480"
+    :fullscreen="smAndDown"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-char-worlds">

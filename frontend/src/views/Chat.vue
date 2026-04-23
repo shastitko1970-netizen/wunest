@@ -433,4 +433,23 @@ const lastAssistantId = computed(() => {
   }
   .nest-chat-sidebar { display: none; }
 }
+
+// Header real-estate on phones. At 375px we have: chat name, character
+// caption, token chip, and four icons (persona, BYOK, export, sampler).
+// That's too much. Shave hard:
+//   - Tighter header padding (14→10px v, 20→12px h)
+//   - Smaller chat name
+//   - Hide the character caption (it's repeated in the message list anyway)
+//   - Hide the token chip in the header — still visible in the composer
+//   - No extra gap between icon buttons
+@media (max-width: 520px) {
+  .nest-chat-header { padding: 10px 12px; }
+  .nest-chat-name   { font-size: 15px; }
+  .nest-chat-char   { display: none; }
+  .nest-ctx-chip    { display: none; }
+  .nest-chat-tools  { gap: 0; }
+  .nest-chat-tools .v-btn { --v-btn-size: 28px; }
+  .nest-chat-messages { padding: 14px 12px 56px; }
+  .nest-chat-input    { padding: 10px 12px max(14px, env(safe-area-inset-bottom)); }
+}
 </style>

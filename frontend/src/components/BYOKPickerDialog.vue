@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { useChatsStore } from '@/stores/chats'
 import { byokApi, type BYOKKey } from '@/api/byok'
 import type { Chat } from '@/api/chats'
@@ -12,6 +13,7 @@ import type { Chat } from '@/api/chats'
 // PersonaPickerDialog for consistency.
 
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{
   modelValue: boolean
@@ -100,7 +102,8 @@ function providerLabel(p: string): string {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="460"
+    :max-width="smAndDown ? undefined : 460"
+    :fullscreen="smAndDown"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-byok-pick">

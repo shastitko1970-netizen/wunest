@@ -794,12 +794,25 @@ details[open] > .nest-entry-advanced-head::before {
 }
 
 // iPhone SE territory: stack the keys row fully, let number inputs be
-// full-width. Editor right column gets a single visible column.
+// full-width. Editor right column gets a single visible column. New
+// M19-M21 fields (probability, group, sticky/cooldown/delay) also stack.
 @media (max-width: 480px) {
   .nest-worlds-editor { padding: 12px; }
   .nest-entry-keys, .nest-entry-position { flex: 1 1 100%; }
   .nest-entry-num { flex: 1 1 calc(50% - 6px); }
+  .nest-entry-group { flex: 1 1 100%; }
   .nest-editor-head { flex-direction: column; align-items: stretch; }
   .nest-editor-name { min-width: 0; }
+
+  // Checkbox rows sometimes have long Russian labels ("Не триггерить
+  // рекурсию", "Обходить групповое ограничение") — wrap gracefully and
+  // let labels break rather than pushing the checkbox off the edge.
+  .nest-entry-flags {
+    gap: 8px 14px;
+    :deep(.v-label) { font-size: 12.5px; line-height: 1.3; white-space: normal; }
+  }
+  // The advanced disclosure's 3 number fields (sticky/cooldown/delay)
+  // should each take half-width so they sit as 2+1, not 3×narrow.
+  .nest-entry-advanced .nest-entry-num { flex: 1 1 calc(50% - 6px); }
 }
 </style>

@@ -505,6 +505,23 @@ function stars(n: number): string {
 @media (max-width: 520px) {
   .nest-browse-tags { padding: 8px 12px 10px; }
   .nest-browse-tag-group-label { min-width: 0; flex-basis: 100%; }
+
+  // On phones the header takes less horizontal real estate. Bigger cards
+  // (2 per row instead of minmax auto-fill) so cover art stays legible.
+  .nest-browse-head     { padding: 10px 12px; }
+  .nest-browse-filters  { padding: 10px 12px; gap: 8px; }
+  .nest-browse-body     { padding: 12px; }
+  .nest-browse-grid     {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .nest-browse-name     { font-size: 13px; }
+  .nest-browse-tagline  { font-size: 11.5px; }
+  .nest-browse-pager    { padding: 16px 10px 20px; gap: 8px; }
+  .nest-browse-search   { flex-basis: 100%; }
+  // The pager's Prev / Next arrows should each take half the row so the
+  // page-index label sits above on a line by itself when wrap kicks in.
+  .nest-browse-pager .v-btn { flex: 1 1 auto; }
 }
 
 .nest-browse-body {

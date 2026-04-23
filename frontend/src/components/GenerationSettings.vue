@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { useChatsStore } from '@/stores/chats'
 import { usePresetsStore } from '@/stores/presets'
 import type { AuthorsNote, ChatSamplerMetadata } from '@/api/chats'
@@ -15,12 +16,18 @@ import type { Preset, SamplerData } from '@/api/presets'
 // progressive disclosure and keeps casual users from drowning.
 
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
 const chats = useChatsStore()
 const presets = usePresetsStore()
+
+// Drawer width adapts to viewport. On mobile we go full-width so the
+// two-column field rows have room to breathe; on desktop 420px stays
+// out of the way of the chat.
+const drawerWidth = computed(() => (smAndDown.value ? undefined : 420))
 
 // Form mirrors ChatSamplerMetadata. Sliders need concrete numbers (Vuetify
 // doesn't accept null), so temperature/top_p are always numeric here.
@@ -275,8 +282,8 @@ function close() {
     :model-value="modelValue"
     location="right"
     temporary
-    width="420"
-    class="nest-sampler-drawer"
+    :width="drawerWidth"
+    :class="['nest-sampler-drawer', { 'is-mobile': smAndDown }]"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="nest-sampler-head">
@@ -699,5 +706,20 @@ function close() {
   font-size: 10.5px;
   color: var(--nest-green);
   letter-spacing: 0.05em;
+}
+
+// Phones. Drawer goes full-width, and the half-half field rows stack
+// into one column since at ~375px each half would be 150px — too
+// cramped for any of the penalty / seed / stop / depth / role fields.
+@media (max-width: 600px) {
+  .nest-sampler-body {
+    padding: 12px;
+    gap: 14px;
+  }
+  .nest-field-row { flex-direction: column; gap: 14px; }
+  .nest-field-half { flex: 1 1 100%; }
+  .nest-sampler-head { padding: 12px 14px; }
+  .nest-sampler-foot { padding: 8px 10px; flex-wrap: wrap; gap: 4px; }
+  .nest-authors-note { padding: 10px; gap: 10px; }
 }
 </style>

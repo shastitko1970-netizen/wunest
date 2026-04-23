@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { usePresetsStore } from '@/stores/presets'
 import {
   PRESET_TYPES,
@@ -21,6 +22,7 @@ import {
 //   - create: type + name editable, data pre-filled with sane defaults
 //   - edit: type locked, name + data mutable
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 const presets = usePresetsStore()
 
 const props = defineProps<{
@@ -214,7 +216,9 @@ function close() { emit('update:modelValue', false) }
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="640"
+    :max-width="smAndDown ? undefined : 640"
+    :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-preset-editor">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { useWorldsStore } from '@/stores/worlds'
 
 // Import a SillyTavern lorebook .json file. Accepts both shapes:
@@ -8,6 +9,7 @@ import { useWorldsStore } from '@/stores/worlds'
 //   - { name, entries: { "0": {...}, "1": {...} } }
 // We send the `entries` through untouched — the server normalises.
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -99,7 +101,8 @@ async function doImport() {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="560"
+    :max-width="smAndDown ? undefined : 560"
+    :fullscreen="smAndDown"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-import-lore">

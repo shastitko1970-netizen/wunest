@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { byokApi, type BYOKKey } from '@/api/byok'
 
 // BYOKPanel — manage "bring-your-own" provider API keys. Keys are
@@ -10,6 +11,7 @@ import { byokApi, type BYOKKey } from '@/api/byok'
 // header picker.
 
 const { t } = useI18n()
+const { smAndDown } = useDisplay()
 
 const items = ref<BYOKKey[]>([])
 const providers = ref<string[]>([])
@@ -162,8 +164,9 @@ function formatDate(iso: string): string {
       </div>
     </div>
 
-    <!-- Add dialog -->
-    <v-dialog v-model="addOpen" max-width="500">
+    <!-- Add dialog. Fullscreen on phones so the password-type key field
+         has space for long API keys (Anthropic ones are ~100 chars). -->
+    <v-dialog v-model="addOpen" :max-width="smAndDown ? undefined : 500" :fullscreen="smAndDown">
       <v-card class="nest-byok-dialog">
         <v-card-title class="nest-byok-dialog-title">
           <span>{{ t('byok.addDialog.title') }}</span>
@@ -350,5 +353,34 @@ function formatDate(iso: string): string {
 .nest-confirm {
   background: var(--nest-surface) !important;
   border: 1px solid var(--nest-border);
+}
+
+// Phones. Key rows collapse: the date becomes a line under the masked
+// preview instead of taking a column, keeping the delete button anchored
+// right without squeezing the meta. Add button in the head wraps below
+// the title rather than sitting beside it on a 375px screen.
+@media (max-width: 520px) {
+  .nest-byok-head {
+    gap: 10px;
+    .v-btn { width: 100%; }
+  }
+  .nest-byok-row {
+    gap: 6px;
+    padding: 10px;
+    align-items: flex-start;
+  }
+  .nest-byok-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .nest-byok-date {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .nest-byok-dialog-title {
+    padding: 14px 14px 6px;
+    font-size: 16px;
+  }
 }
 </style>
