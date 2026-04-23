@@ -2,8 +2,10 @@ package worldinfo
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // DefaultScanDepth is how many recent messages we scan for key matches when
@@ -174,6 +176,12 @@ func Activate(in ActivationInput) Activated {
 		return rows[a].entryIdx < rows[b].entryIdx
 	})
 
+	// Group gate: within a non-empty Group, only the first-sorted entry
+	// survives — except for entries flagged GroupOverride. This is the
+	// "mutually-exclusive trigger group" semantic from ST (e.g. multiple
+	// greetings in one group, pick one).
+	rows = filterByGroup(rows)
+
 	out := Activated{
 		BeforeChar: make([]string, 0, len(rows)),
 		AfterChar:  make([]string, 0, len(rows)),
@@ -208,26 +216,71 @@ func Activate(in ActivationInput) Activated {
 }
 
 // matchEntry reports whether a single entry matches a given scan window.
-// Handles primary key OR-match and the optional selective+secondary gate.
-// Both regexp-free — `containsAny` is a simple substring scan.
+// Handles primary key OR-match, optional selective+secondary gate, and
+// the probability gate. `match_whole_words` flips the key-scan to word
+// boundary mode so "cat" doesn't fire on "concatenate".
 type matchRow struct{ reason string }
 
 func matchEntry(e *Entry, win, winLower, primaryFmt, secondaryFmt string) (matchRow, bool) {
 	caseSens := e.CaseSensitive != nil && *e.CaseSensitive
+	wholeWords := e.MatchWholeWords != nil && *e.MatchWholeWords
 
-	primaryHit, primaryKey := containsAny(win, winLower, e.Keys, caseSens)
+	primaryHit, primaryKey := matchAny(win, winLower, e.Keys, caseSens, wholeWords)
 	if primaryHit == "" {
 		return matchRow{}, false
 	}
 
 	if e.Selective && len(e.SecondaryKeys) > 0 {
-		secHit, secKey := containsAny(win, winLower, e.SecondaryKeys, caseSens)
+		secHit, secKey := matchAny(win, winLower, e.SecondaryKeys, caseSens, wholeWords)
 		if secHit == "" {
+			return matchRow{}, false
+		}
+		// Probability gate — apply after we've confirmed the keys match so
+		// the random roll is rare (cheap to not-roll when keys don't hit).
+		if !rollProbability(e.Probability) {
 			return matchRow{}, false
 		}
 		return matchRow{reason: fmt.Sprintf(secondaryFmt, primaryKey, secKey)}, true
 	}
+	if !rollProbability(e.Probability) {
+		return matchRow{}, false
+	}
 	return matchRow{reason: fmt.Sprintf(primaryFmt, primaryKey)}, true
+}
+
+// rollProbability returns true if an entry passes its probability gate.
+// Zero or unset = 100% (always fires). 1..99 = random roll. 100 = always.
+// Negative / >100 clamp to always-fire.
+func rollProbability(p int) bool {
+	if p <= 0 || p >= 100 {
+		return true
+	}
+	return rand.IntN(100) < p
+}
+
+// filterByGroup collapses activated rows so that within each non-empty
+// Group only the first-sorted row survives, unless GroupOverride is set.
+// Must be called AFTER the rows are sorted by InsertionOrder — we rely on
+// that order to pick the "winner" deterministically.
+func filterByGroup(rows []activatedRow) []activatedRow {
+	out := make([]activatedRow, 0, len(rows))
+	claimed := make(map[string]struct{})
+	for _, r := range rows {
+		if r.e == nil {
+			continue
+		}
+		g := r.e.Group
+		if g == "" || r.e.GroupOverride {
+			out = append(out, r)
+			continue
+		}
+		if _, taken := claimed[g]; taken {
+			continue
+		}
+		claimed[g] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 // collectRecursionText concatenates the content of recently-activated rows
@@ -278,24 +331,79 @@ func tailJoin(msgs []string, n int) string {
 	return strings.Join(picked, "\n")
 }
 
-// containsAny returns (key-that-hit, key-literal) when any of keys appears in
+// matchAny returns (key-that-hit, key-literal) when any of keys appears in
 // the window, or ("", "") when none do. Both raw and lowercased windows are
-// passed so we only lowercase once per window.
-func containsAny(win, winLower string, keys []string, caseSens bool) (string, string) {
+// passed so we only lowercase once per window. `wholeWords` flips to a
+// word-boundary match — letters/digits/underscore on either side of a key
+// break the match, so "cat" won't fire on "concatenate" or "cats".
+//
+// The word-boundary implementation is regexp-free for speed and to avoid
+// ReDoS surface from user-authored keys.
+func matchAny(win, winLower string, keys []string, caseSens, wholeWords bool) (string, string) {
 	for _, k := range keys {
 		k = strings.TrimSpace(k)
 		if k == "" {
 			continue
 		}
+		var hay, needle string
 		if caseSens {
-			if strings.Contains(win, k) {
-				return k, k
-			}
+			hay = win
+			needle = k
 		} else {
-			if strings.Contains(winLower, strings.ToLower(k)) {
+			hay = winLower
+			needle = strings.ToLower(k)
+		}
+		if wholeWords {
+			if containsWordBoundary(hay, needle) {
 				return k, k
 			}
+		} else if strings.Contains(hay, needle) {
+			return k, k
 		}
 	}
 	return "", ""
+}
+
+// containsWordBoundary reports whether needle appears in hay bordered by
+// word-break characters (or string start/end) on BOTH sides. Treats
+// letters / digits / underscore as word characters, matching JS's \b
+// semantics closely enough for lorebook use.
+//
+// For needle n at position p in hay h: n is a "whole word" iff
+//   (p == 0  OR h[p-1] is non-word) AND
+//   (p+len(n) == len(h)  OR h[p+len(n)] is non-word)
+func containsWordBoundary(hay, needle string) bool {
+	if needle == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(hay[start:], needle)
+		if idx < 0 {
+			return false
+		}
+		abs := start + idx
+		leftOK := abs == 0 || !isWordByte(hay[abs-1])
+		rightOK := abs+len(needle) == len(hay) || !isWordByte(hay[abs+len(needle)])
+		if leftOK && rightOK {
+			return true
+		}
+		start = abs + 1
+		if start >= len(hay) {
+			return false
+		}
+	}
+}
+
+// isWordByte reports whether a single byte counts as a "word" character
+// under JS \b semantics: letters, digits, underscore. For lorebook keys
+// (mostly ASCII proper nouns) byte-level is faster and accurate enough;
+// a non-ASCII byte is conservatively treated as a word char via unicode
+// fallback so Cyrillic words don't accidentally get split.
+func isWordByte(b byte) bool {
+	r := rune(b)
+	if r < 128 {
+		return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+	}
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }

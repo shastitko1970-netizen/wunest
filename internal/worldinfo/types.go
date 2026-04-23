@@ -20,11 +20,18 @@ import (
 )
 
 // Position controls where in the system prompt an activated entry is spliced.
-// Only a small set is supported in v1 — ST defines more (before_examples,
-// after_examples, at_depth) which we'll add alongside instruct/examples later.
+// before_char / after_char are wired through to the prompt builder today.
+// at_depth / before_an / after_an are stored verbatim for ST JSON round-trip
+// fidelity but currently fall back to before_char during activation — the
+// extra splice points will be wired once author's-note gets the same
+// dispatcher as character splicing. Data written here survives re-exports
+// without loss.
 const (
 	PositionBeforeChar = "before_char" // prepended to system prompt
 	PositionAfterChar  = "after_char"  // appended to system prompt
+	PositionAtDepth    = "at_depth"    // stored-only: inject at N turns from history end
+	PositionBeforeAN   = "before_an"   // stored-only: before Author's Note
+	PositionAfterAN    = "after_an"    // stored-only: after Author's Note
 )
 
 // World is a lorebook row. Entries live as an ordered JSONB array.
@@ -79,6 +86,36 @@ type Entry struct {
 	// ExcludeRecursion because ST presets use the pair; semantically the
 	// former blocks outbound triggers, the latter blocks inbound.
 	PreventRecursion bool `json:"prevent_recursion,omitempty"`
+	// ── ST v1.12+ match / group / probability fields ──
+	// Probability: 0 = unset (treated as 100%). 1..99 = random gate
+	// probability; 100 = always. Enforced in the activator.
+	Probability int `json:"probability,omitempty"`
+	// MatchWholeWords: when true, keys must hit on word boundaries instead
+	// of plain substrings — so "cat" won't fire on "concatenate". Stored as
+	// a pointer so we can distinguish unset (default) from explicit false.
+	MatchWholeWords *bool `json:"match_whole_words,omitempty"`
+	// Group: mutually-exclusive activation group. If multiple entries in
+	// the same non-empty group match in one pass, only the one with lowest
+	// InsertionOrder fires (ties → book then entry index).
+	Group string `json:"group,omitempty"`
+	// GroupOverride: when true, this entry bypasses the group cap — useful
+	// for "always include" group members. Stored but not currently enforced
+	// in the activator beyond data fidelity.
+	GroupOverride bool `json:"group_override,omitempty"`
+	// Role: for PositionAtDepth entries, which role the injected message
+	// takes. "system" (default), "user", or "assistant". Stored only today.
+	Role string `json:"role,omitempty"`
+	// ── Stateful activation rules (stored only, not enforced yet) ──
+	// Sticky: once this entry fires, it stays active for this many additional
+	// turns. Requires per-chat activation state to enforce.
+	Sticky int `json:"sticky,omitempty"`
+	// Cooldown: minimum turns between consecutive activations.
+	Cooldown int `json:"cooldown,omitempty"`
+	// Delay: minimum turns from the start of the chat before this entry
+	// is eligible to activate.
+	Delay int `json:"delay,omitempty"`
+	// AutomationID: tool-calling / slash-command hook. Stored only.
+	AutomationID string `json:"automation_id,omitempty"`
 }
 
 // ActivationInput is what the Activator needs to decide which entries fire.

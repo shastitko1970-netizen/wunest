@@ -2,7 +2,13 @@ import { apiFetch } from '@/api/client'
 
 // ─── Types ────────────────────────────────────────────────────────────
 
-export type Position = 'before_char' | 'after_char' | ''
+export type Position =
+  | 'before_char'
+  | 'after_char'
+  | 'at_depth'
+  | 'before_an'
+  | 'after_an'
+  | ''
 
 export interface WorldEntry {
   id?: number
@@ -19,6 +25,29 @@ export interface WorldEntry {
   position?: Position
   case_sensitive?: boolean | null
   depth?: number
+
+  // Recursion controls (see internal/worldinfo/types.go).
+  exclude_recursion?: boolean
+  prevent_recursion?: boolean
+
+  // ─── ST v1.12+ flexibility fields ───
+  /** 0 (unset) = 100%; 1..99 = random roll; 100 = always. */
+  probability?: number
+  /** match_whole_words uses word-boundary matching instead of substring. */
+  match_whole_words?: boolean | null
+  /** Mutually-exclusive activation group. Empty = no group. */
+  group?: string
+  /** Bypass the group cap — useful for "always include" group members. */
+  group_override?: boolean
+  /** For at_depth entries: role of the injected message. */
+  role?: 'system' | 'user' | 'assistant' | ''
+
+  // Stateful activation — stored for ST round-trip fidelity, not yet
+  // enforced in the activator.
+  sticky?: number
+  cooldown?: number
+  delay?: number
+  automation_id?: string
 }
 
 export interface World {

@@ -23,8 +23,9 @@ export const useCharactersStore = defineStore('characters', () => {
     }
   }
 
-  async function importPNG(file: File): Promise<Character> {
-    const created = await charactersApi.importPNG(file)
+  // Accepts PNG or JSON — backend sniffs the magic bytes.
+  async function importCard(file: File): Promise<Character> {
+    const created = await charactersApi.importCard(file)
     items.value = [created, ...items.value]
     return created
   }
@@ -76,6 +77,6 @@ export const useCharactersStore = defineStore('characters', () => {
   return {
     items, loading, error, query, activeTag, favoriteOnly,
     allTags, filtered,
-    fetchAll, importPNG, create, update, remove, toggleFavorite,
+    fetchAll, importCard, create, update, remove, toggleFavorite,
   }
 })

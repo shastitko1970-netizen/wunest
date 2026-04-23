@@ -109,7 +109,7 @@ async function confirmDelete() {
           prepend-icon="mdi-upload"
           @click="importOpen = true"
         >
-          {{ t('library.actions.importPng') }}
+          {{ t('library.actions.import') }}
         </v-btn>
         <v-btn
           variant="outlined"
@@ -209,7 +209,7 @@ async function confirmDelete() {
               {{ t('library.actions.browse') }}
             </v-btn>
             <v-btn variant="outlined" prepend-icon="mdi-upload" @click="importOpen = true">
-              {{ t('library.actions.importPng') }}
+              {{ t('library.actions.import') }}
             </v-btn>
           </div>
         </div>

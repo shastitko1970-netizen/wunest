@@ -49,7 +49,7 @@ const maxUploadSize = 16 * 1024 * 1024
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/characters", authRequired(http.HandlerFunc(h.list)))
 	mux.Handle("POST /api/characters", authRequired(http.HandlerFunc(h.create)))
-	mux.Handle("POST /api/characters/import", authRequired(http.HandlerFunc(h.importPNG)))
+	mux.Handle("POST /api/characters/import", authRequired(http.HandlerFunc(h.importCard)))
 	mux.Handle("GET /api/characters/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/characters/{id}", authRequired(http.HandlerFunc(h.update)))
 	mux.Handle("DELETE /api/characters/{id}", authRequired(http.HandlerFunc(h.delete)))
@@ -141,9 +141,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-// importPNG accepts a multipart/form-data upload with a single "file" field,
-// extracts V2/V3 character card metadata from the PNG, and creates a row.
-func (h *Handler) importPNG(w http.ResponseWriter, r *http.Request) {
+// importCard accepts a multipart/form-data upload with a single "file" field
+// containing either a PNG character card (V2/V3 metadata in a tEXt chunk)
+// or a bare JSON export. Format is sniffed from the magic bytes — the
+// client doesn't have to declare it.
+func (h *Handler) importCard(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
 		h.writeErr(w, err)
@@ -167,13 +169,13 @@ func (h *Handler) importPNG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pngBytes, err := io.ReadAll(io.LimitReader(file, maxUploadSize))
+	raw, err := io.ReadAll(io.LimitReader(file, maxUploadSize))
 	if err != nil {
 		http.Error(w, "failed to read upload", http.StatusBadRequest)
 		return
 	}
 
-	data, spec, err := ParsePNGCard(pngBytes)
+	data, spec, err := ParseCard(raw)
 	if err != nil {
 		http.Error(w, "failed to parse card: "+err.Error(), http.StatusUnprocessableEntity)
 		return

@@ -80,7 +80,10 @@ export const charactersApi = {
     apiFetch<void>(`/api/characters/${id}`, { method: 'DELETE' }),
 
   // Multipart upload — bypasses the default JSON content-type in apiFetch.
-  importPNG: async (file: File, sourceURL?: string): Promise<Character> => {
+  // Accepts PNG (embedded V2/V3 metadata) or JSON (bare ST export); the
+  // server sniffs by magic bytes and dispatches. Legacy name `importPNG`
+  // kept for call-site compat; prefer `importCard` for new code.
+  importCard: async (file: File, sourceURL?: string): Promise<Character> => {
     const fd = new FormData()
     fd.append('file', file)
     if (sourceURL) fd.append('source_url', sourceURL)
@@ -95,5 +98,10 @@ export const charactersApi = {
       throw new Error(body || `Import failed (${res.status})`)
     }
     return res.json() as Promise<Character>
+  },
+
+  /** @deprecated use `importCard` — backend now sniffs PNG vs JSON. */
+  importPNG: async (file: File, sourceURL?: string): Promise<Character> => {
+    return charactersApi.importCard(file, sourceURL)
   },
 }

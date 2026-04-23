@@ -53,7 +53,7 @@ async function upload() {
   busy.value = true
   error.value = null
   try {
-    const char = await store.importPNG(selectedFile.value)
+    const char = await store.importCard(selectedFile.value)
     emit('imported', char.id)
     close()
   } catch (e) {
@@ -61,6 +61,16 @@ async function upload() {
   } finally {
     busy.value = false
   }
+}
+
+// Human-friendly file type hint, shown after pick.
+function fileKind(f: File): 'png' | 'json' | 'unknown' {
+  const ext = f.name.toLowerCase().split('.').pop()
+  if (ext === 'png') return 'png'
+  if (ext === 'json') return 'json'
+  if (f.type === 'image/png') return 'png'
+  if (f.type === 'application/json') return 'json'
+  return 'unknown'
 }
 </script>
 
@@ -88,12 +98,12 @@ async function upload() {
           <input
             ref="inputEl"
             type="file"
-            accept="image/png"
+            accept="image/png,application/json,.png,.json"
             hidden
             @change="onFileInput"
           />
           <template v-if="!selectedFile">
-            <v-icon size="36" class="mb-2" color="primary">mdi-image-plus</v-icon>
+            <v-icon size="36" class="mb-2" color="primary">mdi-card-account-details-outline</v-icon>
             <div class="nest-dz-title">{{ t('library.import.dropHere') }}</div>
             <div class="nest-dz-sub">{{ t('library.import.supports') }}</div>
             <v-btn
@@ -107,9 +117,15 @@ async function upload() {
             </v-btn>
           </template>
           <template v-else>
-            <v-icon size="28" color="success">mdi-file-image-outline</v-icon>
+            <v-icon
+              size="28"
+              :color="fileKind(selectedFile) === 'unknown' ? 'warning' : 'success'"
+            >
+              {{ fileKind(selectedFile) === 'json' ? 'mdi-code-json' : 'mdi-file-image-outline' }}
+            </v-icon>
             <div class="nest-dz-title mt-2">{{ selectedFile.name }}</div>
             <div class="nest-dz-sub nest-mono">
+              {{ fileKind(selectedFile).toUpperCase() }} ·
               {{ (selectedFile.size / 1024).toFixed(1) }} KB
             </div>
             <v-btn

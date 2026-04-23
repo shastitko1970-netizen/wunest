@@ -327,6 +327,9 @@ const hasDraftChanges = computed(() => {
                   :items="[
                     { value: 'before_char', title: t('worlds.position.beforeChar') },
                     { value: 'after_char', title: t('worlds.position.afterChar') },
+                    { value: 'at_depth', title: t('worlds.position.atDepth') },
+                    { value: 'before_an', title: t('worlds.position.beforeAN') },
+                    { value: 'after_an', title: t('worlds.position.afterAN') },
                   ]"
                   :label="t('worlds.positionLabel')"
                   density="compact"
@@ -346,6 +349,7 @@ const hasDraftChanges = computed(() => {
                 hide-details
               />
 
+              <!-- Row 1: activation basics (constant/selective, order, depth) -->
               <div class="nest-entry-flags">
                 <v-checkbox
                   v-model="entry.constant"
@@ -379,6 +383,136 @@ const hasDraftChanges = computed(() => {
                   class="nest-entry-num"
                 />
               </div>
+
+              <!-- Row 2: matching controls (whole words / case / probability) -->
+              <div class="nest-entry-flags mt-2">
+                <v-checkbox
+                  v-model="entry.match_whole_words"
+                  :label="t('worlds.flag.matchWholeWords')"
+                  :title="t('worlds.flag.matchWholeWordsHint')"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+                <v-checkbox
+                  v-model="entry.case_sensitive"
+                  :label="t('worlds.flag.caseSensitive')"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+                <v-text-field
+                  v-model.number="entry.probability"
+                  :label="t('worlds.probabilityLabel')"
+                  :hint="t('worlds.probabilityHint')"
+                  type="number"
+                  min="0"
+                  max="100"
+                  density="compact"
+                  hide-details
+                  class="nest-entry-num"
+                />
+              </div>
+
+              <!-- Row 3: group + override -->
+              <div class="d-flex flex-wrap ga-3 mt-3">
+                <v-text-field
+                  v-model="entry.group"
+                  :label="t('worlds.groupLabel')"
+                  :placeholder="t('worlds.groupPlaceholder')"
+                  :hint="t('worlds.groupHint')"
+                  density="compact"
+                  hide-details="auto"
+                  persistent-hint
+                  class="nest-entry-group"
+                />
+                <v-checkbox
+                  v-model="entry.group_override"
+                  :label="t('worlds.flag.groupOverride')"
+                  :disabled="!entry.group"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+              </div>
+
+              <!-- Row 4: recursion controls -->
+              <div class="nest-entry-flags mt-2">
+                <v-checkbox
+                  v-model="entry.exclude_recursion"
+                  :label="t('worlds.flag.excludeRecursion')"
+                  :title="t('worlds.flag.excludeRecursionHint')"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+                <v-checkbox
+                  v-model="entry.prevent_recursion"
+                  :label="t('worlds.flag.preventRecursion')"
+                  :title="t('worlds.flag.preventRecursionHint')"
+                  density="compact"
+                  hide-details
+                  color="primary"
+                />
+              </div>
+
+              <!-- Row 5: at-depth role (only meaningful for at_depth position) -->
+              <div v-if="entry.position === 'at_depth'" class="d-flex flex-wrap ga-3 mt-3">
+                <v-select
+                  v-model="entry.role"
+                  :items="[
+                    { value: 'system', title: t('chat.authorsNote.roleSystem') },
+                    { value: 'user', title: t('chat.authorsNote.roleUser') },
+                    { value: 'assistant', title: t('chat.authorsNote.roleAssistant') },
+                  ]"
+                  :label="t('worlds.roleLabel')"
+                  density="compact"
+                  hide-details
+                  class="nest-entry-position"
+                />
+              </div>
+
+              <!-- Row 6: stateful activation timers (stored, not yet enforced) -->
+              <details class="nest-entry-advanced mt-3">
+                <summary class="nest-entry-advanced-head">
+                  {{ t('worlds.advanced') }}
+                </summary>
+                <div class="d-flex flex-wrap ga-3 mt-2">
+                  <v-text-field
+                    v-model.number="entry.sticky"
+                    :label="t('worlds.stickyLabel')"
+                    :hint="t('worlds.stickyHint')"
+                    type="number"
+                    min="0"
+                    density="compact"
+                    hide-details="auto"
+                    persistent-hint
+                    class="nest-entry-num"
+                  />
+                  <v-text-field
+                    v-model.number="entry.cooldown"
+                    :label="t('worlds.cooldownLabel')"
+                    :hint="t('worlds.cooldownHint')"
+                    type="number"
+                    min="0"
+                    density="compact"
+                    hide-details="auto"
+                    persistent-hint
+                    class="nest-entry-num"
+                  />
+                  <v-text-field
+                    v-model.number="entry.delay"
+                    :label="t('worlds.delayLabel')"
+                    :hint="t('worlds.delayHint')"
+                    type="number"
+                    min="0"
+                    density="compact"
+                    hide-details="auto"
+                    persistent-hint
+                    class="nest-entry-num"
+                  />
+                </div>
+              </details>
 
               <v-text-field
                 v-if="entry.selective || (entry.secondary_keys?.length ?? 0) > 0"
@@ -611,6 +745,35 @@ const hasDraftChanges = computed(() => {
   gap: 12px;
   align-items: center;
 }
+
+.nest-entry-advanced {
+  border-top: 1px dashed var(--nest-border-subtle);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.nest-entry-advanced-head {
+  font-family: var(--nest-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+
+  &::-webkit-details-marker { display: none; }
+  &::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform var(--nest-transition-fast);
+  }
+}
+details[open] > .nest-entry-advanced-head::before {
+  transform: rotate(90deg);
+}
+
+.nest-entry-group { flex: 1 1 220px; min-width: 0; }
 
 .nest-confirm {
   background: var(--nest-surface) !important;
