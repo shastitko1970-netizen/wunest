@@ -131,6 +131,18 @@ function setLocale(code: string) {
   localStorage.setItem('nest:locale', code)
 }
 
+// ─── Safe-mode entry ────────────────────────────────────────
+// Reload the current URL with ?safe appended. The appearance store
+// reads SAFE_MODE at boot → customCss + bg image get skipped, and
+// SafeModeBanner surfaces with "Clear CSS" / "Exit" actions. This is
+// the escape hatch for a user whose imported ST theme broke the shell
+// and who doesn't know about the ?safe URL trick.
+function enterSafeMode() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('safe', '1')
+  window.location.replace(url.toString())
+}
+
 const localeLabel = (code: string) => {
   switch (code) {
     case 'ru': return 'Русский'
@@ -273,6 +285,18 @@ const localeLabel = (code: string) => {
             prepend-icon="mdi-cog-outline"
             @click="router.push('/settings')"
           />
+          <v-divider />
+          <!-- Safe-mode recovery. Always visible so users with a broken
+               theme always have a one-click escape without needing to
+               remember the ?safe URL. Reloads with ?safe → CSS gets
+               skipped, SafeModeBanner appears with a Clear-CSS button. -->
+          <v-list-item
+            :title="t('nav.safeMode')"
+            :subtitle="t('nav.safeModeSubtitle')"
+            prepend-icon="mdi-shield-refresh-outline"
+            @click="enterSafeMode()"
+          />
+          <v-divider />
           <v-list-item
             :title="t('nav.manageAccount')"
             prepend-icon="mdi-open-in-new"
@@ -323,6 +347,17 @@ const localeLabel = (code: string) => {
         />
       </v-list>
       <template #append>
+        <!-- Safe-mode entry on mobile too — avatar menu is a tiny
+             tap target and can get covered by hostile CSS. Here it's
+             pinned to the drawer footer where users already look. -->
+        <v-list density="compact" class="px-2 pb-1">
+          <v-list-item
+            :title="t('nav.safeMode')"
+            prepend-icon="mdi-shield-refresh-outline"
+            rounded="lg"
+            @click="drawerOpen = false; enterSafeMode()"
+          />
+        </v-list>
         <div class="pa-3 nest-caption text-medium-emphasis">
           <div>WuNest <span class="nest-mono">v0.1</span></div>
           <div>{{ t('nav.byWusphere') }}</div>

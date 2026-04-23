@@ -1,4 +1,6 @@
+import { watch } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * Route table.
@@ -54,4 +56,39 @@ export const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+// ── Beta-gate navigation guard ───────────────────────────────────────
+//
+// Chat and Library require an activated WuNest access code. The disabled
+// nav buttons cover the UI path, but without a router-level guard a user
+// can still reach a chat by direct URL (bookmark, history, deeplink from
+// another tab). Here we redirect gated paths to /account, where the
+// redeem form lives, until nestAccessGranted flips to true.
+//
+// This is still client-side — real hard enforcement has to live in the
+// chat/library backend handlers. But it stops the honest bypass case.
+//
+// Auth boot race: App.vue fires auth.check() on mount; for a cold hit on
+// /chat/:id the router can fire before /api/me resolves. We wait out
+// loading so the gate has ground truth before it decides to redirect.
+const GATED_PREFIXES = ['/chat', '/library']
+const isGated = (path: string) =>
+  GATED_PREFIXES.some(p => path === p || path.startsWith(p + '/'))
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+
+  if (auth.loading) {
+    await new Promise<void>((resolve) => {
+      const unwatch = watch(() => auth.loading, (v) => {
+        if (!v) { unwatch(); resolve() }
+      })
+    })
+  }
+
+  if (!auth.authenticated) return true         // anon → AppShell handles
+  if (auth.nestAccessGranted) return true      // activated → free pass
+  if (!isGated(to.path)) return true           // /, /docs, /account, /settings
+  return { path: '/account' }
 })

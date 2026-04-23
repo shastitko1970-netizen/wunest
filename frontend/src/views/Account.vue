@@ -4,17 +4,46 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useAccountStore } from '@/stores/account'
 import { useAuthStore } from '@/stores/auth'
+import { useAppearanceStore } from '@/stores/appearance'
 
 const { t } = useI18n()
 const account = useAccountStore()
 const auth = useAuthStore()
+const appearance = useAppearanceStore()
 const {
   profile, stats, transactions,
   loading, goldDisplay, memberSince, tierExpiresDisplay, quotaRemaining,
 } = storeToRefs(account)
 const { nestAccessGranted } = storeToRefs(auth)
+const { appearance: appearanceData } = storeToRefs(appearance)
 
 onMounted(() => account.refreshAll())
+
+// ─── Theme recovery ────────────────────────────────────────
+// Users who import a heavy ST theme sometimes break the shell enough
+// that they can't get back to appearance settings. Account is always
+// reachable (it's where the access-code form lives + linked from the
+// avatar menu), so we park a one-click escape hatch here too:
+//   • "Reset custom CSS"     — wipes customCss out of the store, persists
+//   • "Enter safe mode"      — reload with ?safe so all user CSS + bg get
+//                              skipped and the SafeModeBanner appears.
+const cssCleared = ref(false)
+const hasCustomCss = computed(() =>
+  !!(appearanceData.value?.customCss && appearanceData.value.customCss.trim()),
+)
+
+function resetCustomCss() {
+  appearance.update({ customCss: undefined })
+  cssCleared.value = true
+  // Hide the success chip after a bit so it doesn't linger forever.
+  setTimeout(() => { cssCleared.value = false }, 4000)
+}
+
+function enterSafeMode() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('safe', '1')
+  window.location.replace(url.toString())
+}
 
 // Redeem-code form state. Lives on Account because that's the only page
 // an un-activated user can reach alongside /, /docs; they'll find the
@@ -283,6 +312,43 @@ function kindChipColor(kind: string): string {
       </div>
     </section>
 
+    <!-- Theme recovery. Always visible so users whose imported ST theme
+         broke the chrome can recover without remembering the ?safe URL.
+         Two escape hatches:
+           - Clear custom CSS (in-place, no reload)
+           - Enter safe mode (reload with ?safe; skips ALL user CSS + bg) -->
+    <section class="nest-section">
+      <h2 class="nest-h2">{{ t('account.recovery.title') }}</h2>
+      <p class="nest-subtitle">{{ t('account.recovery.body') }}</p>
+      <div class="nest-recovery-actions mt-3">
+        <v-btn
+          variant="outlined"
+          color="warning"
+          prepend-icon="mdi-broom"
+          :disabled="!hasCustomCss"
+          @click="resetCustomCss"
+        >
+          {{ t('account.recovery.resetCss') }}
+        </v-btn>
+        <v-btn
+          variant="outlined"
+          prepend-icon="mdi-shield-refresh-outline"
+          @click="enterSafeMode"
+        >
+          {{ t('account.recovery.enterSafeMode') }}
+        </v-btn>
+        <v-chip
+          v-if="cssCleared"
+          size="small"
+          color="success"
+          variant="tonal"
+          prepend-icon="mdi-check"
+        >
+          {{ t('account.recovery.cssCleared') }}
+        </v-chip>
+      </div>
+    </section>
+
     <!-- External link -->
     <section class="nest-section">
       <h2 class="nest-h2">{{ t('account.sections.manageTitle') }}</h2>
@@ -478,6 +544,14 @@ function kindChipColor(kind: string): string {
   gap: 6px;
   font-size: 11.5px;
   color: var(--nest-text-muted);
+}
+
+// ─── Recovery row ──────────────────────────────────────────
+.nest-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
 }
 
 // ─── Transaction list ──────────────────────────────────────

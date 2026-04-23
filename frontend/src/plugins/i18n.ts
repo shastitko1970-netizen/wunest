@@ -32,6 +32,8 @@ const messages = {
       settings: 'Настройки',
       studio: 'Studio',
       manageAccount: 'Аккаунт в WuApi',
+      safeMode: 'Безопасный режим',
+      safeModeSubtitle: 'если тема сломала интерфейс',
       byWusphere: 'часть wusphere.ru',
     },
     welcome: {
@@ -279,6 +281,13 @@ const messages = {
         placeholder: 'Например: ABCD-EFGH-JKMN',
         submit: 'Активировать',
         activatedBadge: 'Доступ активирован',
+      },
+      recovery: {
+        title: 'Проблемы с темой?',
+        body: 'Если импортированная из SillyTavern тема или кастомный CSS сломали интерфейс — используй один из вариантов ниже. «Сбросить кастомный CSS» удалит твой CSS целиком (фон и цвета останутся). «Безопасный режим» перезагрузит страницу с параметром ?safe, чтобы временно отключить весь пользовательский CSS и фоновое изображение.',
+        resetCss: 'Сбросить кастомный CSS',
+        enterSafeMode: 'Безопасный режим',
+        cssCleared: 'Кастомный CSS удалён',
       },
       periods: {
         today: 'Сегодня',
@@ -789,6 +798,8 @@ const messages = {
       settings: 'Settings',
       studio: 'Studio',
       manageAccount: 'WuApi account',
+      safeMode: 'Safe mode',
+      safeModeSubtitle: 'if a theme broke the UI',
       byWusphere: 'part of wusphere.ru',
     },
     welcome: {
@@ -1035,6 +1046,13 @@ const messages = {
         placeholder: 'e.g. ABCD-EFGH-JKMN',
         submit: 'Activate',
         activatedBadge: 'Access activated',
+      },
+      recovery: {
+        title: 'Theme issues?',
+        body: 'If an imported SillyTavern theme or custom CSS broke the interface, use one of the options below. "Clear custom CSS" removes your CSS completely (background and colors remain). "Safe mode" reloads the page with a ?safe parameter that temporarily disables all user CSS and background image.',
+        resetCss: 'Clear custom CSS',
+        enterSafeMode: 'Safe mode',
+        cssCleared: 'Custom CSS cleared',
       },
       periods: {
         today: 'Today',
