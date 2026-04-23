@@ -53,7 +53,7 @@ const messages = {
         },
         personas: {
           title: 'Персоны',
-          body: 'Выбери кого играешь в диалоге. Имя подставляется в {{user}}, описание добавляется в system prompt.',
+          body: "Выбери кого играешь в диалоге. Имя подставляется в {'{{user}}'}, описание добавляется в system prompt.",
         },
         presets: {
           title: 'Пресеты генерации',
@@ -739,6 +739,11 @@ const messages = {
       reset: 'Очистить CSS',
       exit: 'Выйти',
     },
+    authPrompt: {
+      title: 'Нужен вход',
+      body: 'Эта часть WuNest доступна только авторизованным пользователям. Войди через WuApi — это быстро.',
+      backHome: 'На главную',
+    },
   },
   en: {
     app: {
@@ -788,7 +793,7 @@ const messages = {
         },
         personas: {
           title: 'Personas',
-          body: 'Pick who you play. The name fills {{user}} macros; the description joins the system prompt.',
+          body: "Pick who you play. The name fills {'{{user}}'} macros; the description joins the system prompt.",
         },
         presets: {
           title: 'Generation presets',
@@ -1472,6 +1477,11 @@ const messages = {
       banner: 'Safe mode: custom CSS is disabled so the app chrome stays reachable.',
       reset: 'Clear CSS',
       exit: 'Exit',
+    },
+    authPrompt: {
+      title: 'Sign in required',
+      body: "This part of WuNest is only for signed-in users. It's a quick WuApi sign-in.",
+      backHome: 'Back to home',
     },
   },
 }

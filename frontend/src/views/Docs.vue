@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
-import { storeToRefs } from 'pinia'
-import { useAuthStore } from '@/stores/auth'
 import {
   TOPICS,
   CATEGORY_ORDER,
@@ -25,9 +23,6 @@ import {
 
 const { t, locale } = useI18n()
 const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const { authenticated } = storeToRefs(auth)
 
 const md = new MarkdownIt({
   html: false,
@@ -88,38 +83,10 @@ function topicTitle(t: DocTopic) {
 function topicSummary(t: DocTopic) {
   return t.summary[locale.value as 'ru' | 'en'] ?? t.summary.en
 }
-
-function goHome() {
-  router.push(authenticated.value ? '/chat' : '/')
-}
 </script>
 
 <template>
   <div class="nest-docs">
-    <!-- Header strip — brand mark + nav out. Minimal so both authed and
-         anon users see the same frame. -->
-    <header class="nest-docs-top">
-      <button class="nest-docs-logo" @click="goHome">
-        <span class="nest-docs-logo-mark">▲</span>
-        <span>WuNest</span>
-      </button>
-      <div class="nest-docs-top-nav">
-        <router-link to="/" class="nest-docs-top-link">
-          {{ t('docs.navAbout') }}
-        </router-link>
-        <router-link to="/docs" class="nest-docs-top-link active">
-          {{ t('docs.navDocs') }}
-        </router-link>
-        <button
-          v-if="!authenticated"
-          class="nest-docs-top-link login"
-          @click="goHome"
-        >
-          {{ t('docs.navLogin') }}
-        </button>
-      </div>
-    </header>
-
     <div class="nest-docs-layout">
       <!-- Left ToC -->
       <aside class="nest-docs-toc">

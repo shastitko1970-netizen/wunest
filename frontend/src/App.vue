@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { onMounted, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
 import AppShell from '@/layout/AppShell.vue'
-import LoginGate from '@/views/LoginGate.vue'
 import SafeModeBanner from '@/components/SafeModeBanner.vue'
 
 const auth = useAuthStore()
 const appearance = useAppearanceStore()
-const route = useRoute()
 const { authenticated, loading } = storeToRefs(auth)
 const { safeMode } = storeToRefs(appearance)
 
@@ -26,14 +23,6 @@ onMounted(() => {
 watch(authenticated, (ok) => {
   if (ok) void appearance.fetchFromServer()
 }, { immediate: true })
-
-// Public routes (landing + docs) bypass the auth gate so anonymous
-// visitors can discover the product and read docs before signing in.
-const isPublicRoute = computed(() => route.meta?.public === true)
-
-const showShell  = computed(() => !loading.value && authenticated.value)
-const showPublic = computed(() => !loading.value && !authenticated.value && isPublicRoute.value)
-const showLogin  = computed(() => !loading.value && !authenticated.value && !isPublicRoute.value)
 </script>
 
 <template>
@@ -47,14 +36,13 @@ const showLogin  = computed(() => !loading.value && !authenticated.value && !isP
     <div v-if="loading" class="nest-boot">
       <div class="nest-boot-spinner">▲</div>
     </div>
-    <AppShell v-else-if="showShell" />
-    <!-- Unauthenticated + on a public route (landing / docs) — render
-         the route directly; no chrome, no gate. Page components handle
-         their own navigation back to login. -->
-    <v-main v-else-if="showPublic">
-      <router-view />
-    </v-main>
-    <LoginGate v-else-if="showLogin" />
+    <!-- AppShell renders for everyone (authed or anon) so the main page
+         looks consistent across login states. Inside, AppShell shows a
+         "Sign in" CTA in the topbar when anon, and protected routes
+         fall back to an inline prompt rather than stealing the whole
+         viewport. The old standalone LoginGate is retained as a target
+         when the user explicitly clicks Sign In. -->
+    <AppShell v-else />
   </v-app>
 </template>
 

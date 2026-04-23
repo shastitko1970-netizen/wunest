@@ -11,10 +11,19 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const account = useAccountStore()
-const { profile } = storeToRefs(auth)
+const { profile, authenticated } = storeToRefs(auth)
 const { profile: accountProfile } = storeToRefs(account)
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
+
+// WuApi base URL. When the topbar "Sign in" button is clicked, we hit
+// /auth/refresh with a return_to of the current URL so the user lands
+// back where they were after login.
+const WUAPI_BASE = 'https://api.wusphere.ru'
+const loginUrl = computed(() => {
+  const returnTo = encodeURIComponent(window.location.href)
+  return `${WUAPI_BASE}/auth/refresh?return_to=${returnTo}`
+})
 
 // Viewport detection via raw matchMedia. The previous v-navigation-drawer
 // permanent-mode wasn't rendering reliably across setups, so on desktop we
@@ -37,11 +46,20 @@ onBeforeUnmount(() => mql?.removeEventListener('change', handleMQ))
 const drawerOpen = ref(false)
 
 // Topbar pulls from the account store because that view has the fullest
-// profile (and it's what Account.vue already refreshes). Auth store's
-// `profile` stays as the lightweight version used by the login gate.
+// profile (and it's what Account.vue already refreshes). Only fire for
+// authed users — the API call would 401 for anons and isn't useful.
 onMounted(() => {
-  if (!accountProfile.value) void account.fetchProfile()
+  if (authenticated.value && !accountProfile.value) void account.fetchProfile()
 })
+
+// Protected routes — anons hitting these should see the inline "sign
+// in to continue" card instead of the actual view. / and /docs* are
+// public; everything else requires a session.
+const PUBLIC_PATHS = ['/', '/docs']
+const isProtectedRoute = computed(() =>
+  !PUBLIC_PATHS.some(p => route.path === p || route.path.startsWith(p + '/')),
+)
+const showAuthPrompt = computed(() => !authenticated.value && isProtectedRoute.value)
 
 const displayProfile = computed(() => accountProfile.value ?? profile.value)
 
@@ -201,8 +219,8 @@ const localeLabel = (code: string) => {
         </v-list>
       </v-menu>
 
-      <!-- Avatar / account menu — holds Settings + Account + external link. -->
-      <v-menu v-if="displayProfile" location="bottom end" offset="4">
+      <!-- Avatar / account menu — only for authed users. -->
+      <v-menu v-if="authenticated && displayProfile" location="bottom end" offset="4">
         <template #activator="{ props: menuProps }">
           <v-btn icon v-bind="menuProps" size="small" variant="text">
             <v-avatar size="32" color="primary">
@@ -236,6 +254,19 @@ const localeLabel = (code: string) => {
           />
         </v-list>
       </v-menu>
+
+      <!-- Sign In CTA — replaces the avatar menu for anonymous visitors.
+           Keeps the topbar visually balanced and gives anons a constant
+           way to log in from wherever they are. returnTo = current URL
+           so they land back on the same page after login. -->
+      <a
+        v-else
+        :href="loginUrl"
+        class="nest-topbar-login"
+      >
+        <v-icon size="16" class="mr-1">mdi-login</v-icon>
+        {{ t('welcome.ctaLogin') }}
+      </a>
     </v-app-bar>
 
     <!-- Mobile-only overlay drawer. Not rendered on desktop at all so there's
@@ -276,7 +307,25 @@ const localeLabel = (code: string) => {
          SillyTavern; users sometimes target it to style the reading
          surface overall. -->
     <v-main id="sheld">
-      <router-view v-slot="{ Component }">
+      <!-- Anons landing on a protected route see an inline sign-in
+           prompt INSIDE the shell, not a standalone page — so they can
+           still navigate to /, /docs, and see the topbar. -->
+      <div v-if="showAuthPrompt" class="nest-auth-prompt">
+        <v-icon size="48" color="surface-variant">mdi-lock-outline</v-icon>
+        <h2 class="nest-h2 mt-4">{{ t('authPrompt.title') }}</h2>
+        <p class="nest-subtitle mt-2">{{ t('authPrompt.body') }}</p>
+        <div class="nest-auth-prompt-ctas mt-4">
+          <a :href="loginUrl" class="nest-auth-prompt-cta-primary">
+            <v-icon size="18" class="mr-2">mdi-login</v-icon>
+            {{ t('welcome.ctaLogin') }}
+          </a>
+          <button class="nest-auth-prompt-cta-secondary" @click="router.push('/')">
+            <v-icon size="18" class="mr-2">mdi-arrow-left</v-icon>
+            {{ t('authPrompt.backHome') }}
+          </button>
+        </div>
+      </div>
+      <router-view v-else v-slot="{ Component }">
         <transition name="nest-fade" mode="out-in">
           <component :is="Component" />
         </transition>
@@ -388,5 +437,70 @@ const localeLabel = (code: string) => {
     padding: 6px 8px;
     font-size: 12.5px;
   }
+}
+
+// Topbar Sign In — takes the avatar menu's slot for anon users. Same
+// right-edge rhythm as the avatar so the topbar doesn't shift when
+// the user logs in.
+.nest-topbar-login {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--nest-accent);
+  border-radius: var(--nest-radius-sm);
+  text-decoration: none;
+  transition: filter var(--nest-transition-fast);
+  &:hover { filter: brightness(1.1); }
+  .v-icon { color: #fff; }
+}
+
+// Inline "sign in to continue" card — shown instead of a protected
+// route's content when the visitor is anonymous. Looks like /chat's
+// empty-state hero so users recognise it as an "I need to do something
+// to unblock" screen, not an error.
+.nest-auth-prompt {
+  min-height: calc(100vh - var(--nest-header-height) - 40px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+  gap: 4px;
+}
+.nest-auth-prompt-ctas {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.nest-auth-prompt-cta-primary,
+.nest-auth-prompt-cta-secondary {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 22px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border-radius: var(--nest-radius);
+  cursor: pointer;
+  transition: transform var(--nest-transition-fast), filter var(--nest-transition-fast);
+  &:hover { transform: translateY(-1px); }
+}
+.nest-auth-prompt-cta-primary {
+  background: var(--nest-accent);
+  color: #fff;
+  text-decoration: none;
+  &:hover { filter: brightness(1.1); }
+  .v-icon { color: #fff; }
+}
+.nest-auth-prompt-cta-secondary {
+  border: 1px solid var(--nest-border);
+  color: var(--nest-text);
+  &:hover { border-color: var(--nest-accent); }
 }
 </style>
