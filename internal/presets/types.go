@@ -111,6 +111,159 @@ type ReasoningData struct {
 	Separator string `json:"separator,omitempty"`
 }
 
+// ─── OpenAI-style preset bundle (M32) ────────────────────────────────
+//
+// OpenAIBundleData is the full typed view of a SillyTavern "OpenAI-style"
+// completion preset. Unlike SamplerData (which covers the ~6 common
+// knobs), this struct understands the entire preset file so imported ST
+// presets like DarkNet V3 can be applied with their full behavior:
+//
+//   - 111 prompt blocks with per-block role + enabled + injection_position
+//     (the "Prompt Manager" in ST)
+//   - Regex scripts that munge user input and assistant output on the fly
+//     (jailbreak-style invisible-char tricks etc.)
+//   - Per-provider flags (Claude sysprompt handling, Gemini squash, …)
+//   - Continue / impersonation / group-nudge prompts
+//   - Multimodal gates (image/video inlining, function calling)
+//
+// Unknown fields in the preset data are preserved because our Preset.Data
+// is JSONB — this struct just gives the server a typed read path.
+type OpenAIBundleData struct {
+	// Sampler knobs (ST uses `openai_max_tokens`, we also read `max_tokens`).
+	Temperature        *float64 `json:"temperature,omitempty"`
+	TopP               *float64 `json:"top_p,omitempty"`
+	TopK               *int     `json:"top_k,omitempty"`
+	TopA               *float64 `json:"top_a,omitempty"`
+	MinP               *float64 `json:"min_p,omitempty"`
+	FrequencyPenalty   *float64 `json:"frequency_penalty,omitempty"`
+	PresencePenalty    *float64 `json:"presence_penalty,omitempty"`
+	RepetitionPenalty  *float64 `json:"repetition_penalty,omitempty"`
+	Seed               *int64   `json:"seed,omitempty"`
+	MaxTokens          *int     `json:"max_tokens,omitempty"`
+	OpenAIMaxTokens    *int     `json:"openai_max_tokens,omitempty"`
+	OpenAIMaxContext   *int     `json:"openai_max_context,omitempty"`
+	MaxContextUnlocked *bool    `json:"max_context_unlocked,omitempty"`
+	N                  *int     `json:"n,omitempty"`
+	StreamOpenAI       *bool    `json:"stream_openai,omitempty"`
+
+	// Prompt Manager: the array of named prompt blocks + the ordered list
+	// of which ones are enabled and in what order.
+	Prompts     []PromptBlock       `json:"prompts,omitempty"`
+	PromptOrder []PromptOrderGroup  `json:"prompt_order,omitempty"`
+
+	// Per-provider behavior / prefills.
+	AssistantPrefill       string `json:"assistant_prefill,omitempty"`
+	AssistantImpersonation string `json:"assistant_impersonation,omitempty"`
+	ClaudeUseSysprompt     *bool  `json:"claude_use_sysprompt,omitempty"`
+	UseMakersuiteSysprompt *bool  `json:"use_makersuite_sysprompt,omitempty"`
+	SquashSystemMessages   *bool  `json:"squash_system_messages,omitempty"`
+
+	// Continue / impersonation / nudge prompts.
+	NewChatPrompt        string `json:"new_chat_prompt,omitempty"`
+	NewGroupChatPrompt   string `json:"new_group_chat_prompt,omitempty"`
+	NewExampleChatPrompt string `json:"new_example_chat_prompt,omitempty"`
+	ContinueNudgePrompt  string `json:"continue_nudge_prompt,omitempty"`
+	ContinuePrefill      *bool  `json:"continue_prefill,omitempty"`
+	ContinuePostfix      string `json:"continue_postfix,omitempty"`
+	ImpersonationPrompt  string `json:"impersonation_prompt,omitempty"`
+	GroupNudgePrompt     string `json:"group_nudge_prompt,omitempty"`
+
+	// Format / output presentation.
+	WIFormat          string `json:"wi_format,omitempty"`
+	ScenarioFormat    string `json:"scenario_format,omitempty"`
+	PersonalityFormat string `json:"personality_format,omitempty"`
+	WrapInQuotes      *bool  `json:"wrap_in_quotes,omitempty"`
+	NamesBehavior     *int   `json:"names_behavior,omitempty"`
+	SendIfEmpty       string `json:"send_if_empty,omitempty"`
+
+	// Multimodal / tool use.
+	ImageInlining      *bool  `json:"image_inlining,omitempty"`
+	InlineImageQuality string `json:"inline_image_quality,omitempty"`
+	VideoInlining      *bool  `json:"video_inlining,omitempty"`
+	RequestImages      *bool  `json:"request_images,omitempty"`
+	FunctionCalling    *bool  `json:"function_calling,omitempty"`
+
+	// Reasoning / thinking.
+	ShowThoughts     *bool  `json:"show_thoughts,omitempty"`
+	ReasoningEffort  string `json:"reasoning_effort,omitempty"`
+	ReasoningEnabled *bool  `json:"reasoning_enabled,omitempty"`
+
+	// Other.
+	EnableWebSearch      *bool  `json:"enable_web_search,omitempty"`
+	BiasPresetSelected   string `json:"bias_preset_selected,omitempty"`
+	SystemPromptOverride string `json:"system_prompt,omitempty"`
+
+	// Extensions (regex scripts + future plug-ins).
+	Extensions ExtensionsBundle `json:"extensions,omitempty"`
+}
+
+// PromptBlock is one entry in the Prompt Manager list. Non-marker blocks
+// carry their own Content; marker blocks (identifier = "main",
+// "chatHistory", "charDescription", "worldInfoBefore", etc.) are
+// positional placeholders resolved against the chat's runtime context
+// (character / persona / lorebook) at prompt-assembly time.
+type PromptBlock struct {
+	Identifier        string `json:"identifier"`
+	Name              string `json:"name,omitempty"`
+	Role              string `json:"role,omitempty"` // "system" | "user" | "assistant"
+	Content           string `json:"content,omitempty"`
+	SystemPrompt      bool   `json:"system_prompt,omitempty"` // legacy "is this the main sysprompt" flag
+	Marker            bool   `json:"marker,omitempty"`        // true for positional placeholders
+	InjectionPosition *int   `json:"injection_position,omitempty"` // 0 = in system msg, 1 = relative chat depth
+	InjectionDepth    *int   `json:"injection_depth,omitempty"`
+	InjectionOrder    *int   `json:"injection_order,omitempty"`
+	ForbidOverrides   bool   `json:"forbid_overrides,omitempty"`
+}
+
+// PromptOrderGroup holds a per-character prompt ordering. ST stores one
+// entry per character_id, plus a "character_id: 100001" wildcard entry
+// that applies to every chat (our primary use).
+type PromptOrderGroup struct {
+	CharacterID int                `json:"character_id"`
+	Order       []PromptOrderEntry `json:"order,omitempty"`
+}
+
+type PromptOrderEntry struct {
+	Identifier string `json:"identifier"`
+	Enabled    bool   `json:"enabled"`
+}
+
+// ExtensionsBundle holds preset-level plug-in data. Currently: regex
+// scripts. ST also stores misc per-extension config here; unknown keys
+// are preserved via the top-level Data blob's round-trip.
+type ExtensionsBundle struct {
+	RegexScripts []RegexScript `json:"regex_scripts,omitempty"`
+}
+
+// RegexScript is a find/replace transform applied at one of the numbered
+// `placement` stages. ST uses:
+//
+//	1 = user input (before send)
+//	2 = assistant output (before display)
+//	3 = slash commands (unused here)
+//	4 = world info lookup (unused here)
+//	5 = reasoning block (unused here)
+//	6 = display text (post-render)
+//
+// Scripts with `disabled: true` are silently skipped. `markdownOnly` means
+// apply only when the text has markdown (we apply unconditionally for
+// now — matches ST's default when `promptOnly` is false).
+type RegexScript struct {
+	ID              string   `json:"id,omitempty"`
+	ScriptName      string   `json:"scriptName,omitempty"`
+	FindRegex       string   `json:"findRegex"`
+	ReplaceString   string   `json:"replaceString"`
+	TrimStrings     []string `json:"trimStrings,omitempty"`
+	Placement       []int    `json:"placement,omitempty"`
+	Disabled        bool     `json:"disabled,omitempty"`
+	MarkdownOnly    bool     `json:"markdownOnly,omitempty"`
+	PromptOnly      bool     `json:"promptOnly,omitempty"`
+	RunOnEdit       bool     `json:"runOnEdit,omitempty"`
+	SubstituteRegex int      `json:"substituteRegex,omitempty"`
+	MinDepth        *int     `json:"minDepth,omitempty"`
+	MaxDepth        *int     `json:"maxDepth,omitempty"`
+}
+
 // AsSampler parses Data as SamplerData. Returns a zero value if the
 // payload doesn't decode cleanly (e.g. a non-sampler preset fed in by
 // mistake) rather than erroring, so callers can fall through to defaults.
@@ -127,6 +280,20 @@ func (p Preset) AsSysprompt() SyspromptData {
 	var s SyspromptData
 	_ = json.Unmarshal(p.Data, &s)
 	return s
+}
+
+// AsOpenAIBundle parses Data as OpenAIBundleData — the full SillyTavern
+// OpenAI-style preset including prompts[] + prompt_order[] (Prompt Manager),
+// regex scripts, per-provider flags, and every sampler knob. Zero-value on
+// decode failure, same policy as AsSampler.
+//
+// This is the "full" view — use it when the UI / prompt assembly needs to
+// respect the preset's richer semantics (M32). Callers that only want the
+// flat sampler numbers can keep calling AsSampler().
+func (p Preset) AsOpenAIBundle() OpenAIBundleData {
+	var b OpenAIBundleData
+	_ = json.Unmarshal(p.Data, &b)
+	return b
 }
 
 // CreateInput is the payload for POST /api/presets.

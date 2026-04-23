@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 )
 
@@ -27,6 +28,14 @@ type PromptInput struct {
 	SystemPromptOverride string                // if non-empty, replaces the character-derived system message entirely
 	Worlds               []*worldinfo.World    // lorebooks attached to this chat/character
 	AuthorsNote          *AuthorsNote          // optional mid-history injection
+
+	// Bundle is the ST-style full preset (prompts + prompt_order + regex
+	// + per-provider flags) if the user's active sampler preset carries
+	// those fields. When non-nil with a populated prompts/prompt_order,
+	// Build() delegates to BuildBundleMessages for full ST-semantics
+	// prompt assembly. Falls back to the legacy path otherwise so old
+	// skinny presets keep working unchanged.
+	Bundle *presets.OpenAIBundleData
 }
 
 // AuthorsNote is a block of prose injected into the prompt at a specific
@@ -41,20 +50,27 @@ type AuthorsNote struct {
 
 // Build returns the OpenAI-compatible messages[] to send to WuApi.
 //
-// Assembly order (simple V1):
-//  1. System message: character description / personality / scenario
-//     (with macros {{char}}, {{user}}, {{random::a,b}} substituted).
-//  2. For each history entry: map Role → "user" | "assistant" and copy content.
-//     Macros are substituted in every turn, so inserts from the UI still work.
+// Two paths:
 //
-// Intentionally omitted in this version (will land later):
-//   - Author's Note depth injection
-//   - Regex input rules
-//   - Mes example few-shot priming
-//   - Instruct-mode wrapping (for text-completion backends)
+//   1. Bundle present (M32) — the active sampler preset has prompts[] +
+//      prompt_order[] (imported ST-style preset like DarkNet V3). Delegate
+//      to BuildBundleMessages which walks prompt_order, resolves marker
+//      prompts against character/persona/lorebook, and assembles messages
+//      with full ST semantics (injection_position, depth, squash, prefill).
 //
-// World Info / Lorebook activation runs inside buildSystem.
+//   2. Legacy — the skinny sampler preset or no preset. Build a single
+//      system message from character description + persona + lorebook
+//      (original behavior).
+//
+// World Info / Lorebook activation runs inside buildSystem for path 2, and
+// inside resolveContentMarker for path 1 (via the worldInfoBefore/After
+// markers).
 func Build(in PromptInput) []ChatMessage {
+	// Bundle path — applies when the preset has a Prompt Manager config.
+	if msgs := BuildBundleMessages(in.Bundle, in); msgs != nil {
+		return msgs
+	}
+
 	out := make([]ChatMessage, 0, len(in.History)+1)
 
 	// SystemPromptOverride wins over everything else. Comes from the chat's

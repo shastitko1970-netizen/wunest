@@ -75,6 +75,7 @@ func (h *Handler) streamChatRegen(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Bundle:               in.Bundle,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
@@ -198,6 +199,12 @@ func (h *Handler) pipeStream(
 
 	final := accumulator.String()
 	cleanContent, reasoning := ExtractThinking(final)
+	// M32: Run assistant-output regex scripts on the final content before
+	// persisting. Typical use: strip HTML that jailbreak prompts request,
+	// remove the unicode-invisible chars used to bypass filters, etc.
+	// No-op when the bundle has no placement=2 scripts (including when
+	// there's no bundle at all).
+	cleanContent = ApplyRegexToAIOutput(in.Bundle, cleanContent)
 	extras := &MessageExtras{
 		Model:        model,
 		Reasoning:    reasoning,
@@ -293,6 +300,7 @@ func (h *Handler) streamChat(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Bundle:               in.Bundle,
 	})
 
 	// Convert to the loose map[string]any that wuapi expects.
@@ -422,6 +430,12 @@ func (h *Handler) streamChat(
 	// content is unchanged and reasoning is empty.
 	final := accumulator.String()
 	cleanContent, reasoning := ExtractThinking(final)
+	// M32: Run assistant-output regex scripts on the final content before
+	// persisting. Typical use: strip HTML that jailbreak prompts request,
+	// remove the unicode-invisible chars used to bypass filters, etc.
+	// No-op when the bundle has no placement=2 scripts (including when
+	// there's no bundle at all).
+	cleanContent = ApplyRegexToAIOutput(in.Bundle, cleanContent)
 
 	extras := &MessageExtras{
 		Model:        model,
@@ -596,6 +610,7 @@ func (h *Handler) streamChatSwipe(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Bundle:               in.Bundle,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
@@ -715,6 +730,12 @@ func (h *Handler) pipeStreamSwipe(
 
 	final := accumulator.String()
 	cleanContent, reasoning := ExtractThinking(final)
+	// M32: Run assistant-output regex scripts on the final content before
+	// persisting. Typical use: strip HTML that jailbreak prompts request,
+	// remove the unicode-invisible chars used to bypass filters, etc.
+	// No-op when the bundle has no placement=2 scripts (including when
+	// there's no bundle at all).
+	cleanContent = ApplyRegexToAIOutput(in.Bundle, cleanContent)
 	extras := &MessageExtras{
 		Model:        model,
 		Reasoning:    reasoning,

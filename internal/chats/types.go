@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shastitko1970-netizen/wunest/internal/presets"
 )
 
 // Chat represents a single conversation thread.
@@ -101,6 +102,12 @@ type SendMessageInput struct {
 	// Server-populated from chat_metadata.authors_note right before the
 	// prompt is built; not accepted from the wire body.
 	AuthorsNote *AuthorsNote `json:"-"`
+	// Bundle is the full ST-style preset payload (prompts + prompt_order +
+	// regex scripts + per-provider flags) extracted from the user's active
+	// sampler preset. Server-populated in applyActivePresets so prompt
+	// assembly can walk the Prompt Manager and regex scripts can mangle
+	// the outgoing content. Never accepted from the wire.
+	Bundle *presets.OpenAIBundleData `json:"-"`
 }
 
 // ChatSamplerMetadata is the shape of chat_metadata.sampler. Stored as

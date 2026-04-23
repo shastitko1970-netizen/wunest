@@ -450,6 +450,12 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
+	// M32: Run user-input regex scripts BEFORE streaming so the message
+	// stored in DB matches what the model will see. Typical ST scripts
+	// replace spaces with unicode-invisible chars (jailbreak) or strip
+	// HTML; harmless no-op when the bundle has no placement=1 scripts.
+	in.Content = ApplyRegexToUserInput(in.Bundle, in.Content)
+
 	// Stream.
 	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, up, userName, userDesc, in)
 }
@@ -530,6 +536,9 @@ func (h *Handler) applyActivePresets(ctx context.Context, userID uuid.UUID, in S
 	}
 
 	// Sampler — numeric knobs + stop + reasoning + fallback system prompt.
+	// We also decode the FULL ST bundle (prompts + prompt_order + regex)
+	// so prompt assembly downstream can use it when present. One Get() call
+	// serves both paths; AsSampler and AsOpenAIBundle share the JSONB.
 	if id, ok := settings.DefaultPresets[string(presets.TypeSampler)]; ok && id != uuid.Nil {
 		if p, err := h.Presets.Get(ctx, userID, id); err == nil && p != nil {
 			s := p.AsSampler()
@@ -550,6 +559,17 @@ func (h *Handler) applyActivePresets(ctx context.Context, userID uuid.UUID, in S
 			}
 			if in.SystemPromptOverride == "" && s.SystemPromptOverride != "" {
 				in.SystemPromptOverride = s.SystemPromptOverride
+			}
+			// Full bundle — attach when the preset carries Prompt Manager
+			// or regex data. Cheap if absent (empty slices).
+			bundle := p.AsOpenAIBundle()
+			if len(bundle.Prompts) > 0 || len(bundle.Extensions.RegexScripts) > 0 {
+				in.Bundle = &bundle
+				// ST often stores max_tokens under `openai_max_tokens`;
+				// surface it to the sampler flow if still unset.
+				if in.MaxTokens == nil && bundle.OpenAIMaxTokens != nil {
+					in.MaxTokens = bundle.OpenAIMaxTokens
+				}
 			}
 		}
 	}
