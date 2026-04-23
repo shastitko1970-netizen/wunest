@@ -466,11 +466,35 @@ const lastAssistantId = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  // Let the title column shrink when tools get crowded; without this the
+  // flex parent keeps the title at its natural width and pushes the
+  // tools right edge off-screen on narrow phones.
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+
+  .nest-chat-name,
+  .nest-chat-char {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 .nest-chat-tools {
   display: flex;
   align-items: center;
   gap: 4px;
+  // Cap width so buttons don't shove the chat title off-screen on narrow
+  // viewports, and allow horizontal scroll as a fallback when the sum of
+  // tools still exceeds that cap. Without min-width:0 the flexbox parent
+  // refuses to shrink this child, leaving the topbar uneditable on some
+  // Android keyboards.
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
 }
 // Active-preset chip in the chat header. Visually kin to the nav-chip
 // pattern used elsewhere — subtle outline, gets a primary-accent border
@@ -490,6 +514,8 @@ const lastAssistantId = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;          // let flex shrink it under pressure
+  flex-shrink: 1;
   transition: border-color var(--nest-transition-fast), color var(--nest-transition-fast);
 
   &:hover {
@@ -585,6 +611,13 @@ const lastAssistantId = computed(() => {
   .nest-ctx-chip    { display: none; }
   .nest-chat-tools  { gap: 0; }
   .nest-chat-tools .v-btn { --v-btn-size: 28px; }
+  // Preset chip gets tighter on phones. The label is still there but
+  // capped harder so it can't shove the Send-settings button off-screen.
+  .nest-preset-chip {
+    max-width: 96px;
+    padding: 3px 6px;
+    font-size: 10.5px;
+  }
   .nest-chat-messages { padding: 14px 12px 56px; }
   .nest-chat-input    { padding: 10px 12px max(14px, env(safe-area-inset-bottom)); }
 }

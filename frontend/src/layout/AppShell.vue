@@ -143,6 +143,17 @@ function enterSafeMode() {
   window.location.replace(url.toString())
 }
 
+// ─── Mobile drawer nav click ──────────────────────────────
+// Single path for every drawer tap: close drawer, then route. For gated
+// items (Chat / Library while the user hasn't redeemed a code) we send
+// them to /account where the redeem form lives — so even a tap on a
+// locked row gets them somewhere useful instead of doing nothing.
+function onMobileNavClick(item: NavItem) {
+  drawerOpen.value = false
+  const to = item.disabled ? '/account' : item.to
+  router.push(to)
+}
+
 const localeLabel = (code: string) => {
   switch (code) {
     case 'ru': return 'Русский'
@@ -333,34 +344,45 @@ const localeLabel = (code: string) => {
       :elevation="0"
     >
       <v-list nav density="comfortable" class="pa-2">
+        <!-- Explicit click-handler navigation. We used to set `:to` when
+             item.disabled was false, but Vuetify + router-link bindings
+             plus a parallel @click handler raced in some Android WebView
+             builds and landed on neither navigate-nor-close. Now every
+             item goes through one path: close drawer, then router.push —
+             disabled rows are redirected to /account so the access-code
+             form is one tap away. -->
         <v-list-item
           v-for="item in navItems"
           :key="item.to"
-          :to="item.disabled ? undefined : item.to"
           :prepend-icon="item.icon"
           :title="item.label"
-          :disabled="item.disabled"
           :active="isNavActive(item.to)"
+          :class="['mb-1', { 'nest-nav-gated': item.disabled }]"
           rounded="lg"
-          class="mb-1"
-          @click="drawerOpen = false"
-        />
+          @click="onMobileNavClick(item)"
+        >
+          <template v-if="item.disabled" #append>
+            <v-icon size="14" class="nest-nav-lock">mdi-lock</v-icon>
+          </template>
+        </v-list-item>
       </v-list>
       <template #append>
-        <!-- Safe-mode entry on mobile too — avatar menu is a tiny
-             tap target and can get covered by hostile CSS. Here it's
-             pinned to the drawer footer where users already look. -->
-        <v-list density="compact" class="px-2 pb-1">
-          <v-list-item
-            :title="t('nav.safeMode')"
-            prepend-icon="mdi-shield-refresh-outline"
-            rounded="lg"
-            @click="drawerOpen = false; enterSafeMode()"
-          />
-        </v-list>
-        <div class="pa-3 nest-caption text-medium-emphasis">
-          <div>WuNest <span class="nest-mono">v0.1</span></div>
-          <div>{{ t('nav.byWusphere') }}</div>
+        <!-- Safe-mode + version caption wrapped in a single container —
+             Vuetify's #append slot consumes one root, extra siblings can
+             get dropped silently on some versions. -->
+        <div>
+          <v-list density="compact" class="px-2 pb-1">
+            <v-list-item
+              :title="t('nav.safeMode')"
+              prepend-icon="mdi-shield-refresh-outline"
+              rounded="lg"
+              @click="drawerOpen = false; enterSafeMode()"
+            />
+          </v-list>
+          <div class="pa-3 nest-caption text-medium-emphasis">
+            <div>WuNest <span class="nest-mono">v0.1</span></div>
+            <div>{{ t('nav.byWusphere') }}</div>
+          </div>
         </div>
       </template>
     </v-navigation-drawer>
@@ -484,6 +506,21 @@ const localeLabel = (code: string) => {
   }
 }
 .nest-topnav-lock { opacity: 0.7; }
+
+// Mobile drawer — gated nav rows are dimmed + get a trailing lock icon.
+// Kept clickable (routes to /account) so the tap always lands somewhere
+// useful instead of feeling unresponsive.
+.nest-nav-gated {
+  opacity: 0.6;
+
+  :deep(.v-list-item-title) {
+    color: var(--nest-text-muted);
+  }
+}
+.nest-nav-lock {
+  color: var(--nest-text-muted);
+  opacity: 0.7;
+}
 
 .nest-sidebar {
   background: var(--nest-bg-elevated) !important;
