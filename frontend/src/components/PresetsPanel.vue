@@ -166,6 +166,35 @@ async function doDelete() {
 
 function formatDate(iso: string): string { return new Date(iso).toLocaleDateString() }
 
+/**
+ * Summarize the content of a sampler/openai preset in one short label —
+ * "111 prompts · 4 regex · prefill" — so the row shows at a glance that
+ * an imported ST preset carries rich internals the user can tune. Non-
+ * sampler types return empty (their internals are already just a handful
+ * of fields; no point advertising "3 fields").
+ */
+function summarizeBundle(p: Preset): string {
+  if (p.type !== 'sampler' && p.type !== 'openai') return ''
+  const data = (p.data ?? {}) as Record<string, any>
+  const parts: string[] = []
+  const promptOrder = Array.isArray(data.prompt_order) ? data.prompt_order : []
+  if (promptOrder.length > 0) {
+    const wildcard = promptOrder.find((g: any) => g?.character_id === 100001) ?? promptOrder[0]
+    const order = Array.isArray(wildcard?.order) ? wildcard.order : []
+    if (order.length > 0) {
+      parts.push(t('presets.rowSummary.prompts', { n: order.length }))
+    }
+  }
+  const regex = data.extensions?.regex_scripts
+  if (Array.isArray(regex) && regex.length > 0) {
+    parts.push(t('presets.rowSummary.regex', { n: regex.length }))
+  }
+  if (typeof data.assistant_prefill === 'string' && data.assistant_prefill.trim()) {
+    parts.push(t('presets.rowSummary.prefill'))
+  }
+  return parts.join(' · ')
+}
+
 // When the user clicks "New" with a specific type filter active, pre-pick
 // that type in the editor. "All" filter falls through to sampler (the most
 // common type users create first).
@@ -274,7 +303,11 @@ function createForCurrentFilter() {
           'json-open': jsonViewId === p.id,
         }"
       >
-        <div class="nest-preset-main">
+        <!-- Main click target — whole row (minus action buttons) toggles
+             the inline editor. Having click-only-pencil surfaces was
+             hiding the editor behind a tiny tap-target most users never
+             noticed. -->
+        <div class="nest-preset-main" @click="openEdit(p)">
           <div class="nest-preset-title">
             <v-chip
               size="x-small"
@@ -296,23 +329,28 @@ function createForCurrentFilter() {
               {{ t('presets.activeBadge') }}
             </v-chip>
           </div>
-          <div class="nest-mono nest-preset-meta">
-            {{ formatDate(p.updated_at) }}
+          <!-- Bundle summary + date. Sampler/openai rows carrying a
+               Prompt Manager or regex scripts surface that in plain
+               text so users never miss "111 prompts" is in there. -->
+          <div class="nest-preset-meta nest-mono">
+            <span v-if="summarizeBundle(p)" class="nest-preset-summary">
+              {{ summarizeBundle(p) }}
+            </span>
+            <span v-if="summarizeBundle(p)" class="nest-preset-sep">·</span>
+            <span>{{ formatDate(p.updated_at) }}</span>
           </div>
         </div>
 
-        <div class="nest-preset-actions">
-          <!-- The big "Apply" / "Applied ✓" action. Explicit verb
-               instead of an abstract v-switch — users kept treating
-               the switch as a feature-flag. Clicking when already
-               applied deactivates (no active preset of this type). -->
+        <!-- Action buttons. @click.stop on each so clicking a button
+             doesn't also fire the row-open handler on nest-preset-main. -->
+        <div class="nest-preset-actions" @click.stop>
           <v-btn
             v-if="!isActive(p)"
             size="small"
             variant="outlined"
             color="primary"
             prepend-icon="mdi-play-circle-outline"
-            @click="apply(p)"
+            @click.stop="apply(p)"
           >
             {{ t('presets.actions.apply') }}
           </v-btn>
@@ -323,7 +361,7 @@ function createForCurrentFilter() {
             color="success"
             prepend-icon="mdi-check-circle"
             :title="t('presets.actions.clickToDeactivate')"
-            @click="unapply(p)"
+            @click.stop="unapply(p)"
           >
             {{ t('presets.actions.applied') }}
           </v-btn>
@@ -332,26 +370,26 @@ function createForCurrentFilter() {
             :title="expandedId === p.id ? t('common.close') : t('presets.actions.edit')"
             :icon="expandedId === p.id ? 'mdi-close' : 'mdi-pencil-outline'"
             :color="expandedId === p.id ? 'primary' : undefined"
-            @click="openEdit(p)"
+            @click.stop="openEdit(p)"
           />
           <v-btn
             size="x-small" variant="text"
             :title="t('presets.actions.view')"
             icon="mdi-code-braces"
             :color="jsonViewId === p.id ? 'primary' : undefined"
-            @click="toggleJsonView(p.id)"
+            @click.stop="toggleJsonView(p.id)"
           />
           <v-btn
             size="x-small" variant="text"
             :title="t('presets.actions.export')"
             icon="mdi-download-outline"
-            @click="exportPreset(p)"
+            @click.stop="exportPreset(p)"
           />
           <v-btn
             size="x-small" variant="text" color="error"
             :title="t('common.delete')"
             icon="mdi-delete-outline"
-            @click="confirmDeleteId = p.id"
+            @click.stop="confirmDeleteId = p.id"
           />
         </div>
 
@@ -530,6 +568,10 @@ function createForCurrentFilter() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  cursor: pointer;
+  // A whisper of feedback on row click — the border on the parent row
+  // already lights up when `editing` class is active, so no extra hover
+  // effect is needed here; just advertise it's clickable.
 }
 
 .nest-preset-title {
@@ -552,6 +594,21 @@ function createForCurrentFilter() {
 .nest-preset-meta {
   font-size: 11px;
   color: var(--nest-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+// Bundle summary ("111 prompts · 4 regex · prefill") — subtly highlighted
+// so users see it's the "what's in this preset" indicator.
+.nest-preset-summary {
+  color: var(--nest-text-secondary);
+  font-weight: 500;
+}
+.nest-preset-sep {
+  color: var(--nest-text-muted);
+  opacity: 0.5;
 }
 
 .nest-preset-actions {

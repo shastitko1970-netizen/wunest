@@ -73,10 +73,12 @@ const stopText = ref('')   // comma-separated textbox for sampler.stop
 const saving = ref(false)
 const apiError = ref<string | null>(null)
 
-// Sub-tab within the Form tab for sampler/openai. "sampler" = existing
-// knob sliders (+ progressive disclosure), "prompts" = Prompt Manager,
-// "regex" = regex scripts, "advanced" = misc ST flags.
-const samplerTab = ref<'sampler' | 'prompts' | 'regex' | 'advanced'>('sampler')
+// Active tab. For sampler/openai: sampler | prompts | regex | advanced | raw.
+// For other preset types (instruct/context/sysprompt/reasoning): form | raw.
+// Flat one-level tab bar — the previous two-level nesting (Form → Sampler)
+// hid the Prompt Manager so well that users thought the UI didn't exist.
+type TabKey = 'sampler' | 'prompts' | 'regex' | 'advanced' | 'raw' | 'form'
+const activeTab = ref<TabKey>('sampler')
 
 // Counts for the tab chips so users see "3 regex scripts" at a glance
 // instead of needing to click through.
@@ -87,13 +89,17 @@ const promptCount = computed(() => {
 })
 const regexCount = computed(() => bundle.value.extensions?.regex_scripts?.length ?? 0)
 
-// Form vs. Raw JSON tab state. Raw mode lets the user edit the
-// JSONB payload directly — useful for ST fields we don't surface
-// (mirostat_*, tfs, xtc_*, dry_*, etc.) which round-trip but are
-// otherwise invisible in the form.
-const viewMode = ref<'form' | 'raw'>('form')
+// Raw-JSON mode state. Raw lets the user edit the JSONB payload
+// directly — useful for ST fields we don't surface (mirostat_*, tfs,
+// xtc_*, dry_*, etc.) which round-trip but are otherwise invisible.
 const rawText = ref('')
 const rawError = ref<string | null>(null)
+
+// Initial default tab depends on the preset type. For sampler/openai
+// we start on the sampler knobs; for template types on the single form.
+function defaultTabFor(tp: PresetType): TabKey {
+  return (tp === 'sampler' || tp === 'openai') ? 'sampler' : 'form'
+}
 
 // Hydrate on mount AND whenever the source preset changes (e.g. parent
 // swaps between different rows without unmounting the form).
@@ -117,6 +123,7 @@ watch(
       reasoning.value = defaultReasoning()
       stopText.value = ''
     }
+    activeTab.value = defaultTabFor(type.value)
     rawText.value = JSON.stringify(buildData(), null, 2)
   },
   { immediate: true },
@@ -127,7 +134,7 @@ watch(
 watch(
   [bundle, instruct, context, sysprompt, reasoning, stopText, type],
   () => {
-    if (viewMode.value === 'form') {
+    if (activeTab.value !== 'raw') {
       rawText.value = JSON.stringify(buildData(), null, 2)
     }
   },
@@ -339,24 +346,27 @@ function syncRawToForm(): boolean {
   }
 }
 
-function onTabChange(to: 'form' | 'raw') {
+function onTabChange(to: TabKey) {
+  // Leaving Raw tab — parse JSON back into the typed refs. If the
+  // JSON is broken, block the tab switch so the user can't lose
+  // edits by navigating away from a malformed raw payload.
+  if (activeTab.value === 'raw' && to !== 'raw') {
+    if (!syncRawToForm()) return
+  }
+  // Entering Raw tab — refresh the text from whatever the form now
+  // holds so the user sees live state, not stale JSON.
   if (to === 'raw') {
     rawText.value = JSON.stringify(buildData(), null, 2)
     rawError.value = null
-  } else {
-    // Re-entering form from raw — sync any edits the user made. If the
-    // JSON is broken, block the tab switch with an error message but
-    // keep them on the raw tab so they can fix it.
-    if (!syncRawToForm()) return
   }
-  viewMode.value = to
+  activeTab.value = to
 }
 
 // Preserve unknown-to-our-schema fields from the source preset so round-
 // trip is lossless even if we only edit one slider.
 function buildData(): unknown {
-  // When the user was last on the raw tab, that's the source of truth.
-  if (viewMode.value === 'raw') {
+  // When the user is on the raw tab, that's the source of truth.
+  if (activeTab.value === 'raw') {
     try { return JSON.parse(rawText.value || '{}') }
     catch { /* fall through to typed build below */ }
   }
@@ -378,7 +388,7 @@ function buildData(): unknown {
 
 async function save() {
   // Raw mode: parse once more before save so any last edits are picked up.
-  if (viewMode.value === 'raw' && !syncRawToForm()) return
+  if (activeTab.value === 'raw' && !syncRawToForm()) return
   if (!name.value.trim()) {
     apiError.value = t('presets.editor.nameRequired')
     return
@@ -415,26 +425,11 @@ function cancel() {
 
 <template>
   <div class="nest-preset-form">
-    <!-- Form / Raw JSON tabs -->
-    <v-tabs
-      :model-value="viewMode"
-      density="compact"
-      class="nest-form-tabs mb-3"
-      @update:model-value="v => onTabChange(v as 'form' | 'raw')"
-    >
-      <v-tab value="form" class="nest-mono">
-        <v-icon size="14" class="mr-1">mdi-form-select</v-icon>
-        {{ t('presets.editor.tabForm') }}
-      </v-tab>
-      <v-tab value="raw" class="nest-mono">
-        <v-icon size="14" class="mr-1">mdi-code-json</v-icon>
-        {{ t('presets.editor.tabRaw') }}
-      </v-tab>
-    </v-tabs>
-
-    <!-- ──────────────────── Form mode ──────────────────── -->
-    <div v-if="viewMode === 'form'" class="nest-form-body">
-      <!-- Type picker + Name -->
+    <!-- Always-visible header: type + name + (starter chips for new sampler).
+         Preset identity goes OUTSIDE the tab bar — it's metadata every
+         tab needs, and flattening it means users don't lose sight of
+         which preset they're editing when they switch tabs. -->
+    <div class="nest-form-header">
       <div class="nest-field-row">
         <div class="nest-field nest-field-half">
           <label class="nest-field-label">{{ t('presets.editor.typeLabel') }}</label>
@@ -459,7 +454,7 @@ function cancel() {
         </div>
       </div>
 
-      <!-- Starter templates (new sampler only) -->
+      <!-- Starter templates (new sampler/openai only). -->
       <div
         v-if="!isEdit && (type === 'sampler' || type === 'openai')"
         class="nest-starter-row"
@@ -478,54 +473,72 @@ function cancel() {
           {{ tpl.label }}
         </v-chip>
       </div>
+    </div>
 
-      <!-- ── Sampler / OpenAI ────────────────────────────────── -->
+    <!-- Single flat tab bar — no more Form/Raw wrapping an inner
+         Sampler/Prompts/… row. For sampler/openai: 5 tabs in one row.
+         For template types: just Form + Raw. Counts surface on Prompts
+         and Regex so "111 prompts" is visible at first glance. -->
+    <v-tabs
+      :model-value="activeTab"
+      density="compact"
+      show-arrows
+      class="nest-form-tabs mb-3"
+      @update:model-value="v => onTabChange(v as TabKey)"
+    >
       <template v-if="type === 'sampler' || type === 'openai'">
-        <!-- Sub-tab bar: Sampler knobs | Prompt Manager | Regex |
-             Advanced. Counts shown on non-empty tabs so users can tell
-             at a glance there's content to inspect. -->
-        <v-tabs
-          v-model="samplerTab"
-          density="compact"
-          class="nest-subtabs mb-3"
-        >
-          <v-tab value="sampler" class="nest-mono">
-            <v-icon size="14" class="mr-1">mdi-tune-variant</v-icon>
-            {{ t('presets.subtab.sampler') }}
-          </v-tab>
-          <v-tab value="prompts" class="nest-mono">
-            <v-icon size="14" class="mr-1">mdi-format-list-bulleted-square</v-icon>
-            {{ t('presets.subtab.prompts') }}
-            <span v-if="promptCount > 0" class="nest-subtab-count">{{ promptCount }}</span>
-          </v-tab>
-          <v-tab value="regex" class="nest-mono">
-            <v-icon size="14" class="mr-1">mdi-regex</v-icon>
-            {{ t('presets.subtab.regex') }}
-            <span v-if="regexCount > 0" class="nest-subtab-count">{{ regexCount }}</span>
-          </v-tab>
-          <v-tab value="advanced" class="nest-mono">
-            <v-icon size="14" class="mr-1">mdi-cog-outline</v-icon>
-            {{ t('presets.subtab.advanced') }}
-          </v-tab>
-        </v-tabs>
+        <v-tab value="sampler" class="nest-mono">
+          <v-icon size="14" class="mr-1">mdi-tune-variant</v-icon>
+          {{ t('presets.subtab.sampler') }}
+        </v-tab>
+        <v-tab value="prompts" class="nest-mono">
+          <v-icon size="14" class="mr-1">mdi-format-list-bulleted-square</v-icon>
+          {{ t('presets.subtab.prompts') }}
+          <span v-if="promptCount > 0" class="nest-subtab-count">{{ promptCount }}</span>
+        </v-tab>
+        <v-tab value="regex" class="nest-mono">
+          <v-icon size="14" class="mr-1">mdi-regex</v-icon>
+          {{ t('presets.subtab.regex') }}
+          <span v-if="regexCount > 0" class="nest-subtab-count">{{ regexCount }}</span>
+        </v-tab>
+        <v-tab value="advanced" class="nest-mono">
+          <v-icon size="14" class="mr-1">mdi-cog-outline</v-icon>
+          {{ t('presets.subtab.advanced') }}
+        </v-tab>
+      </template>
+      <v-tab v-else value="form" class="nest-mono">
+        <v-icon size="14" class="mr-1">mdi-form-select</v-icon>
+        {{ t('presets.editor.tabForm') }}
+      </v-tab>
+      <v-tab value="raw" class="nest-mono">
+        <v-icon size="14" class="mr-1">mdi-code-json</v-icon>
+        {{ t('presets.editor.tabRaw') }}
+      </v-tab>
+    </v-tabs>
 
-        <!-- Prompt Manager sub-tab — 111-style prompt list with toggles. -->
-        <div v-if="samplerTab === 'prompts'">
-          <PromptManagerPanel v-model="bundle" />
-        </div>
+    <!-- ──────────────────── Tab bodies ──────────────────── -->
+    <div class="nest-form-body">
+      <!-- Prompt Manager — 111-style prompt list with toggles. -->
+      <div v-if="activeTab === 'prompts'">
+        <PromptManagerPanel v-model="bundle" />
+      </div>
 
-        <!-- Regex sub-tab — extensions.regex_scripts editor. -->
-        <div v-else-if="samplerTab === 'regex'">
-          <RegexScriptsPanel v-model="bundle" />
-        </div>
+      <!-- Regex scripts editor. -->
+      <div v-else-if="activeTab === 'regex'">
+        <RegexScriptsPanel v-model="bundle" />
+      </div>
 
-        <!-- Advanced sub-tab — prefill / squash / multimodal / format. -->
-        <div v-else-if="samplerTab === 'advanced'">
-          <AdvancedBundlePanel v-model="bundle" />
-        </div>
+      <!-- Advanced bundle flags. -->
+      <div v-else-if="activeTab === 'advanced'">
+        <AdvancedBundlePanel v-model="bundle" />
+      </div>
 
-        <!-- Sampler knobs sub-tab (default). -->
-        <div v-else>
+      <!-- Sampler knobs (for sampler/openai) or typed form (for
+           instruct/context/sysprompt/reasoning). Both share this
+           branch — only one renders at a time based on `type`. -->
+      <template v-else-if="activeTab === 'sampler' || activeTab === 'form'">
+        <!-- ── Sampler / OpenAI — knobs only ─────────────────── -->
+        <template v-if="type === 'sampler' || type === 'openai'">
         <!-- CORE: always visible. Most-edited fields live here. -->
         <div class="nest-form-section">
           <div class="nest-field-row">
@@ -763,8 +776,8 @@ function cancel() {
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
-        </div> <!-- /sampler-knobs sub-tab -->
-      </template>
+        </template>
+        <!-- ── End sampler/openai knobs ──────────────────── -->
 
       <!-- ── Instruct ─────────────────────────────────────── -->
       <template v-else-if="type === 'instruct'">
@@ -911,33 +924,36 @@ function cancel() {
           </div>
         </div>
       </template>
-    </div>
+      </template>
+      <!-- End sampler/form branch -->
 
-    <!-- ──────────────────── Raw JSON mode ──────────────────── -->
-    <div v-else class="nest-form-body nest-raw-mode">
-      <div class="nest-raw-hint">
-        <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
-        {{ t('presets.editor.rawHint') }}
+      <!-- ── Raw JSON tab ──────────────────────────────────── -->
+      <div v-else-if="activeTab === 'raw'" class="nest-raw-mode">
+        <div class="nest-raw-hint">
+          <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
+          {{ t('presets.editor.rawHint') }}
+        </div>
+        <v-textarea
+          v-model="rawText"
+          rows="20"
+          density="compact"
+          hide-details
+          variant="outlined"
+          class="nest-raw-textarea"
+          :placeholder="t('presets.editor.rawPlaceholder')"
+        />
+        <v-alert
+          v-if="rawError"
+          type="error"
+          variant="tonal"
+          density="compact"
+          class="mt-2"
+        >
+          {{ rawError }}
+        </v-alert>
       </div>
-      <v-textarea
-        v-model="rawText"
-        rows="20"
-        density="compact"
-        hide-details
-        variant="outlined"
-        class="nest-raw-textarea"
-        :placeholder="t('presets.editor.rawPlaceholder')"
-      />
-      <v-alert
-        v-if="rawError"
-        type="error"
-        variant="tonal"
-        density="compact"
-        class="mt-2"
-      >
-        {{ rawError }}
-      </v-alert>
     </div>
+    <!-- End nest-form-body -->
 
     <!-- API error banner (for Save failures). -->
     <v-alert

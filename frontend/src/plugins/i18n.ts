@@ -574,6 +574,13 @@ const messages = {
         regex:    'Regex',
         advanced: 'Advanced',
       },
+      // Compact preset-row summary labels so "111 prompts · 4 regex" is
+      // visible without clicking into the editor.
+      rowSummary: {
+        prompts: '{n} prompts',
+        regex:   '{n} regex',
+        prefill: 'prefill',
+      },
       // Prompt Manager (bundle.prompts + bundle.prompt_order) UI copy.
       prompt: {
         stats: 'Активных {enabled} из {total}',
@@ -1496,6 +1503,11 @@ const messages = {
         prompts:  'Prompts',
         regex:    'Regex',
         advanced: 'Advanced',
+      },
+      rowSummary: {
+        prompts: '{n} prompts',
+        regex:   '{n} regex',
+        prefill: 'prefill',
       },
       prompt: {
         stats: '{enabled} of {total} enabled',
