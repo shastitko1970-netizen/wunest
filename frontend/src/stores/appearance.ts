@@ -195,11 +195,10 @@ function applyAppearance(a: Appearance) {
   // reason the app's own shell breaks, so `?safe` in the URL always gets
   // the user back to a working Settings page.
   //
-  // The scope is `chat` by default: we wrap user CSS in @scope(#chat) {…}
-  // (or a manual prefix fallback on Firefox), keeping rules like
-  // `textarea { bg: #111 }` from painting over settings / library /
-  // menu controls. Power users can flip to `global` for the classic
-  // paste-ST-theme-everywhere behaviour.
+  // Scope resolution — see resolveScope() for the backwards-compat rules.
+  // Short version: fresh installs default to 'chat', pre-M26 users who
+  // already had CSS get 'global' (their legacy behaviour) unless they
+  // explicitly flip the toggle.
   let styleEl = document.getElementById(CUSTOM_STYLE_ID) as HTMLStyleElement | null
   if (a.customCss && a.customCss.trim() && !SAFE_MODE) {
     if (!styleEl) {
@@ -207,13 +206,31 @@ function applyAppearance(a: Appearance) {
       styleEl.id = CUSTOM_STYLE_ID
       document.head.appendChild(styleEl)
     }
-    const scope = a.customCssScope ?? 'chat'
+    const scope = resolveScope(a)
     styleEl.textContent = scope === 'chat'
       ? scopeCSS(a.customCss, '#chat')
       : a.customCss
   } else if (styleEl) {
     styleEl.remove()
   }
+}
+
+/**
+ * resolveScope maps an Appearance to the actual scope to apply. Explicit
+ * `customCssScope` wins. When unset (legacy users from before M26, or
+ * brand-new users), we pick a default that doesn't silently change the
+ * behaviour of their CSS:
+ *
+ *   - Already has customCss in their stored appearance → 'global'
+ *     (their CSS was applied globally before M26, keep it that way).
+ *   - No CSS yet → 'chat' (new default; safer for ST imports).
+ *
+ * Once the user flips the toggle or imports via ST JSON (both set the
+ * field explicitly), this fallback doesn't fire.
+ */
+export function resolveScope(a: Appearance): 'chat' | 'global' {
+  if (a.customCssScope) return a.customCssScope
+  return (a.customCss && a.customCss.trim()) ? 'global' : 'chat'
 }
 
 // Minimal CSS-string escape for URL values (quote handling). Keeps us off

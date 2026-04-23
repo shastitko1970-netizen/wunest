@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
-import { useAppearanceStore } from '@/stores/appearance'
+import { useAppearanceStore, resolveScope } from '@/stores/appearance'
 import { fromST, toST, type AvatarStyle, type ChatDisplay, type STTheme } from '@/api/appearance'
 import { auditDangerousSelectors, supportsCSSScope } from '@/lib/cssScope'
 
@@ -63,11 +63,14 @@ const htmlRendering = computed<boolean>({
   set: v => store.update({ htmlRendering: v }),
 })
 
-// 'chat' (default) — CSS wrapped in @scope(#chat) so ST themes don't
-// paint over settings/library/menu. 'global' — legacy behaviour; the
-// whole UI inherits the CSS. Default 'chat' for safety.
+// 'chat' — CSS wrapped in @scope(#chat) so ST themes don't paint over
+// settings/library/menu. 'global' — the whole UI inherits the CSS.
+// Getter uses resolveScope() so pre-M26 users who already had CSS see
+// 'global' selected (matches how it was applied before the field
+// existed); fresh users see 'chat'. Writing the toggle always stores
+// an explicit value.
 const customCssScope = computed<'chat' | 'global'>({
-  get: () => appearance.value.customCssScope ?? 'chat',
+  get: () => resolveScope(appearance.value),
   set: v => store.update({ customCssScope: v }),
 })
 
