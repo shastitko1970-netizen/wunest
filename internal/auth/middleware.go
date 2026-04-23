@@ -11,6 +11,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -20,6 +22,16 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
+
+// sessionFingerprint returns a short stable hex string derived from the
+// session token. Used in logs to correlate requests from one user without
+// ever persisting the token itself. SHA-256 truncated to 8 hex chars
+// (~32 bits of entropy) — collision-resistant enough to follow one
+// session's trail, not enough to brute-force back to the token.
+func sessionFingerprint(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:4])
+}
 
 type ctxKey int
 
@@ -32,12 +44,33 @@ const userKey ctxKey = iota
 //   - Missing or invalid cookie → 401 if `require` is true, else pass-through.
 //   - WuApi down or 5xx        → 503.
 //   - User blocked              → 403.
+//
+// Logging: every outcome emits one structured `auth` log event at INFO (happy
+// path) or WARN (failures) so post-mortem on user-reported login loops
+// becomes a matter of `grep auth wunest.log | grep <username-or-ua>` rather
+// than reverse-engineering timestamps. The session cookie VALUE is never
+// logged; only presence + length range + a stable short fingerprint so two
+// requests from the same session can be correlated without exposing it.
 func Middleware(cfg *config.Config, pg *db.Postgres, wu *wuapi.Client, require bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ua := r.UserAgent()
+			if len(ua) > 140 {
+				ua = ua[:140]
+			}
+
 			cookie, err := r.Cookie(cfg.SessionCookieName)
 			if err != nil || cookie.Value == "" {
+				// No session cookie. Only log when the caller actually
+				// required auth — bare /api/auth/check polls and other
+				// optional-auth paths would spam the log otherwise.
 				if require {
+					slog.Warn("auth",
+						"outcome", "no_cookie",
+						"path", r.URL.Path,
+						"ua", ua,
+						"referer", r.Header.Get("Referer"),
+					)
 					http.Error(w, "unauthorized", http.StatusUnauthorized)
 					return
 				}
@@ -45,9 +78,18 @@ func Middleware(cfg *config.Config, pg *db.Postgres, wu *wuapi.Client, require b
 				return
 			}
 
+			sessFp := sessionFingerprint(cookie.Value)
+
 			profile, err := wu.Me(r.Context(), cookie.Value)
 			if err != nil {
 				if errors.Is(err, wuapi.ErrUnauthorized) {
+					slog.Warn("auth",
+						"outcome", "wuapi_rejected",
+						"reason", "cookie present, /api/me returned 401 — session expired or forged",
+						"sess_fp", sessFp,
+						"path", r.URL.Path,
+						"ua", ua,
+					)
 					if require {
 						http.Error(w, "unauthorized", http.StatusUnauthorized)
 						return
@@ -55,14 +97,40 @@ func Middleware(cfg *config.Config, pg *db.Postgres, wu *wuapi.Client, require b
 					next.ServeHTTP(w, r)
 					return
 				}
-				slog.Error("wuapi me lookup failed", "err", err)
+				slog.Error("auth",
+					"outcome", "wuapi_error",
+					"err", err.Error(),
+					"sess_fp", sessFp,
+					"path", r.URL.Path,
+					"ua", ua,
+				)
 				http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
 				return
 			}
 
 			if profile.Blocked {
+				slog.Warn("auth",
+					"outcome", "blocked",
+					"user_id", profile.ID,
+					"username", profile.Username,
+					"path", r.URL.Path,
+				)
 				http.Error(w, "account blocked", http.StatusForbidden)
 				return
+			}
+
+			// Happy path — log only for the entry endpoints where it matters
+			// (auth/check, /api/me). Other routes would spam.
+			if r.URL.Path == "/api/auth/check" || r.URL.Path == "/api/me" {
+				slog.Info("auth",
+					"outcome", "ok",
+					"user_id", profile.ID,
+					"username", profile.Username,
+					"nest_access_granted", profile.NestAccessGranted,
+					"sess_fp", sessFp,
+					"path", r.URL.Path,
+					"ua", ua,
+				)
 			}
 
 			// TODO: upsert nest_users row and load Local fields.

@@ -16,13 +16,14 @@ const { profile: accountProfile } = storeToRefs(account)
 const { t, locale, availableLocales } = useI18n()
 const vTheme = useTheme()
 
-// WuApi base URL. When the topbar "Sign in" button is clicked, we hit
-// /auth/refresh with a return_to of the current URL so the user lands
-// back where they were after login.
-const WUAPI_BASE = 'https://api.wusphere.ru'
+// Sign-in goes through WuNest's own /auth/start so we get a server-side
+// log entry for every login attempt (UA, IP, had-existing-session). That
+// endpoint then 302s to WuApi's /auth/refresh with the same return_to.
+// One extra redirect costs nothing and means "I can't sign in on mobile"
+// reports are diagnosable from logs.
 const loginUrl = computed(() => {
   const returnTo = encodeURIComponent(window.location.href)
-  return `${WUAPI_BASE}/auth/refresh?return_to=${returnTo}`
+  return `/auth/start?return_to=${returnTo}`
 })
 
 // Viewport detection via raw matchMedia. The previous v-navigation-drawer

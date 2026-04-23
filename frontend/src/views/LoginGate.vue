@@ -4,19 +4,18 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
-// WuApi base URL. Deployed as a sibling of nest.wusphere.ru in production.
-const WUAPI_BASE = 'https://api.wusphere.ru'
-
 // Where WuApi should send the user after a successful login. Straight
 // into /chat so the landing doesn't bounce them mid-flow.
 const returnTo = computed(() => encodeURIComponent(window.location.origin + '/chat'))
 
-// Single entry point: /auth/refresh is the "smart" endpoint on WuApi.
+// Single entry point: /auth/start on WuNest logs the attempt server-side
+// (UA, IP, had-existing-session) and 302s to WuApi's /auth/refresh which
+// is the "smart" endpoint:
 //   - Logged in already on WuApi → refresh cookie, 302 back here.
 //   - Not logged in            → 302 to /login (WuApi's login page, with
 //                                 all OAuth buttons + Telegram widget).
 // User sees exactly one button on WuNest — WuApi decides the rest.
-const loginUrl = computed(() => `${WUAPI_BASE}/auth/refresh?return_to=${returnTo.value}`)
+const loginUrl = computed(() => `/auth/start?return_to=${returnTo.value}`)
 </script>
 
 <template>

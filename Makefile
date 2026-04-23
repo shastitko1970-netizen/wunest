@@ -20,6 +20,7 @@ help:
 	@echo "  make deploy     — blue/green deploy to $(SERVER)"
 	@echo "  make sync       — rsync code only (no deploy)"
 	@echo "  make logs       — tail the currently active container"
+	@echo "  make logs-auth  — follow just the auth/login events"
 	@echo "  make status     — show blue/green status on server"
 	@echo "  make env        — edit .env on server"
 	@echo "  make setup      — first-time server setup (nginx + .env)"
@@ -79,6 +80,17 @@ logs-blue:
 
 logs-green:
 	ssh $(SERVER) "docker logs -f --tail=100 wunest-green"
+
+# Filter logs for auth-related events only — handy when debugging a
+# "can't sign in" report. Shows /auth/start redirects, auth outcome
+# decisions (ok / no_cookie / wuapi_rejected / blocked), and the
+# /api/auth/check + /api/me requests. Usage:
+#   make logs-auth                       — follow auth events
+#   make logs-auth FILTER="ua=.*Mobile"  — narrow to mobile user-agents
+FILTER ?= .
+logs-auth:
+	@ssh $(SERVER) "cat $(APP_DIR)/.active 2>/dev/null || echo 'unknown'" | xargs -I{} \
+		ssh $(SERVER) "docker logs -f --tail=200 wunest-{} 2>&1 | grep --line-buffered -E '(auth_start|msg=auth |/api/auth/check|/api/me\\b)' | grep --line-buffered -E '$(FILTER)'"
 
 status:
 	@echo "=== WuNest status ==="

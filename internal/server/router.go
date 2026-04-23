@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -120,6 +121,12 @@ func (s *Server) Router() http.Handler {
 	authRequired := auth.Middleware(s.deps.Config, s.deps.Postgres, s.deps.WuApi, true)
 
 	mux.Handle("GET /api/auth/check", authOptional(http.HandlerFunc(s.handleAuthCheck)))
+	// /auth/start — logs the sign-in initiation (UA, IP, return_to) and
+	// 302-redirects to WuApi. Lets us see server-side EXACTLY when each user
+	// attempts to log in, which is most of the battle when debugging a
+	// "can't sign in on mobile" report. Called by the SPA's Sign-In button
+	// instead of pointing directly at api.wusphere.ru.
+	mux.HandleFunc("GET /auth/start", s.handleAuthStart)
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
 	mux.Handle("GET /api/me/stats", authRequired(http.HandlerFunc(s.handleMeStats)))
 	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
@@ -178,6 +185,44 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// handleAuthStart is the server-side entry point for "Sign In" clicks. The
+// SPA sends the user here with a `return_to` query param; we log the
+// attempt (UA, IP, return_to, whether the user already had a session
+// cookie) and 302 them onward to WuApi's /auth/refresh with the same
+// return_to preserved. This costs one extra redirect but gives us a
+// durable server-side record of login initiations — so if a tester says
+// "I tried to sign in from my phone and it bounced me", we can find the
+// exact line in the log.
+func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
+	returnTo := r.URL.Query().Get("return_to")
+	if returnTo == "" {
+		returnTo = s.deps.Config.PublicBaseURL
+	}
+
+	// Capture context for the log event.
+	ua := r.UserAgent()
+	if len(ua) > 140 {
+		ua = ua[:140]
+	}
+	hasExisting := false
+	if c, err := r.Cookie(s.deps.Config.SessionCookieName); err == nil && c.Value != "" {
+		hasExisting = true
+	}
+	slog.Info("auth_start",
+		"outcome", "redirect_to_wuapi",
+		"return_to", returnTo,
+		"had_existing_session", hasExisting,
+		"ua", ua,
+		"remote", r.RemoteAddr,
+		"xff", r.Header.Get("X-Forwarded-For"),
+	)
+
+	// Build the WuApi URL and redirect. We pass the return_to through
+	// unchanged — WuApi handles URL-encoding its own way.
+	wuapiLogin := "https://api.wusphere.ru/auth/refresh?return_to=" + url.QueryEscape(returnTo)
+	http.Redirect(w, r, wuapiLogin, http.StatusFound)
+}
+
 // handleAuthCheck reports whether the caller is logged in. Used by the SPA
 // at page-load to decide between showing the app or redirecting to
 // wusphere.ru/login.
@@ -188,9 +233,11 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 		LoginURL      string `json:"login_url,omitempty"`
 	}
 	if u == nil {
+		// Use our own /auth/start so any client that follows this URL
+		// also goes through the server-side login log.
 		writeJSON(w, http.StatusOK, resp{
 			Authenticated: false,
-			LoginURL:      "https://wusphere.ru/login?return_to=" + s.deps.Config.PublicBaseURL,
+			LoginURL:      "/auth/start?return_to=" + url.QueryEscape(s.deps.Config.PublicBaseURL),
 		})
 		return
 	}
@@ -512,18 +559,50 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// withRequestLogger logs every HTTP request at INFO with method, path, status, duration.
+// withRequestLogger logs every HTTP request at INFO with method, path, status,
+// duration, and extra context that helps diagnose auth issues post-facto.
+//
+// We emit:
+//   - ua           : User-Agent header (helps identify mobile/desktop/browser)
+//   - referer      : where the request was triggered from (detects cross-sub
+//                    redirects from WuApi's /auth/refresh flow)
+//   - xff          : X-Forwarded-For chain (nginx populates this; useful for
+//                    correlating a single user's requests across pages)
+//   - cookie_sess  : whether the wu_session cookie was present (never the
+//                    value itself — that's a bearer token)
+//
+// The cookie-presence flag makes it trivial to grep logs like:
+//   grep 'path=/api/auth/check' | grep 'cookie_sess=false'
+// to find users whose browser isn't sending the session back after a login.
 func withRequestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sr, r)
+
+		// Cookie presence only — never log the value.
+		hasSession := false
+		if c, err := r.Cookie("wu_session"); err == nil && c.Value != "" {
+			hasSession = true
+		}
+
+		// Truncate UA to keep log lines scannable; full UA is rarely needed
+		// and very noisy with Chromium's brand-list soup.
+		ua := r.UserAgent()
+		if len(ua) > 140 {
+			ua = ua[:140]
+		}
+
 		logger.Info("http",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", sr.status,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote", r.RemoteAddr,
+			"xff", r.Header.Get("X-Forwarded-For"),
+			"ua", ua,
+			"referer", r.Header.Get("Referer"),
+			"cookie_sess", hasSession,
 		)
 	})
 }

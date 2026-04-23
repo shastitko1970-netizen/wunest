@@ -17,10 +17,11 @@ const router = useRouter()
 const auth = useAuthStore()
 const { authenticated } = storeToRefs(auth)
 
-const WUAPI_BASE = 'https://api.wusphere.ru'
+// Sign-in goes through /auth/start (WuNest) → /auth/refresh (WuApi) so
+// we get a server-side log of every login attempt.
 const loginUrl = computed(() => {
   const returnTo = encodeURIComponent(window.location.origin + '/chat')
-  return `${WUAPI_BASE}/auth/refresh?return_to=${returnTo}`
+  return `/auth/start?return_to=${returnTo}`
 })
 
 // Primary CTA routes by auth state. Authed users click "Open chat", anons
