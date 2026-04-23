@@ -433,6 +433,75 @@ func (r *Repository) AppendMessage(ctx context.Context, chatID uuid.UUID, role R
 	}, nil
 }
 
+// AppendMessageWithSwipes inserts a message with a pre-populated swipes[]
+// array and swipe_id pointing at the visible entry. Used when seeding a
+// new chat's greeting from a character that ships alternate_greetings —
+// matches SillyTavern's behavior of letting users swipe through all the
+// greetings the character author wrote.
+//
+// Invariants: swipes[swipeID] must equal content; pass an empty swipes
+// slice to fall back to the normal AppendMessage path.
+func (r *Repository) AppendMessageWithSwipes(
+	ctx context.Context,
+	chatID uuid.UUID,
+	role Role,
+	content string,
+	swipes []string,
+	swipeID int,
+	extras *MessageExtras,
+) (*Message, error) {
+	if len(swipes) <= 1 {
+		// One-or-fewer variants — no point storing a swipes array.
+		return r.AppendMessage(ctx, chatID, role, content, extras)
+	}
+	if swipeID < 0 || swipeID >= len(swipes) {
+		swipeID = 0
+	}
+	extrasJSON := []byte("{}")
+	if extras != nil {
+		b, err := json.Marshal(extras)
+		if err != nil {
+			return nil, fmt.Errorf("marshal extras: %w", err)
+		}
+		extrasJSON = b
+	}
+	swipesJSON, err := json.Marshal(swipes)
+	if err != nil {
+		return nil, fmt.Errorf("marshal swipes: %w", err)
+	}
+
+	const q = `
+		INSERT INTO nest_messages (chat_id, role, content, swipes, swipe_id, extras)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at
+	`
+	var (
+		id        int64
+		createdAt time.Time
+	)
+	if err := r.pg.QueryRow(ctx, q, chatID, string(role), content, swipesJSON, swipeID, extrasJSON).
+		Scan(&id, &createdAt); err != nil {
+		return nil, fmt.Errorf("insert message with swipes: %w", err)
+	}
+
+	// Bump chat updated_at so the row floats in ListChats, same as the
+	// regular AppendMessage path.
+	if _, err := r.pg.Exec(ctx, `UPDATE nest_chats SET updated_at = NOW() WHERE id = $1`, chatID); err != nil {
+		_ = err
+	}
+
+	return &Message{
+		ID:        id,
+		ChatID:    chatID,
+		Role:      role,
+		Content:   content,
+		Swipes:    swipesJSON,
+		SwipeID:   swipeID,
+		Extras:    extrasJSON,
+		CreatedAt: createdAt,
+	}, nil
+}
+
 // UpdateMessageContent replaces the content and extras of an existing message.
 // Used when the assistant's stream finishes — we initially insert an empty
 // placeholder and patch it once the final text is known.

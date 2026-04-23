@@ -154,29 +154,57 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Seed with the character's first message (greeting) as a hidden assistant
-	// turn so the UI has something to render on open. We insert it visibly;
-	// users can delete if unwanted.
+	// Seed the first assistant message with the character's greeting. When
+	// the character has alternate_greetings we collect them all into the
+	// message's swipes[] so the user can page through every greeting the
+	// author wrote — matches SillyTavern's behavior.
+	//
+	// Macros ({{user}}, {{char}}, {{random::…}}) get expanded on each
+	// greeting independently. If first_mes is blank but there ARE
+	// alternate_greetings, the first alt becomes the visible greeting so
+	// the UI isn't empty.
 	if req.CharacterID != nil {
 		if ch, err := h.Characters.Get(r.Context(), user.ID, *req.CharacterID); err == nil {
-			greeting := ch.Data.FirstMes
-			if greeting != "" {
-				// Light macro pass so {{user}}/{{char}} render. Use the user's
-				// default persona name if one is set; session name otherwise.
-				personaName := user.DisplayName()
-				if h.Personas != nil {
-					if p, err := h.Personas.Default(r.Context(), user.ID); err == nil && p.Name != "" {
-						personaName = p.Name
-					}
+			personaName := user.DisplayName()
+			if h.Personas != nil {
+				if p, err := h.Personas.Default(r.Context(), user.ID); err == nil && p.Name != "" {
+					personaName = p.Name
 				}
-				greeting = SubstituteMacros(greeting, PromptInput{
-					Character: ch,
-					UserName:  personaName,
-				})
-				if _, err := h.Repo.AppendMessage(r.Context(), chat.ID, RoleAssistant, greeting, &MessageExtras{
+			}
+			macroCtx := PromptInput{Character: ch, UserName: personaName}
+
+			// Build the full greeting pool: first_mes first, then
+			// alternate_greetings in declared order. Empties are dropped
+			// so an empty first_mes slot doesn't become an empty swipe.
+			pool := make([]string, 0, 1+len(ch.Data.AlternateGreetings))
+			if g := strings.TrimSpace(ch.Data.FirstMes); g != "" {
+				pool = append(pool, SubstituteMacros(ch.Data.FirstMes, macroCtx))
+			}
+			for _, alt := range ch.Data.AlternateGreetings {
+				if strings.TrimSpace(alt) == "" {
+					continue
+				}
+				pool = append(pool, SubstituteMacros(alt, macroCtx))
+			}
+
+			switch len(pool) {
+			case 0:
+				// No greetings at all — skip. UI shows the "say hi" empty state.
+			case 1:
+				if _, err := h.Repo.AppendMessage(r.Context(), chat.ID, RoleAssistant, pool[0], &MessageExtras{
 					Model: "greeting",
 				}); err != nil {
 					slog.Warn("seed greeting failed", "err", err)
+				}
+			default:
+				// Multi-greeting — store as swipes so the user can page
+				// through. First greeting visible; swipe_id=0.
+				if _, err := h.Repo.AppendMessageWithSwipes(
+					r.Context(), chat.ID, RoleAssistant,
+					pool[0], pool, 0,
+					&MessageExtras{Model: "greeting"},
+				); err != nil {
+					slog.Warn("seed greeting with swipes failed", "err", err)
 				}
 			}
 		}
