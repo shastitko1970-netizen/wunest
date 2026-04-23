@@ -106,11 +106,13 @@ const localeLabel = (code: string) => {
 
 <template>
   <v-layout class="nest-shell">
-    <!-- Top bar -->
+    <!-- Top bar. ST-compat: `#top-bar` + `.topbar` so user CSS targeting
+         SillyTavern's top bar selector also styles ours. -->
     <v-app-bar
+      id="top-bar"
       flat
       :elevation="0"
-      class="nest-topbar px-2"
+      class="nest-topbar topbar px-2"
       height="56"
     >
       <!-- Mobile burger: opens the overlay drawer. -->
@@ -235,13 +237,15 @@ const localeLabel = (code: string) => {
     </v-app-bar>
 
     <!-- Mobile-only overlay drawer. Not rendered on desktop at all so there's
-         nothing to "get stuck hidden" in that layout. -->
+         nothing to "get stuck hidden" in that layout. ST-compat id
+         `#leftNavPanel` for theme authors. -->
     <v-navigation-drawer
       v-if="!isDesktop"
+      id="leftNavPanel"
       v-model="drawerOpen"
       temporary
       width="260"
-      class="nest-sidebar"
+      class="nest-sidebar drawer-content"
       :elevation="0"
     >
       <v-list nav density="comfortable" class="pa-2">
@@ -266,8 +270,10 @@ const localeLabel = (code: string) => {
       </template>
     </v-navigation-drawer>
 
-    <!-- Content -->
-    <v-main>
+    <!-- Content. ST-compat: `#sheld` is the main content root in
+         SillyTavern; users sometimes target it to style the reading
+         surface overall. -->
+    <v-main id="sheld">
       <router-view v-slot="{ Component }">
         <transition name="nest-fade" mode="out-in">
           <component :is="Component" />

@@ -93,6 +93,7 @@ function initialsFor(name: string): string {
     :model-value="modelValue"
     :max-width="smAndDown ? undefined : 440"
     :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-persona-pick">

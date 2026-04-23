@@ -106,6 +106,16 @@ html, body, #app {
   -moz-osx-font-smoothing: grayscale;
 }
 
+// Modal overlay: Vuetify's default is rgba(0,0,0,0.32) — on our dark
+// theme the dialog blends into background content, so users miss that
+// it's a dialog at all and get stuck trying to scroll past it. Darken
+// to make the "something is open on top" signal unmistakable. Applies
+// to v-dialog AND v-navigation-drawer overlays.
+.v-overlay__scrim {
+  background: rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(2px);
+}
+
 // ── Typography classes ───────────────────────────────
 .nest-h1 {
   font-family: var(--nest-font-display);

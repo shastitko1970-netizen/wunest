@@ -81,6 +81,7 @@ function fileKind(f: File): 'png' | 'json' | 'unknown' {
     :model-value="modelValue"
     :max-width="smAndDown ? undefined : 520"
     :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-import">

@@ -16,8 +16,10 @@ import BYOKPickerDialog from '@/components/BYOKPickerDialog.vue'
 import { usePersonasStore } from '@/stores/personas'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
 import { chatsApi } from '@/api/chats'
+import { useDisplay } from 'vuetify'
 
 const { t } = useI18n()
+const { mdAndDown } = useDisplay()
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +35,10 @@ const scroller = ref<HTMLElement | null>(null)
 const settingsOpen = ref(false)
 const personaPickerOpen = ref(false)
 const byokPickerOpen = ref(false)
+// Mobile-only chat-list drawer. Desktop sidebar is always visible; mobile
+// hid the sidebar entirely, leaving users with no way to switch chats.
+// Hamburger in the chat header toggles this overlay.
+const chatListDrawerOpen = ref(false)
 
 // Tiny derived flag: chat has a BYOK pin in its metadata. Used to tint
 // the header icon so at a glance the user knows a personal key is in
@@ -68,7 +74,12 @@ onMounted(async () => {
   await maybeLoadFromRoute()
 })
 
-watch(() => route.params.id, () => maybeLoadFromRoute())
+watch(() => route.params.id, () => {
+  maybeLoadFromRoute()
+  // Close the mobile chat-list drawer on chat change so the new message
+  // isn't occluded by a still-open list.
+  chatListDrawerOpen.value = false
+})
 
 // Auto-scroll to bottom when new messages arrive or tokens stream in.
 watch([messages, streaming], () => {
@@ -160,7 +171,15 @@ const lastAssistantId = computed(() => {
     <!-- Main chat panel -->
     <section class="nest-chat-main">
       <template v-if="!hasSelection">
-        <div class="nest-chat-empty">
+        <!-- On mobile the sidebar is hidden, so "no chat selected" must
+             surface the chat list itself — otherwise users land on a
+             blank page with no way to enter a chat from here. Desktop
+             keeps the original hero card because the sidebar is already
+             showing the list. -->
+        <div v-if="mdAndDown" class="nest-chat-mobile-list">
+          <ChatList />
+        </div>
+        <div v-else class="nest-chat-empty">
           <v-icon size="56" color="surface-variant">mdi-forum-outline</v-icon>
           <h2 class="nest-h2 mt-4">{{ t('chat.empty.title') }}</h2>
           <p class="nest-subtitle mt-2">{{ t('chat.empty.hint') }}</p>
@@ -179,6 +198,18 @@ const lastAssistantId = computed(() => {
       <template v-else>
         <!-- Header -->
         <header class="nest-chat-header">
+          <!-- Mobile burger opens the chat list drawer. Without this the
+               chat list on phones is stranded behind the hidden sidebar
+               (`display: none` on <=960px) and users can't switch chats. -->
+          <v-btn
+            v-if="mdAndDown"
+            variant="text"
+            size="small"
+            icon="mdi-menu"
+            class="nest-chat-menu-btn"
+            :title="t('chat.list.title')"
+            @click="chatListDrawerOpen = true"
+          />
           <div class="nest-chat-title">
             <div class="nest-chat-name">{{ currentChat!.name }}</div>
             <div v-if="characterName" class="nest-mono nest-chat-char">
@@ -296,6 +327,21 @@ const lastAssistantId = computed(() => {
       v-model="byokPickerOpen"
       :chat="currentChat ?? null"
     />
+
+    <!-- Mobile-only chat list drawer. Triggered by the header hamburger.
+         Scoped to Chat.vue because desktop already shows the list in the
+         sidebar. Auto-closes on route change (i.e. when the user picks
+         a chat from it) so we don't stack overlays. -->
+    <v-navigation-drawer
+      v-if="mdAndDown"
+      v-model="chatListDrawerOpen"
+      temporary
+      location="left"
+      width="320"
+      class="nest-mobile-chatlist-drawer"
+    >
+      <ChatList />
+    </v-navigation-drawer>
   </div>
 </template>
 
@@ -399,7 +445,9 @@ const lastAssistantId = computed(() => {
 
 // chat-width (set by AppearancePanel) is a percent of the chat column —
 // same semantic as SillyTavern's `chat_width` field. 100% uses the whole
-// column; narrower values center a readable measure.
+// column; narrower values center a readable measure. On phones the
+// setting gets ignored because a 60% column = ~220px of readable text
+// which is unusable.
 .nest-chat-messages {
   max-width: var(--nest-chat-width, 820px);
   width: 100%;
@@ -408,6 +456,9 @@ const lastAssistantId = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+@media (max-width: 600px) {
+  .nest-chat-messages { max-width: 100%; }
 }
 
 .nest-chat-firstturn {
@@ -451,5 +502,22 @@ const lastAssistantId = computed(() => {
   .nest-chat-tools .v-btn { --v-btn-size: 28px; }
   .nest-chat-messages { padding: 14px 12px 56px; }
   .nest-chat-input    { padding: 10px 12px max(14px, env(safe-area-inset-bottom)); }
+}
+
+// Mobile chat-list layout when no chat is selected — the ChatList
+// component fills the main panel so users always see their chats from
+// /chat without a selected id.
+.nest-chat-mobile-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+// Burger button sits to the LEFT of the title, tighter than the regular
+// icon row on the right.
+.nest-chat-menu-btn {
+  margin-right: 4px;
+  flex-shrink: 0;
 }
 </style>

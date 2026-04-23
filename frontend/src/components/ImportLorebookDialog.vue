@@ -103,6 +103,7 @@ async function doImport() {
     :model-value="modelValue"
     :max-width="smAndDown ? undefined : 560"
     :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-import-lore">

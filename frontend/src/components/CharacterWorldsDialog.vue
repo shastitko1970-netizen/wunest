@@ -72,6 +72,7 @@ function close() {
     :model-value="modelValue"
     :max-width="smAndDown ? undefined : 480"
     :fullscreen="smAndDown"
+    scrollable
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card class="nest-char-worlds">

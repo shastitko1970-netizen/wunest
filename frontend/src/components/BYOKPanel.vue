@@ -194,7 +194,7 @@ function formatDate(iso: string): string {
 
     <!-- Add dialog. Fullscreen on phones so the password-type key field
          has space for long API keys (Anthropic ones are ~100 chars). -->
-    <v-dialog v-model="addOpen" :max-width="smAndDown ? undefined : 500" :fullscreen="smAndDown">
+    <v-dialog v-model="addOpen" :max-width="smAndDown ? undefined : 500" :fullscreen="smAndDown" scrollable>
       <v-card class="nest-byok-dialog">
         <v-card-title class="nest-byok-dialog-title">
           <span>{{ t('byok.addDialog.title') }}</span>
