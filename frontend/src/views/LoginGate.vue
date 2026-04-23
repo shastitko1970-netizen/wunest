@@ -7,8 +7,9 @@ const { t } = useI18n()
 // WuApi base URL. Deployed as a sibling of nest.wusphere.ru in production.
 const WUAPI_BASE = 'https://api.wusphere.ru'
 
-// Where WuApi should send the user after a successful login.
-const returnTo = computed(() => encodeURIComponent(window.location.origin + '/'))
+// Where WuApi should send the user after a successful login. Straight
+// into /chat so the landing doesn't bounce them mid-flow.
+const returnTo = computed(() => encodeURIComponent(window.location.origin + '/chat'))
 
 // Single entry point: /auth/refresh is the "smart" endpoint on WuApi.
 //   - Logged in already on WuApi → refresh cookie, 302 back here.

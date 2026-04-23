@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
@@ -9,6 +10,7 @@ import SafeModeBanner from '@/components/SafeModeBanner.vue'
 
 const auth = useAuthStore()
 const appearance = useAppearanceStore()
+const route = useRoute()
 const { authenticated, loading } = storeToRefs(auth)
 const { safeMode } = storeToRefs(appearance)
 
@@ -25,8 +27,13 @@ watch(authenticated, (ok) => {
   if (ok) void appearance.fetchFromServer()
 }, { immediate: true })
 
-const showShell = computed(() => !loading.value && authenticated.value)
-const showLogin = computed(() => !loading.value && !authenticated.value)
+// Public routes (landing + docs) bypass the auth gate so anonymous
+// visitors can discover the product and read docs before signing in.
+const isPublicRoute = computed(() => route.meta?.public === true)
+
+const showShell  = computed(() => !loading.value && authenticated.value)
+const showPublic = computed(() => !loading.value && !authenticated.value && isPublicRoute.value)
+const showLogin  = computed(() => !loading.value && !authenticated.value && !isPublicRoute.value)
 </script>
 
 <template>
@@ -41,6 +48,12 @@ const showLogin = computed(() => !loading.value && !authenticated.value)
       <div class="nest-boot-spinner">▲</div>
     </div>
     <AppShell v-else-if="showShell" />
+    <!-- Unauthenticated + on a public route (landing / docs) — render
+         the route directly; no chrome, no gate. Page components handle
+         their own navigation back to login. -->
+    <v-main v-else-if="showPublic">
+      <router-view />
+    </v-main>
     <LoginGate v-else-if="showLogin" />
   </v-app>
 </template>

@@ -56,7 +56,7 @@ sync:
 		--exclude '.active' \
 		--exclude 'frontend/node_modules' \
 		--exclude 'frontend/dist' \
-		--exclude '*.md' \
+		--exclude '/*.md' \
 		--exclude 'obsidian' \
 		./ $(SERVER):$(APP_DIR)/
 	ssh $(SERVER) "chmod +x $(APP_DIR)/scripts/*.sh"

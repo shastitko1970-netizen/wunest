@@ -26,12 +26,88 @@ const messages = {
     nav: {
       chat: 'Чат',
       library: 'Библиотека',
+      docs: 'Docs',
       presets: 'Параметры',
       account: 'Аккаунт',
       settings: 'Настройки',
       studio: 'Studio',
       manageAccount: 'Аккаунт в WuApi',
       byWusphere: 'часть wusphere.ru',
+    },
+    welcome: {
+      eyebrow: 'WuNest',
+      title: 'Клиент для ролевой переписки с LLM',
+      lead: 'Совместим с SillyTavern: импорт карточек, лорбуков, пресетов, тем. Работает из коробки через WuApi, или подключи свой ключ провайдера.',
+      ctaLogin: 'Войти через WuApi',
+      ctaOpen: 'Открыть чат',
+      ctaDocs: 'Документация',
+      featuresTitle: 'Что внутри',
+      features: {
+        characters: {
+          title: 'Карточки персонажей',
+          body: 'PNG и JSON импорт, создание с нуля, поиск по библиотеке CHUB в один клик. Совместимо с V2 (chara) и V3 (ccv3) SillyTavern.',
+        },
+        lorebooks: {
+          title: 'Лорбуки',
+          body: 'Записи, которые вкрапливаются в промпт по ключам. Probability, группы, recursion, match whole words — полный набор ST v1.12+.',
+        },
+        personas: {
+          title: 'Персоны',
+          body: 'Выбери кого играешь в диалоге. Имя подставляется в {{user}}, описание добавляется в system prompt.',
+        },
+        presets: {
+          title: 'Пресеты генерации',
+          body: 'Сэмплеры, инструкт-шаблоны, контекст, sysprompt, reasoning. Импорт/экспорт в формате SillyTavern.',
+        },
+        byok: {
+          title: 'Свои ключи (BYOK)',
+          body: 'Подключи OpenAI / OpenRouter / Anthropic / свой llama.cpp. Запросы идут напрямую к провайдеру, WuApi обходится.',
+        },
+        theming: {
+          title: 'Оформление',
+          body: 'Импорт тем SillyTavern, свой CSS с chat-scope, ST-совместимые переменные. Сломалось? Safe mode по URL.',
+        },
+        mobile: {
+          title: 'Мобильная версия',
+          body: 'Работает в браузере смартфона, все диалоги во весь экран, свайпы сообщений, hamburger для списка чатов.',
+        },
+        interop: {
+          title: 'Interop с ST',
+          body: 'Экспорт чатов в JSONL, переезд тем/пресетов/карточек в обе стороны. Наши данные — твои данные.',
+        },
+      },
+      howTitle: 'Как это работает',
+      howStep1: {
+        title: 'Вход',
+        body: 'Через общий аккаунт WuApi — он же даёт баланс для генерации.',
+      },
+      howStep2: {
+        title: 'Модель',
+        body: 'Выбирай в композере. По умолчанию — из нашего пула, списываются wu-gold. Или пришпиль свой BYOK-ключ — тогда напрямую к провайдеру.',
+      },
+      howStep3: {
+        title: 'Чат',
+        body: 'Персонажи, лорбуки, персоны, пресеты — всё работает как в SillyTavern, только из браузера и без локальной установки.',
+      },
+      pricingTitle: 'Два варианта оплаты',
+      pricing: {
+        wuapiEyebrow: 'По умолчанию',
+        wuapiBody: 'Баланс wu-gold через общий аккаунт WuApi. Подключаемые модели, auto-роутинг, ежедневные лимиты, реферальные бонусы. Не надо держать отдельные подписки у каждого провайдера.',
+        byokEyebrow: 'Свой ключ',
+        byokBody: 'Уже оплатил OpenAI Plus или Claude Pro — используй тот же ключ. Мы обходим WuApi и трафик идёт напрямую к провайдеру. Приватность + счёт у них.',
+      },
+      footerTitle: 'Готов начать?',
+      byWusphere: 'wunest · часть wusphere.ru',
+    },
+    docs: {
+      indexTitle: 'Документация',
+      indexLead: 'Короткие статьи по всем основным фичам. Если чего-то не хватает — пиши в GitHub issue.',
+      tocTitle: 'Разделы',
+      navAbout: 'О продукте',
+      navDocs: 'Docs',
+      navLogin: 'Войти',
+      prev: '← Раньше',
+      next: 'Дальше →',
     },
     login: {
       headline: 'WuNest',
@@ -685,12 +761,88 @@ const messages = {
     nav: {
       chat: 'Chat',
       library: 'Library',
+      docs: 'Docs',
       presets: 'Parameters',
       account: 'Account',
       settings: 'Settings',
       studio: 'Studio',
       manageAccount: 'WuApi account',
       byWusphere: 'part of wusphere.ru',
+    },
+    welcome: {
+      eyebrow: 'WuNest',
+      title: 'A roleplay chat client for LLMs',
+      lead: 'SillyTavern-compatible: cards, lorebooks, presets, themes all import directly. Works out of the box via WuApi, or bring your own provider key.',
+      ctaLogin: 'Sign in with WuApi',
+      ctaOpen: 'Open chat',
+      ctaDocs: 'Documentation',
+      featuresTitle: "What's inside",
+      features: {
+        characters: {
+          title: 'Character cards',
+          body: 'PNG + JSON import, create from scratch, one-click import from the CHUB library. V2 (chara) and V3 (ccv3) compatible.',
+        },
+        lorebooks: {
+          title: 'Lorebooks',
+          body: 'Entries spliced into the prompt by keyword. Probability, groups, recursion controls, whole-word match — the full ST v1.12+ set.',
+        },
+        personas: {
+          title: 'Personas',
+          body: 'Pick who you play. The name fills {{user}} macros; the description joins the system prompt.',
+        },
+        presets: {
+          title: 'Generation presets',
+          body: 'Samplers, instruct templates, context, sysprompt, reasoning. Import/export in SillyTavern format.',
+        },
+        byok: {
+          title: 'Bring your own keys',
+          body: 'Plug in OpenAI / OpenRouter / Anthropic / your own llama.cpp. Requests go directly to the provider, bypassing WuApi.',
+        },
+        theming: {
+          title: 'Theming',
+          body: 'SillyTavern theme import, custom CSS with chat-scoped rules, ST-compatible variables. Broke something? Safe mode is a URL away.',
+        },
+        mobile: {
+          title: 'Mobile-friendly',
+          body: 'Works in any phone browser. Dialogs go fullscreen, messages swipeable, hamburger for the chat list.',
+        },
+        interop: {
+          title: 'ST interop',
+          body: 'Chats export as JSONL, themes/presets/cards round-trip both ways. Your data stays portable.',
+        },
+      },
+      howTitle: 'How it works',
+      howStep1: {
+        title: 'Sign in',
+        body: "Via your shared WuApi account — that's also where your generation balance lives.",
+      },
+      howStep2: {
+        title: 'Pick a model',
+        body: "Choose in the composer. By default we bill from the WuApi pool in wu-gold. Or pin a BYOK key — the traffic goes direct to your provider.",
+      },
+      howStep3: {
+        title: 'Chat',
+        body: 'Characters, lorebooks, personas, presets — same workflow as SillyTavern, but in a browser with no local install.',
+      },
+      pricingTitle: 'Two ways to pay',
+      pricing: {
+        wuapiEyebrow: 'Default',
+        wuapiBody: 'wu-gold balance from a shared WuApi account. Routed models, daily limits, referral bonuses. No separate subscriptions per provider.',
+        byokEyebrow: 'Your key',
+        byokBody: "Already on ChatGPT Plus or Claude Pro? Use that key. We bypass WuApi and talk to your provider directly. Privacy + billing on their side.",
+      },
+      footerTitle: 'Ready to try?',
+      byWusphere: 'wunest · part of wusphere.ru',
+    },
+    docs: {
+      indexTitle: 'Documentation',
+      indexLead: "Short articles on every main feature. Something missing? Open a GitHub issue.",
+      tocTitle: 'Sections',
+      navAbout: 'About',
+      navDocs: 'Docs',
+      navLogin: 'Sign in',
+      prev: '← Previous',
+      next: 'Next →',
     },
     login: {
       headline: 'WuNest',
