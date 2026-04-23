@@ -38,6 +38,11 @@ echo "[deploy] active=$ACTIVE new=$NEW port=$NEW_PORT"
 echo "[deploy] docker build ..."
 docker build -t "wunest:$NEW" .
 
+# Also tag as :latest so out-of-band tooling (the storage-reaper
+# systemd unit, ad-hoc `docker run wunest:latest /app/...` invocations)
+# always gets the freshest image regardless of blue/green color.
+docker tag "wunest:$NEW" wunest:latest
+
 # ── Start new container ───────────────────────────────
 echo "[deploy] starting wunest-$NEW ..."
 docker rm -f "wunest-$NEW" 2>/dev/null || true
