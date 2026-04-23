@@ -15,7 +15,9 @@ export const useCharactersStore = defineStore('characters', () => {
     error.value = null
     try {
       const { items: fetched } = await charactersApi.list()
-      items.value = fetched
+      // Go marshals nil slices as `null`; coerce so empty-list reads
+      // never hit `.length of null` in consumers.
+      items.value = Array.isArray(fetched) ? fetched : []
     } catch (e) {
       error.value = (e as Error).message
     } finally {

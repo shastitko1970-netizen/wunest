@@ -277,7 +277,7 @@ function kindChipColor(kind: string): string {
     </section>
 
     <!-- Gold transactions -->
-    <section v-if="transactions.length" class="nest-section">
+    <section v-if="transactions?.length" class="nest-section">
       <h2 class="nest-h2">{{ t('account.sections.transactions') }}</h2>
       <div class="nest-txn-list">
         <div v-for="t2 in transactions" :key="t2.id" class="nest-txn-row">

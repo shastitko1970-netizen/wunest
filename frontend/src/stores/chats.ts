@@ -63,7 +63,9 @@ export const useChatsStore = defineStore('chats', () => {
         chatsApi.listMessages(id),
       ])
       currentChat.value = chat
-      messages.value = msgs.items
+      // Empty message list comes back as null from Go's nil-slice
+      // marshaling; coerce so any `.length` reads downstream stay safe.
+      messages.value = Array.isArray(msgs?.items) ? msgs.items : []
     } finally {
       messagesLoading.value = false
     }

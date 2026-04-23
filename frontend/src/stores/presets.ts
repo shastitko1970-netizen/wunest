@@ -50,7 +50,8 @@ export const usePresetsStore = defineStore('presets', () => {
       // the dedicated defaultsApi call for callers that ran before auth
       // resolved.
       const list = await presetsApi.list()
-      items.value = list.items
+      // nil-slice protection — Go marshals empty []T as null.
+      items.value = Array.isArray(list?.items) ? list.items : []
       const auth = useAuthStore()
       if (auth.profile?.active_presets) {
         active.value = { ...auth.profile.active_presets }

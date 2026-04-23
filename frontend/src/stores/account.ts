@@ -69,7 +69,11 @@ export const useAccountStore = defineStore('account', () => {
     loading.value.transactions = true
     errors.value.transactions = null
     try {
-      transactions.value = await accountApi.goldTransactions(limit, 0)
+      // Go's encoding/json marshals a nil []T slice as `null` rather than
+      // `[]`. WuApi's upstream does the same when a user has no history.
+      // Coerce to [] so downstream template `.length` reads never crash.
+      const res = await accountApi.goldTransactions(limit, 0)
+      transactions.value = Array.isArray(res) ? res : []
     } catch (e) {
       errors.value.transactions = (e as Error).message
     } finally {
