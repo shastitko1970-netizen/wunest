@@ -757,6 +757,10 @@ const messages = {
       goToAccount: 'Ввести код',
       readDocs: 'Почитать доки',
     },
+    accessBanner: {
+      body: 'Система в закрытой бете. Генерация не работает, пока не введён код доступа.',
+      cta: 'Ввести код в профиле',
+    },
   },
   en: {
     app: {
@@ -1508,6 +1512,10 @@ const messages = {
       body: "WuNest is in closed beta. Enter your activation code on the Account page to unlock chat, library, and settings. The landing and docs are open without a code.",
       goToAccount: 'Enter code',
       readDocs: 'Read the docs',
+    },
+    accessBanner: {
+      body: 'Closed beta. Generation is disabled until you enter an access code.',
+      cta: 'Enter code in profile',
     },
   },
 }

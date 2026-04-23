@@ -52,19 +52,23 @@ onMounted(() => {
   if (authenticated.value && !accountProfile.value) void account.fetchProfile()
 })
 
-// Routes reachable without a session OR without an activated access
-// code. `/account` is on the list so users who haven't redeemed a
-// code can still reach the form to enter one.
-const ALWAYS_ACCESSIBLE = ['/', '/docs', '/account']
-const isGatedRoute = computed(() =>
-  !ALWAYS_ACCESSIBLE.some(p => route.path === p || route.path.startsWith(p + '/')),
+// Anon gate — no session AND route needs one. Routes open without a
+// session: / and /docs*.
+const PUBLIC_PATHS = ['/', '/docs']
+const isProtectedRoute = computed(() =>
+  !PUBLIC_PATHS.some(p => route.path === p || route.path.startsWith(p + '/')),
 )
-const showAuthPrompt = computed(() => !authenticated.value && isGatedRoute.value)
-// Authed but hasn't redeemed an access code yet — show the beta gate
-// prompt on any protected route. Public routes + Account are exempt.
+const showAuthPrompt = computed(() => !authenticated.value && isProtectedRoute.value)
+
+// Beta-access banner — authed user without an activated code. This
+// does NOT block the UI: the user can browse everywhere just like
+// before. Two thin lines at the top say "system locked until you
+// enter a code" with a link to Account. Actual generation endpoints
+// will hard-fail server-side once we wire per-request gating — the
+// banner is purely the "why doesn't anything work?" signpost.
 const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
-const showAccessPrompt = computed(() =>
-  authenticated.value && !nestAccessGranted.value && isGatedRoute.value,
+const showAccessBanner = computed(() =>
+  authenticated.value && !nestAccessGranted.value,
 )
 
 const displayProfile = computed(() => accountProfile.value ?? profile.value)
@@ -332,25 +336,19 @@ const localeLabel = (code: string) => {
           </button>
         </div>
       </div>
-      <!-- Authed but hasn't redeemed a beta access code yet. Same inline
-           pattern as the anon prompt but CTA sends them to Account where
-           the code form lives, not to login. -->
-      <div v-else-if="showAccessPrompt" class="nest-auth-prompt">
-        <v-icon size="48" color="surface-variant">mdi-ticket-confirmation-outline</v-icon>
-        <h2 class="nest-h2 mt-4">{{ t('accessGate.title') }}</h2>
-        <p class="nest-subtitle mt-2">{{ t('accessGate.body') }}</p>
-        <div class="nest-auth-prompt-ctas mt-4">
-          <button class="nest-auth-prompt-cta-primary" @click="router.push('/account')">
-            <v-icon size="18" class="mr-2">mdi-key-variant</v-icon>
-            {{ t('accessGate.goToAccount') }}
-          </button>
-          <button class="nest-auth-prompt-cta-secondary" @click="router.push('/docs')">
-            <v-icon size="18" class="mr-2">mdi-book-open-variant</v-icon>
-            {{ t('accessGate.readDocs') }}
-          </button>
-        </div>
+      <!-- Thin beta-gate banner. Shown when the user is signed in but
+           hasn't redeemed an access code yet. The app itself stays
+           navigable — generation just fails server-side until activation
+           because downstream endpoints gate on the flag. Keeps the
+           experience closer to "as before, but with a note at the top". -->
+      <div v-if="showAccessBanner" class="nest-access-banner">
+        <v-icon size="16" class="mr-2">mdi-ticket-confirmation-outline</v-icon>
+        <span class="nest-access-banner-text">{{ t('accessBanner.body') }}</span>
+        <router-link to="/account" class="nest-access-banner-link">
+          {{ t('accessBanner.cta') }} →
+        </router-link>
       </div>
-      <router-view v-else v-slot="{ Component }">
+      <router-view v-slot="{ Component }">
         <transition name="nest-fade" mode="out-in">
           <component :is="Component" />
         </transition>
@@ -527,5 +525,31 @@ const localeLabel = (code: string) => {
   border: 1px solid var(--nest-border);
   color: var(--nest-text);
   &:hover { border-color: var(--nest-accent); }
+}
+
+// Beta-access banner — shown below the topbar for authed users who
+// haven't redeemed a code yet. Thin, always visible, clickable to
+// Account. Amber colour so it reads as "something to do" without
+// looking like a critical error.
+.nest-access-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(201, 136, 42, 0.12);
+  border-bottom: 1px solid rgba(201, 136, 42, 0.4);
+  color: var(--nest-text);
+  font-size: 13px;
+  flex-wrap: wrap;
+
+  .v-icon { color: #c9882a; flex-shrink: 0; }
+}
+.nest-access-banner-text { flex: 1 1 auto; min-width: 0; }
+.nest-access-banner-link {
+  color: #c9882a;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  &:hover { filter: brightness(1.2); }
 }
 </style>
