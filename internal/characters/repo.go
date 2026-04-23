@@ -27,31 +27,34 @@ func NewRepository(pg *db.Postgres) *Repository {
 // creating a character. Server-side fields (id, timestamps) are not part of
 // the input.
 type CreateInput struct {
-	UserID    uuid.UUID
-	Name      string
-	Data      CharacterData
-	AvatarURL string
-	Tags      []string
-	Favorite  bool
-	Spec      string
-	SourceURL string
+	UserID            uuid.UUID
+	Name              string
+	Data              CharacterData
+	AvatarURL         string
+	AvatarOriginalURL string
+	Tags              []string
+	Favorite          bool
+	Spec              string
+	SourceURL         string
 }
 
 // UpdatePatch is the sparse subset of fields that can be changed on an
 // existing character. nil = leave as-is.
 type UpdatePatch struct {
-	Name      *string
-	Data      *CharacterData
-	AvatarURL *string
-	Tags      *[]string
-	Favorite  *bool
-	SourceURL *string
+	Name              *string
+	Data              *CharacterData
+	AvatarURL         *string
+	AvatarOriginalURL *string
+	Tags              *[]string
+	Favorite          *bool
+	SourceURL         *string
 }
 
 // List returns all characters owned by the given user, newest-first.
 func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Character, error) {
 	const q = `
-		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		SELECT id, name, data, COALESCE(avatar_url, ''), COALESCE(avatar_original_url, ''),
+		       tags, favorite, spec, COALESCE(source_url, ''),
 		       created_at, updated_at
 		  FROM nest_characters
 		 WHERE user_id = $1
@@ -68,8 +71,8 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Character, e
 		var c Character
 		var dataBytes []byte
 		if err := rows.Scan(
-			&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
-			&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+			&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.AvatarOriginalURL,
+			&c.Tags, &c.Favorite, &c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan character: %w", err)
 		}
@@ -84,7 +87,8 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Character, e
 // Get returns a single character by id, scoped to the given user.
 func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character, error) {
 	const q = `
-		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		SELECT id, name, data, COALESCE(avatar_url, ''), COALESCE(avatar_original_url, ''),
+		       tags, favorite, spec, COALESCE(source_url, ''),
 		       created_at, updated_at
 		  FROM nest_characters
 		 WHERE user_id = $1 AND id = $2
@@ -92,8 +96,8 @@ func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character,
 	var c Character
 	var dataBytes []byte
 	err := r.pg.QueryRow(ctx, q, userID, id).Scan(
-		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
-		&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.AvatarOriginalURL,
+		&c.Tags, &c.Favorite, &c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -113,7 +117,8 @@ func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character,
 // ErrNotFound when nothing matches.
 func (r *Repository) FindByName(ctx context.Context, userID uuid.UUID, name string) (*Character, error) {
 	const q = `
-		SELECT id, name, data, COALESCE(avatar_url, ''), tags, favorite, spec, COALESCE(source_url, ''),
+		SELECT id, name, data, COALESCE(avatar_url, ''), COALESCE(avatar_original_url, ''),
+		       tags, favorite, spec, COALESCE(source_url, ''),
 		       created_at, updated_at
 		  FROM nest_characters
 		 WHERE user_id = $1 AND lower(name) = lower($2)
@@ -123,8 +128,8 @@ func (r *Repository) FindByName(ctx context.Context, userID uuid.UUID, name stri
 	var c Character
 	var dataBytes []byte
 	err := r.pg.QueryRow(ctx, q, userID, name).Scan(
-		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.Tags, &c.Favorite,
-		&c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.Name, &dataBytes, &c.AvatarURL, &c.AvatarOriginalURL,
+		&c.Tags, &c.Favorite, &c.Spec, &c.SourceURL, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -156,8 +161,14 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Character, er
 	// restricted hosts (Supabase free tier, etc.).
 	id := uuid.New()
 	const q = `
-		INSERT INTO nest_characters (id, user_id, name, data, avatar_url, tags, favorite, spec, source_url)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''))
+		INSERT INTO nest_characters (
+		    id, user_id, name, data, avatar_url, avatar_original_url,
+		    tags, favorite, spec, source_url
+		)
+		VALUES (
+		    $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''),
+		    $7, $8, $9, NULLIF($10, '')
+		)
 		RETURNING created_at, updated_at
 	`
 	var (
@@ -165,23 +176,25 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Character, er
 		updatedAt time.Time
 	)
 	err = r.pg.QueryRow(ctx, q,
-		id, in.UserID, in.Name, dataBytes, in.AvatarURL, in.Tags, in.Favorite, in.Spec, in.SourceURL,
+		id, in.UserID, in.Name, dataBytes, in.AvatarURL, in.AvatarOriginalURL,
+		in.Tags, in.Favorite, in.Spec, in.SourceURL,
 	).Scan(&createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert character: %w", err)
 	}
 
 	return &Character{
-		ID:        id,
-		Name:      in.Name,
-		Data:      in.Data,
-		AvatarURL: in.AvatarURL,
-		Tags:      in.Tags,
-		Favorite:  in.Favorite,
-		Spec:      in.Spec,
-		SourceURL: in.SourceURL,
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
+		ID:                id,
+		Name:              in.Name,
+		Data:              in.Data,
+		AvatarURL:         in.AvatarURL,
+		AvatarOriginalURL: in.AvatarOriginalURL,
+		Tags:              in.Tags,
+		Favorite:          in.Favorite,
+		Spec:              in.Spec,
+		SourceURL:         in.SourceURL,
+		CreatedAt:         createdAt,
+		UpdatedAt:         updatedAt,
 	}, nil
 }
 
@@ -201,6 +214,9 @@ func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch Upd
 	if patch.AvatarURL != nil {
 		cur.AvatarURL = *patch.AvatarURL
 	}
+	if patch.AvatarOriginalURL != nil {
+		cur.AvatarOriginalURL = *patch.AvatarOriginalURL
+	}
 	if patch.Tags != nil {
 		cur.Tags = *patch.Tags
 	}
@@ -219,13 +235,16 @@ func (r *Repository) Update(ctx context.Context, userID, id uuid.UUID, patch Upd
 	const q = `
 		UPDATE nest_characters
 		   SET name = $3, data = $4,
-		       avatar_url = NULLIF($5, ''), tags = $6, favorite = $7,
-		       source_url = NULLIF($8, ''), updated_at = NOW()
+		       avatar_url = NULLIF($5, ''),
+		       avatar_original_url = NULLIF($6, ''),
+		       tags = $7, favorite = $8,
+		       source_url = NULLIF($9, ''), updated_at = NOW()
 		 WHERE user_id = $1 AND id = $2
 		 RETURNING updated_at
 	`
 	err = r.pg.QueryRow(ctx, q, userID, id,
-		cur.Name, dataBytes, cur.AvatarURL, cur.Tags, cur.Favorite, cur.SourceURL,
+		cur.Name, dataBytes, cur.AvatarURL, cur.AvatarOriginalURL,
+		cur.Tags, cur.Favorite, cur.SourceURL,
 	).Scan(&cur.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

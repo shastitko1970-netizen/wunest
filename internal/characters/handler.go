@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
@@ -34,10 +35,13 @@ type BookExtractor interface {
 //   - Repository  — DB access for nest_characters
 //   - users.Resolver — upserts nest_users rows from WuApi profiles
 //   - Books (optional) — post-create extraction of embedded lorebooks
+//   - Storage (optional) — MinIO client for avatar upload; nil is OK,
+//     importCard falls back to not setting avatar_url
 type Handler struct {
-	Repo  *Repository
-	Users *users.Resolver
-	Books BookExtractor
+	Repo    *Repository
+	Users   *users.Resolver
+	Books   BookExtractor
+	Storage *storage.Client
 }
 
 // maxUploadSize is the cap on a single PNG upload.
@@ -181,17 +185,27 @@ func (h *Handler) importCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(M2+): persist the original PNG to object storage and set AvatarURL.
-	// For now the card is stored without a rendered avatar.
 	tags := normalizeTags(nil, data.Tags)
 
+	// When the upload is a PNG card, the image bytes ARE the avatar —
+	// SillyTavern's convention is that the card artwork is embedded in the
+	// same file as the metadata. Upload it to MinIO and set avatar_url to
+	// the thumbnail. JSON imports don't carry an image, so storage stays
+	// empty in that case.
+	//
+	// Upload failures are logged but do NOT block import; a character
+	// without an avatar is still useful.
+	avatarURL, avatarOriginalURL := h.maybeUploadAvatar(r.Context(), raw)
+
 	c, err := h.Repo.Create(r.Context(), CreateInput{
-		UserID:    user.ID,
-		Name:      data.Name,
-		Data:      *data,
-		Tags:      tags,
-		Spec:      spec,
-		SourceURL: r.FormValue("source_url"),
+		UserID:            user.ID,
+		Name:              data.Name,
+		Data:              *data,
+		AvatarURL:         avatarURL,
+		AvatarOriginalURL: avatarOriginalURL,
+		Tags:              tags,
+		Spec:              spec,
+		SourceURL:         r.FormValue("source_url"),
 	})
 	if err != nil {
 		h.writeErr(w, err)
@@ -202,6 +216,39 @@ func (h *Handler) importCard(w http.ResponseWriter, r *http.Request) {
 	// Worlds and activates during generation exactly like a hand-made book.
 	h.extractEmbeddedBook(r.Context(), user.ID, c.ID, data)
 	writeJSON(w, http.StatusCreated, c)
+}
+
+// maybeUploadAvatar ships raw PNG bytes to MinIO, producing a thumbnail
+// for avatar_url and keeping the original for detail views. Returns empty
+// strings on every non-success path — the caller is expected to persist
+// the character with no avatar, rather than failing the import.
+//
+// Only PNG uploads are routed here: JSON character cards don't carry
+// embedded art. We sniff the leading bytes against the PNG signature
+// rather than trusting client-supplied content-types.
+func (h *Handler) maybeUploadAvatar(ctx context.Context, raw []byte) (string, string) {
+	if h.Storage == nil {
+		return "", ""
+	}
+	if len(raw) < len(pngSignature) {
+		return "", ""
+	}
+	isPNG := true
+	for i, b := range pngSignature {
+		if raw[i] != b {
+			isPNG = false
+			break
+		}
+	}
+	if !isPNG {
+		return "", ""
+	}
+	urls, err := h.Storage.PutAvatar(ctx, raw)
+	if err != nil {
+		slog.Warn("storage: avatar upload failed — character imported without avatar", "err", err)
+		return "", ""
+	}
+	return urls.Thumbnail, urls.Original
 }
 
 // extractEmbeddedBook is a best-effort promotion of data.character_book into

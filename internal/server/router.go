@@ -21,6 +21,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
+	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
@@ -63,6 +64,27 @@ func New(deps Deps) *Server {
 		deps.Logger.Error("byok: failed to init repo; keys will be unavailable", "err", err)
 		byokRepo = nil
 	}
+	// Object storage (MinIO). nil storage is valid — Put* returns
+	// ErrDisabled on dev laptops without MinIO running. Character import
+	// and avatar flows fall back to "no thumbnail" in that case.
+	storageClient, err := storage.New(storage.Config{
+		Endpoint:      deps.Config.MinIOEndpoint,
+		AccessKey:     deps.Config.MinIOAccessKey,
+		SecretKey:     deps.Config.MinIOSecretKey,
+		UseSSL:        deps.Config.MinIOUseSSL,
+		PublicBaseURL: deps.Config.MinIOPublicBaseURL,
+	})
+	if err != nil {
+		deps.Logger.Error("storage: init failed; uploads disabled", "err", err)
+		storageClient = nil
+	} else if storageClient == nil {
+		deps.Logger.Info("storage: MINIO_ENDPOINT not set — image uploads disabled")
+	} else {
+		deps.Logger.Info("storage: enabled",
+			"endpoint", deps.Config.MinIOEndpoint,
+			"public_base", deps.Config.MinIOPublicBaseURL,
+		)
+	}
 	// Adapter fulfils characters.BookExtractor by creating a Lorebook via
 	// worldinfo.Repository and attaching it to the new character. Lives
 	// here instead of inside characters/ to keep that package free of a
@@ -71,7 +93,7 @@ func New(deps Deps) *Server {
 	return &Server{
 		deps:       deps,
 		users:      resolver,
-		characters: &characters.Handler{Repo: charRepo, Users: resolver, Books: bookExtractor},
+		characters: &characters.Handler{Repo: charRepo, Users: resolver, Books: bookExtractor, Storage: storageClient},
 		chats: &chats.Handler{
 			Repo:       chats.NewRepository(deps.Postgres),
 			Users:      resolver,

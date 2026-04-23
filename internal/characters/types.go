@@ -21,13 +21,18 @@ type Character struct {
 	ID        uuid.UUID     `json:"id"`
 	Name      string        `json:"name"`
 	Data      CharacterData `json:"data"`
-	AvatarURL string        `json:"avatar_url,omitempty"`
-	Tags      []string      `json:"tags"`
-	Favorite  bool          `json:"favorite"`
-	Spec      string        `json:"spec"`       // "chara_card_v3"
-	SourceURL string        `json:"source_url,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	// AvatarURL is the small (400-px max) thumbnail that card previews use.
+	AvatarURL string `json:"avatar_url,omitempty"`
+	// AvatarOriginalURL points to the unresized uploaded PNG/JPEG in MinIO.
+	// Optional — pre-M33 characters and manually-created (no PNG) characters
+	// may have an empty original.
+	AvatarOriginalURL string   `json:"avatar_original_url,omitempty"`
+	Tags              []string `json:"tags"`
+	Favorite          bool     `json:"favorite"`
+	Spec              string   `json:"spec"` // "chara_card_v3"
+	SourceURL         string   `json:"source_url,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // CharacterData mirrors the V3 `data` object — the payload of a character

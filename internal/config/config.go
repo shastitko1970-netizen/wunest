@@ -32,6 +32,16 @@ type Config struct {
 
 	SecretsKey []byte // AES-GCM key for BYOK encryption (32 bytes)
 	CSRFSecret []byte // HMAC key for CSRF tokens
+
+	// MinIO object storage (avatars, message attachments, backgrounds).
+	// When MinIOEndpoint is empty the storage layer runs in "disabled"
+	// mode and Put* calls return ErrDisabled — used on dev laptops
+	// without a MinIO running.
+	MinIOEndpoint      string
+	MinIOAccessKey     string
+	MinIOSecretKey     string
+	MinIOUseSSL        bool
+	MinIOPublicBaseURL string // origin where /images/* is served
 }
 
 // Load reads env vars (falling back to .env if present) and returns the config.
@@ -55,6 +65,20 @@ func Load() (*Config, error) {
 
 		SessionCookieDomain: envOr("SESSION_COOKIE_DOMAIN", ".wusphere.ru"),
 		SessionCookieName:   envOr("SESSION_COOKIE_NAME", "wu_session"),
+
+		MinIOEndpoint:      os.Getenv("MINIO_ENDPOINT"),
+		MinIOAccessKey:     os.Getenv("MINIO_ACCESS_KEY"),
+		MinIOSecretKey:     os.Getenv("MINIO_SECRET_KEY"),
+		MinIOUseSSL:        strings.EqualFold(os.Getenv("MINIO_USE_SSL"), "true"),
+		MinIOPublicBaseURL: envOr("MINIO_PUBLIC_BASE_URL", ""),
+	}
+
+	// Default MinIOPublicBaseURL to PublicBaseURL so the common same-
+	// origin case (nginx on nest.wusphere.ru proxies /images/*) needs no
+	// extra env var. Only set explicitly when serving from a different
+	// host.
+	if cfg.MinIOPublicBaseURL == "" {
+		cfg.MinIOPublicBaseURL = cfg.PublicBaseURL
 	}
 
 	var missing []string

@@ -64,7 +64,10 @@ export interface Character {
   id: string
   name: string
   data: CharacterData
+  /** Small thumbnail (≤400 px). Set by import for PNG cards, empty for JSON. */
   avatar_url?: string
+  /** Full-size PNG from the uploaded card. Used by detail views. */
+  avatar_original_url?: string
   tags: string[]
   favorite: boolean
   spec: string
