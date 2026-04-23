@@ -11,7 +11,11 @@ import {
   type ContextData,
   type SyspromptData,
   type ReasoningData,
+  type OpenAIBundleData,
 } from '@/api/presets'
+import PromptManagerPanel from '@/components/PromptManagerPanel.vue'
+import RegexScriptsPanel from '@/components/RegexScriptsPanel.vue'
+import AdvancedBundlePanel from '@/components/AdvancedBundlePanel.vue'
 
 /**
  * PresetEditorForm — the typed editor surface for a single preset. Used
@@ -56,7 +60,11 @@ const emit = defineEmits<{
 const isEdit = computed(() => !!props.preset)
 const type = ref<PresetType>(props.initialType ?? 'sampler')
 const name = ref('')
-const sampler = ref<SamplerData>(defaultSampler())
+// For sampler/openai types we edit the FULL bundle (sampler knobs +
+// Prompt Manager + regex + per-provider flags). OpenAIBundleData extends
+// SamplerData, so every existing sampler-form binding continues to work
+// against bundle.value without per-field renaming.
+const bundle = ref<OpenAIBundleData>(defaultBundle())
 const instruct = ref<InstructData>(defaultInstruct())
 const context = ref<ContextData>(defaultContext())
 const sysprompt = ref<SyspromptData>(defaultSysprompt())
@@ -64,6 +72,20 @@ const reasoning = ref<ReasoningData>(defaultReasoning())
 const stopText = ref('')   // comma-separated textbox for sampler.stop
 const saving = ref(false)
 const apiError = ref<string | null>(null)
+
+// Sub-tab within the Form tab for sampler/openai. "sampler" = existing
+// knob sliders (+ progressive disclosure), "prompts" = Prompt Manager,
+// "regex" = regex scripts, "advanced" = misc ST flags.
+const samplerTab = ref<'sampler' | 'prompts' | 'regex' | 'advanced'>('sampler')
+
+// Counts for the tab chips so users see "3 regex scripts" at a glance
+// instead of needing to click through.
+const promptCount = computed(() => {
+  const groups = bundle.value.prompt_order ?? []
+  const wildcard = groups.find(g => g.character_id === 100001) ?? groups[0]
+  return wildcard?.order?.length ?? 0
+})
+const regexCount = computed(() => bundle.value.extensions?.regex_scripts?.length ?? 0)
 
 // Form vs. Raw JSON tab state. Raw mode lets the user edit the
 // JSONB payload directly — useful for ST fields we don't surface
@@ -88,7 +110,7 @@ watch(
     } else {
       type.value = initType ?? 'sampler'
       name.value = ''
-      sampler.value = defaultSampler()
+      bundle.value = defaultBundle()
       instruct.value = defaultInstruct()
       context.value = defaultContext()
       sysprompt.value = defaultSysprompt()
@@ -103,7 +125,7 @@ watch(
 // Keep the raw-JSON preview in sync with the form as the user edits —
 // so flipping the tab doesn't show stale data.
 watch(
-  [sampler, instruct, context, sysprompt, reasoning, stopText, type],
+  [bundle, instruct, context, sysprompt, reasoning, stopText, type],
   () => {
     if (viewMode.value === 'form') {
       rawText.value = JSON.stringify(buildData(), null, 2)
@@ -117,12 +139,14 @@ function hydrateFromPreset(p: Preset) {
   switch (p.type) {
     case 'sampler':
     case 'openai': {
-      const s: SamplerData = { ...defaultSampler(), ...(data as SamplerData) }
+      // Hydrate FULL bundle — sampler knobs, prompts, prompt_order, regex
+      // scripts, per-provider flags all come from the same JSONB blob.
+      const b: OpenAIBundleData = { ...defaultBundle(), ...(data as OpenAIBundleData) }
       // ST's openai preset stores max_tokens as `openai_max_tokens`.
-      if (s.max_tokens == null && typeof data.openai_max_tokens === 'number') {
-        s.max_tokens = data.openai_max_tokens
+      if (b.max_tokens == null && typeof data.openai_max_tokens === 'number') {
+        b.max_tokens = data.openai_max_tokens
       }
-      sampler.value = s
+      bundle.value = b
       stopText.value = Array.isArray(data?.stop)
         ? data.stop.join(', ')
         : (Array.isArray(data?.stop_sequence) ? data.stop_sequence.join(', ') : '')
@@ -164,6 +188,19 @@ function defaultSampler(): SamplerData {
     system_prompt: null,
   }
 }
+
+// defaultBundle extends defaultSampler with empty arrays for the Prompt
+// Manager / regex / extensions. All fields beyond the sampler knobs are
+// zero-value (no prompts, no order, no regex); users populate them via
+// import or the Prompts / Regex tabs.
+function defaultBundle(): OpenAIBundleData {
+  return {
+    ...defaultSampler(),
+    prompts: [],
+    prompt_order: [],
+    extensions: { regex_scripts: [] },
+  }
+}
 function defaultInstruct(): InstructData {
   return {
     input_sequence: '### Instruction:\n',
@@ -198,8 +235,8 @@ const typeOptions = computed(() =>
 )
 
 // Slider-safe views for nullable fields (v-slider won't accept null).
-const temperatureView = computed(() => sampler.value.temperature ?? 1)
-const topPView = computed(() => sampler.value.top_p ?? 1)
+const temperatureView = computed(() => bundle.value.temperature ?? 1)
+const topPView = computed(() => bundle.value.top_p ?? 1)
 
 // ── Starter templates (P5) ─────────────────────────────────────
 //
@@ -255,7 +292,9 @@ const starterTemplates = computed<StarterTemplate[]>(() => [
 ])
 
 function applyStarter(tpl: StarterTemplate) {
-  sampler.value = { ...defaultSampler(), ...tpl.data }
+  // Starter template only fills sampler knobs — preserve any prompts /
+  // prompt_order / regex the user (or their imported preset) already had.
+  bundle.value = { ...bundle.value, ...tpl.data }
   if (!name.value) name.value = tpl.label
 }
 
@@ -273,8 +312,10 @@ function syncRawToForm(): boolean {
     switch (type.value) {
       case 'sampler':
       case 'openai': {
-        const s: SamplerData = { ...defaultSampler(), ...(parsed as SamplerData) }
-        sampler.value = s
+        // Full bundle resync — pulls any prompts/regex/flags the user
+        // edited in raw mode back into the typed refs.
+        const b: OpenAIBundleData = { ...defaultBundle(), ...(parsed as OpenAIBundleData) }
+        bundle.value = b
         stopText.value = Array.isArray(parsed.stop) ? parsed.stop.join(', ') : ''
         break
       }
@@ -323,10 +364,10 @@ function buildData(): unknown {
   switch (type.value) {
     case 'sampler':
     case 'openai': {
-      const s: SamplerData = { ...sampler.value }
+      const b: OpenAIBundleData = { ...bundle.value }
       const stops = stopText.value.split(',').map(x => x.trim()).filter(Boolean)
-      s.stop = stops.length ? stops : null
-      return { ...base, ...s }
+      b.stop = stops.length ? stops : null
+      return { ...base, ...b }
     }
     case 'instruct':   return { ...base, ...instruct.value }
     case 'context':    return { ...base, ...context.value }
@@ -440,6 +481,51 @@ function cancel() {
 
       <!-- ── Sampler / OpenAI ────────────────────────────────── -->
       <template v-if="type === 'sampler' || type === 'openai'">
+        <!-- Sub-tab bar: Sampler knobs | Prompt Manager | Regex |
+             Advanced. Counts shown on non-empty tabs so users can tell
+             at a glance there's content to inspect. -->
+        <v-tabs
+          v-model="samplerTab"
+          density="compact"
+          class="nest-subtabs mb-3"
+        >
+          <v-tab value="sampler" class="nest-mono">
+            <v-icon size="14" class="mr-1">mdi-tune-variant</v-icon>
+            {{ t('presets.subtab.sampler') }}
+          </v-tab>
+          <v-tab value="prompts" class="nest-mono">
+            <v-icon size="14" class="mr-1">mdi-format-list-bulleted-square</v-icon>
+            {{ t('presets.subtab.prompts') }}
+            <span v-if="promptCount > 0" class="nest-subtab-count">{{ promptCount }}</span>
+          </v-tab>
+          <v-tab value="regex" class="nest-mono">
+            <v-icon size="14" class="mr-1">mdi-regex</v-icon>
+            {{ t('presets.subtab.regex') }}
+            <span v-if="regexCount > 0" class="nest-subtab-count">{{ regexCount }}</span>
+          </v-tab>
+          <v-tab value="advanced" class="nest-mono">
+            <v-icon size="14" class="mr-1">mdi-cog-outline</v-icon>
+            {{ t('presets.subtab.advanced') }}
+          </v-tab>
+        </v-tabs>
+
+        <!-- Prompt Manager sub-tab — 111-style prompt list with toggles. -->
+        <div v-if="samplerTab === 'prompts'">
+          <PromptManagerPanel v-model="bundle" />
+        </div>
+
+        <!-- Regex sub-tab — extensions.regex_scripts editor. -->
+        <div v-else-if="samplerTab === 'regex'">
+          <RegexScriptsPanel v-model="bundle" />
+        </div>
+
+        <!-- Advanced sub-tab — prefill / squash / multimodal / format. -->
+        <div v-else-if="samplerTab === 'advanced'">
+          <AdvancedBundlePanel v-model="bundle" />
+        </div>
+
+        <!-- Sampler knobs sub-tab (default). -->
+        <div v-else>
         <!-- CORE: always visible. Most-edited fields live here. -->
         <div class="nest-form-section">
           <div class="nest-field-row">
@@ -457,7 +543,7 @@ function cancel() {
                 :model-value="temperatureView"
                 :min="0" :max="2" :step="0.05"
                 hide-details color="primary"
-                @update:model-value="v => (sampler.temperature = v)"
+                @update:model-value="v => (bundle.temperature = v)"
               />
             </div>
             <div class="nest-field nest-field-half">
@@ -474,7 +560,7 @@ function cancel() {
                 :model-value="topPView"
                 :min="0" :max="1" :step="0.05"
                 hide-details color="primary"
-                @update:model-value="v => (sampler.top_p = v)"
+                @update:model-value="v => (bundle.top_p = v)"
               />
             </div>
           </div>
@@ -489,7 +575,7 @@ function cancel() {
               </v-tooltip>
             </label>
             <v-text-field
-              v-model.number="sampler.max_tokens"
+              v-model.number="bundle.max_tokens"
               type="number" :min="0"
               :placeholder="t('chat.sampler.maxTokensPlaceholder')"
               density="compact" hide-details clearable
@@ -506,7 +592,7 @@ function cancel() {
               </v-tooltip>
             </label>
             <v-textarea
-              v-model="sampler.system_prompt"
+              v-model="bundle.system_prompt"
               :placeholder="t('chat.sampler.systemPromptPlaceholder')"
               rows="3" auto-grow density="compact" hide-details
             />
@@ -533,7 +619,7 @@ function cancel() {
                     </v-tooltip>
                   </label>
                   <v-text-field
-                    v-model.number="sampler.top_k" type="number" :min="0"
+                    v-model.number="bundle.top_k" type="number" :min="0"
                     :placeholder="t('chat.sampler.unset')"
                     density="compact" hide-details clearable
                   />
@@ -548,7 +634,7 @@ function cancel() {
                     </v-tooltip>
                   </label>
                   <v-text-field
-                    v-model.number="sampler.min_p" type="number"
+                    v-model.number="bundle.min_p" type="number"
                     :min="0" :max="1" :step="0.01"
                     :placeholder="t('chat.sampler.unset')"
                     density="compact" hide-details clearable
@@ -566,7 +652,7 @@ function cancel() {
                     </v-tooltip>
                   </label>
                   <v-text-field
-                    v-model.number="sampler.seed" type="number"
+                    v-model.number="bundle.seed" type="number"
                     :placeholder="t('chat.sampler.seedPlaceholder')"
                     density="compact" hide-details clearable
                   />
@@ -607,7 +693,7 @@ function cancel() {
                     </v-tooltip>
                   </label>
                   <v-text-field
-                    v-model.number="sampler.frequency_penalty" type="number"
+                    v-model.number="bundle.frequency_penalty" type="number"
                     :min="-2" :max="2" :step="0.1"
                     density="compact" hide-details clearable
                   />
@@ -622,7 +708,7 @@ function cancel() {
                     </v-tooltip>
                   </label>
                   <v-text-field
-                    v-model.number="sampler.presence_penalty" type="number"
+                    v-model.number="bundle.presence_penalty" type="number"
                     :min="-2" :max="2" :step="0.1"
                     density="compact" hide-details clearable
                   />
@@ -638,7 +724,7 @@ function cancel() {
                   </v-tooltip>
                 </label>
                 <v-text-field
-                  v-model.number="sampler.repetition_penalty" type="number"
+                  v-model.number="bundle.repetition_penalty" type="number"
                   :min="0.5" :max="2" :step="0.05"
                   :placeholder="t('chat.sampler.unset')"
                   density="compact" hide-details clearable
@@ -663,7 +749,7 @@ function cancel() {
                   </v-tooltip>
                 </label>
                 <v-btn-toggle
-                  v-model="sampler.reasoning_enabled"
+                  v-model="bundle.reasoning_enabled"
                   color="primary"
                   density="compact"
                   variant="outlined"
@@ -677,6 +763,7 @@ function cancel() {
             </v-expansion-panel-text>
           </v-expansion-panel>
         </v-expansion-panels>
+        </div> <!-- /sampler-knobs sub-tab -->
       </template>
 
       <!-- ── Instruct ─────────────────────────────────────── -->
@@ -887,6 +974,31 @@ function cancel() {
 
 .nest-form-tabs {
   border-bottom: 1px solid var(--nest-border-subtle);
+}
+
+// Sampler sub-tabs — one level deeper than the main Form/Raw tabs.
+// Slightly smaller, no underline, so they don't compete visually with
+// the outer tab bar.
+.nest-subtabs {
+  :deep(.v-tab) {
+    min-height: 36px !important;
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+  }
+}
+.nest-subtab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  min-width: 18px;
+  height: 16px;
+  font-size: 10px;
+  font-family: var(--nest-font-mono);
+  background: var(--nest-accent);
+  color: #fff;
+  border-radius: 9px;
 }
 
 .nest-form-body {

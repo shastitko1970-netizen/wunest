@@ -82,6 +82,124 @@ export interface ReasoningData {
   separator?: string
 }
 
+// ─── Full OpenAI-style bundle (M32) ───────────────────────────────────
+//
+// Mirrors the Go-side presets.OpenAIBundleData. Represents the FULL
+// SillyTavern OpenAI completion preset, including the Prompt Manager
+// (prompts + prompt_order), extension regex scripts, per-provider flags,
+// and every sampler knob in one payload. Stored in Preset.data as JSONB
+// — this interface is the typed read path.
+
+export interface PromptBlock {
+  identifier: string
+  name?: string
+  role?: string                  // "system" | "user" | "assistant"
+  content?: string
+  system_prompt?: boolean         // ST legacy flag (is-this-the-main-sysprompt)
+  marker?: boolean
+  injection_position?: number     // 0 = into system msg, 1 = relative depth
+  injection_depth?: number
+  injection_order?: number
+  forbid_overrides?: boolean
+}
+
+export interface PromptOrderEntry {
+  identifier: string
+  enabled: boolean
+}
+
+export interface PromptOrderGroup {
+  character_id: number            // 100001 = default/wildcard in ST
+  order: PromptOrderEntry[]
+}
+
+export interface RegexScript {
+  id?: string
+  scriptName?: string
+  findRegex: string
+  replaceString: string
+  trimStrings?: string[]
+  placement?: number[]            // 1=user input, 2=AI output, 3-6 unused
+  disabled?: boolean
+  markdownOnly?: boolean
+  promptOnly?: boolean
+  runOnEdit?: boolean
+  substituteRegex?: number
+  minDepth?: number | null
+  maxDepth?: number | null
+}
+
+export interface ExtensionsBundle {
+  regex_scripts?: RegexScript[]
+}
+
+/**
+ * OpenAIBundleData — the full ST preset payload the user imported.
+ *
+ * Not all fields are surfaced in every UI tab; the Raw JSON tab always
+ * lets power users edit anything directly. The server preserves unknown
+ * fields on round-trip so custom ST extensions keep working even if we
+ * don't surface their controls.
+ */
+export interface OpenAIBundleData extends SamplerData {
+  // Extra ST sampler variants
+  top_a?: number | null
+  openai_max_tokens?: number | null
+  openai_max_context?: number | null
+  max_context_unlocked?: boolean | null
+  n?: number | null
+  stream_openai?: boolean | null
+
+  // Prompt Manager
+  prompts?: PromptBlock[]
+  prompt_order?: PromptOrderGroup[]
+
+  // Per-provider behavior / prefills
+  assistant_prefill?: string
+  assistant_impersonation?: string
+  claude_use_sysprompt?: boolean | null
+  use_makersuite_sysprompt?: boolean | null
+  squash_system_messages?: boolean | null
+
+  // Continue / impersonation / nudge
+  new_chat_prompt?: string
+  new_group_chat_prompt?: string
+  new_example_chat_prompt?: string
+  continue_nudge_prompt?: string
+  continue_prefill?: boolean | null
+  continue_postfix?: string
+  impersonation_prompt?: string
+  group_nudge_prompt?: string
+
+  // Format
+  wi_format?: string
+  scenario_format?: string
+  personality_format?: string
+  wrap_in_quotes?: boolean | null
+  names_behavior?: number | null
+  send_if_empty?: string
+
+  // Multimodal / tool use
+  image_inlining?: boolean | null
+  inline_image_quality?: string
+  video_inlining?: boolean | null
+  request_images?: boolean | null
+  function_calling?: boolean | null
+
+  // Reasoning / thinking
+  show_thoughts?: boolean | null
+  reasoning_effort?: string
+  // reasoning_enabled already on SamplerData
+
+  // Other
+  enable_web_search?: boolean | null
+  bias_preset_selected?: string
+  // system_prompt already on SamplerData
+
+  // Extensions
+  extensions?: ExtensionsBundle
+}
+
 /**
  * Preset — generic wrapper. `data` is deliberately `unknown` because each
  * type (sampler, instruct, context, reasoning, …) carries its own schema.
