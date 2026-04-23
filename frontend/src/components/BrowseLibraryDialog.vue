@@ -23,10 +23,19 @@ const query = ref('')
 const sort = ref<SortOption>('trending_downloads')
 const nsfw = ref(false)
 const results = ref<LibraryResult[]>([])
-const totalCount = ref(0)
+// CHUB's search API returns `count` as the number of nodes on the current
+// page (NOT the total match count), so it's useless as a "more pages?"
+// signal. We infer `hasMore` from the batch size instead: if the last
+// fetch returned a full page, we assume another page exists. Works the
+// same as cursor-based pagination in practice.
+const hasMore = ref(false)
+const PER_PAGE = 24
 const page = ref(1)
 const loading = ref(false)
 const error = ref<string | null>(null)
+// Tag filter panel collapsed by default on small viewports; user toggles
+// via the "Фильтры" button in the filter row.
+const tagsOpen = ref(false)
 
 // Curated quick-filter chip groups. CHUB has thousands of tags but most
 // users only ever want to narrow by 3-4 axes (language, gender, genre,
@@ -69,18 +78,21 @@ watch(() => props.modelValue, (open) => {
   if (open) {
     results.value = []
     page.value = 1
+    hasMore.value = false
     preview.value = null
     query.value = ''
     void runSearch()
   }
 })
 
+// Any filter edit resets pagination to page 1.
 watch([query, sort, nsfw, activeTags], () => {
   // Debounce search 250ms — avoids hammering CHUB on every keystroke.
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     page.value = 1
     results.value = []
+    hasMore.value = false
     void runSearch()
   }, 250)
 }, { deep: true })
@@ -94,18 +106,16 @@ async function runSearch() {
     const res = await libraryApi.searchChub({
       q: query.value || undefined,
       page: page.value,
-      per_page: 24,
+      per_page: PER_PAGE,
       sort: sort.value,
       nsfw: nsfw.value,
       tags: activeTags.value.length ? activeTags.value : undefined,
     })
     if (seq !== searchSeq) return // stale response
-    if (page.value === 1) {
-      results.value = res.items
-    } else {
-      results.value = [...results.value, ...res.items]
-    }
-    totalCount.value = res.count
+    // Page switch mode: replace results on every page. We don't
+    // concatenate — prev/next arrows navigate, not infinite-scroll.
+    results.value = res.items
+    hasMore.value = res.items.length >= PER_PAGE
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -113,9 +123,22 @@ async function runSearch() {
   }
 }
 
-function loadMore() {
-  page.value += 1
+function goToPage(n: number) {
+  if (n < 1 || loading.value) return
+  page.value = n
   void runSearch()
+  // Scroll the grid back to top so users see the new page from its start.
+  const scroller = document.querySelector('.nest-browse-body')
+  if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function nextPage() {
+  if (!hasMore.value || loading.value) return
+  goToPage(page.value + 1)
+}
+function prevPage() {
+  if (page.value <= 1 || loading.value) return
+  goToPage(page.value - 1)
 }
 
 async function doImport(card: LibraryResult) {
@@ -164,7 +187,9 @@ function stars(n: number): string {
           </div>
         </div>
         <div class="nest-mono nest-browse-count">
-          {{ totalCount ? t('browse.total', { n: totalCount.toLocaleString() }) : '' }}
+          <!-- CHUB's `count` is the current-page size, not a total, so we
+               show the current page index instead of a bogus "N cards". -->
+          {{ results.length ? t('browse.pageN', { n: page }) : '' }}
         </div>
       </div>
 
@@ -198,10 +223,20 @@ function stars(n: number): string {
           hide-details
           density="compact"
         />
+        <v-btn
+          size="small"
+          :variant="tagsOpen ? 'tonal' : 'outlined'"
+          :color="activeTags.length ? 'primary' : undefined"
+          :append-icon="tagsOpen ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+          @click="tagsOpen = !tagsOpen"
+        >
+          {{ t('browse.filtersToggle') }}
+          <span v-if="activeTags.length" class="nest-mono ml-1">· {{ activeTags.length }}</span>
+        </v-btn>
       </div>
 
-      <!-- Tag filter chips — curated quick-picks grouped by axis. -->
-      <div class="nest-browse-tags">
+      <!-- Tag filter chips — collapsible. Curated quick-picks grouped by axis. -->
+      <div v-show="tagsOpen" class="nest-browse-tags">
         <div v-for="group in TAG_GROUPS" :key="group.label" class="nest-browse-tag-group">
           <div class="nest-browse-tag-group-label">
             {{ t('browse.tagGroups.' + group.label) }}
@@ -301,9 +336,30 @@ function stars(n: number): string {
           <v-progress-circular indeterminate color="primary" size="28" />
         </div>
 
-        <div v-else-if="results.length > 0 && results.length < totalCount" class="nest-browse-state">
-          <v-btn variant="outlined" @click="loadMore">
-            {{ t('browse.loadMore') }}
+        <!-- Page nav — shown once we have results. Prev disables on page 1,
+             Next disables when the last batch came back short (our
+             "reached the end" heuristic since CHUB doesn't give a total). -->
+        <div v-else-if="results.length > 0" class="nest-browse-pager">
+          <v-btn
+            variant="outlined"
+            size="small"
+            prepend-icon="mdi-chevron-left"
+            :disabled="page <= 1"
+            @click="prevPage"
+          >
+            {{ t('browse.pageBack') }}
+          </v-btn>
+          <span class="nest-mono nest-browse-pager-label">
+            {{ t('browse.pageN', { n: page }) }}
+          </span>
+          <v-btn
+            variant="outlined"
+            size="small"
+            append-icon="mdi-chevron-right"
+            :disabled="!hasMore"
+            @click="nextPage"
+          >
+            {{ t('browse.pageNext') }}
           </v-btn>
         </div>
       </div>
@@ -464,6 +520,21 @@ function stars(n: number): string {
   padding: 40px;
   display: grid;
   place-items: center;
+}
+
+.nest-browse-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px 24px;
+  flex-wrap: wrap;
+}
+.nest-browse-pager-label {
+  font-size: 12px;
+  color: var(--nest-text-secondary);
+  letter-spacing: 0.04em;
+  padding: 0 8px;
 }
 
 .nest-browse-grid {
