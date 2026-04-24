@@ -35,6 +35,9 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	_ "golang.org/x/image/bmp"  // register bmp decoder
+	_ "golang.org/x/image/tiff" // register tiff decoder
+	_ "golang.org/x/image/webp" // register webp decoder — modern browsers serve WebP
 )
 
 // Bucket names — must match the `mc mb` bootstrap and the nginx /images/*
