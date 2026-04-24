@@ -216,11 +216,19 @@ const localeLabel = (code: string) => {
 <template>
   <v-layout class="nest-shell">
     <!-- Top bar. ST-compat: `#top-bar` + `.topbar` so user CSS targeting
-         SillyTavern's top bar selector also styles ours. -->
+         SillyTavern's top bar selector also styles ours.
+         `scroll-behavior="hide"` — тестер: «хэдер всё ещё не едет вниз».
+         Дефолт Vuetify — app-bar sticky-fixed сверху. Hide-режим
+         прячет его при scroll-down и показывает обратно при scroll-up
+         (хендлер использует window-scroll, так что срабатывает на всех
+         страницах кроме Chat'а — там внутренний `#chat` скроллер, а
+         window статичен, и это ожидаемо: чат хочет постоянный navbar). -->
     <v-app-bar
       id="top-bar"
       flat
       :elevation="0"
+      scroll-behavior="hide"
+      :scroll-threshold="80"
       class="nest-topbar topbar px-2"
       height="56"
     >
