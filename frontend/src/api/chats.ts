@@ -77,6 +77,11 @@ export interface Message {
   /** Speaker attribution in a group chat. Nil for user/system and for
    *  single-character assistant messages (fall back to chat.character_id). */
   character_id?: string | null
+  /** Parallel to `swipes`: index i is attributed to this character.
+   *  Set when the message holds multi-speaker swipes (group-chat
+   *  greetings pool). When absent, every swipe falls back to
+   *  `character_id`. */
+  swipe_character_ids?: (string | null)[]
   created_at: string
 }
 

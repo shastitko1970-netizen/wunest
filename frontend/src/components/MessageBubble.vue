@@ -31,14 +31,25 @@ const emit = defineEmits<{
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
+
+// Resolve the speaker for the currently-visible swipe. Priority:
+//   1. swipe_character_ids[swipe_id] — per-swipe attribution, used for
+//      group-greetings pool where each swipe is a different character
+//   2. message.character_id — message-level attribution (normal case)
+//   3. nil — fall back to the chat-level characterName
+// Returns the display string, not the id.
 const displayName = computed(() => {
   if (isUser.value) return props.userName || t('chat.you')
-  // Group-chat attribution: if the message carries a character_id and
-  // the parent gave us a resolution map, show that character's name
-  // instead of the chat-level characterName.
-  const cid = props.message.character_id
-  if (cid && props.characterNames?.[cid]) {
-    return props.characterNames[cid]
+  const names = props.characterNames ?? {}
+  const swipeAttr = props.message.swipe_character_ids
+  if (swipeAttr && swipeAttr.length > 0) {
+    const i = Math.max(0, Math.min(swipeAttr.length - 1, props.message.swipe_id ?? 0))
+    const cid = swipeAttr[i]
+    if (cid && names[cid]) return names[cid]
+  }
+  const msgCID = props.message.character_id
+  if (msgCID && names[msgCID]) {
+    return names[msgCID]
   }
   return props.characterName || t('chat.assistant')
 })

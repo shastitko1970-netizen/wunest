@@ -30,6 +30,7 @@ func (h *Handler) streamChatRegen(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
+	otherCharIDs []uuid.UUID,
 	ups upstream,
 	userName string,
 	personaDesc string,
@@ -42,13 +43,16 @@ func (h *Handler) streamChatRegen(
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, _ := w.(http.Flusher)
 
-	// Load character (optional).
+	// Load speaker character (optional).
 	var ch *characters.Character
 	if charID != nil {
 		if c, err := h.Characters.Get(ctx, userID, *charID); err == nil {
 			ch = c
 		}
 	}
+
+	// Load other participants for group-chat manifest + history prefix.
+	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
 
 	// Load history (already without the deleted assistant message).
 	history, err := h.Repo.ListMessages(ctx, chatID, false)
@@ -69,6 +73,7 @@ func (h *Handler) streamChatRegen(
 	// Inline the pipeline: prompt → placeholder → upstream → pipe.
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
+		OtherCharacters:      others,
 		History:              history,
 		UserName:             userName,
 		UserDesc:             personaDesc,
@@ -245,6 +250,7 @@ func (h *Handler) streamChat(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
+	otherCharIDs []uuid.UUID,
 	ups upstream,
 	userName string,
 	personaDesc string,
@@ -260,17 +266,23 @@ func (h *Handler) streamChat(
 
 	flusher, _ := w.(http.Flusher)
 
-	// 1. Persist user message.
-	userMsg, err := h.Repo.AppendMessage(ctx, chatID, RoleUser, in.Content, &MessageExtras{
-		Model: in.Model,
-	})
-	if err != nil {
-		writeSSEError(w, flusher, "save_user_message", err)
-		return
+	// 1. Persist user message — unless the content is empty, in which
+	// case we're in group-chat "continue" mode (advance the scene
+	// without a user turn). The handler has already rejected empty
+	// content for single-char chats, so reaching this branch implies
+	// a group chat asking for the next speaker's line.
+	if in.Content != "" {
+		userMsg, err := h.Repo.AppendMessage(ctx, chatID, RoleUser, in.Content, &MessageExtras{
+			Model: in.Model,
+		})
+		if err != nil {
+			writeSSEError(w, flusher, "save_user_message", err)
+			return
+		}
+		writeSSE(w, flusher, "user_message", userMsg)
 	}
-	writeSSE(w, flusher, "user_message", userMsg)
 
-	// 2. Load character (if any).
+	// 2. Load speaker character (if any).
 	var ch *characters.Character
 	if charID != nil {
 		c, err := h.Characters.Get(ctx, userID, *charID)
@@ -280,6 +292,9 @@ func (h *Handler) streamChat(
 			ch = c
 		}
 	}
+
+	// 2b. Load other participants for group-chat manifest + history prefix.
+	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
 
 	// 3. Load history (visible only).
 	history, err := h.Repo.ListMessages(ctx, chatID, false)
@@ -294,6 +309,7 @@ func (h *Handler) streamChat(
 	// 4. Build prompt.
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
+		OtherCharacters:      others,
 		History:              history,
 		UserName:             userName,
 		UserDesc:             personaDesc,
@@ -551,6 +567,7 @@ func (h *Handler) streamChatSwipe(
 	userID uuid.UUID,
 	chatID uuid.UUID,
 	charID *uuid.UUID,
+	otherCharIDs []uuid.UUID,
 	ups upstream,
 	userName string,
 	personaDesc string,
@@ -573,13 +590,16 @@ func (h *Handler) streamChatSwipe(
 		"swipe_id": newSwipeID,
 	})
 
-	// Load character for the system prompt; not fatal if missing.
+	// Load speaker character for the system prompt; not fatal if missing.
 	var ch *characters.Character
 	if charID != nil {
 		if c, err := h.Characters.Get(ctx, userID, *charID); err == nil {
 			ch = c
 		}
 	}
+
+	// Load other participants for group-chat manifest + history prefix.
+	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
 
 	// Load history UP TO but NOT INCLUDING the target message. The swipe
 	// replaces that message's content, so it must regenerate against the
@@ -606,6 +626,7 @@ func (h *Handler) streamChatSwipe(
 
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
+		OtherCharacters:      others,
 		History:              history,
 		UserName:             userName,
 		UserDesc:             personaDesc,
@@ -766,6 +787,29 @@ func (h *Handler) pipeStreamSwipe(
 }
 
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating
+// loadOtherCharacters resolves the "other participants in this group"
+// from their IDs into full Character objects, skipping any that are
+// missing/deleted. Returns nil (not empty slice) when otherCharIDs is
+// nil or empty so IsGroupChat() stays false in single-char chats.
+//
+// Failures are silent: a rogue id doesn't break generation, we just
+// omit that character from the manifest.
+func (h *Handler) loadOtherCharacters(ctx context.Context, userID uuid.UUID, otherCharIDs []uuid.UUID) []*characters.Character {
+	if len(otherCharIDs) == 0 || h.Characters == nil {
+		return nil
+	}
+	out := make([]*characters.Character, 0, len(otherCharIDs))
+	for _, id := range otherCharIDs {
+		c, err := h.Characters.Get(ctx, userID, id)
+		if err != nil {
+			slog.Warn("group chat: participant load failed", "err", err, "character_id", id)
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // a nil character id (character-less chat) and any repository error (we log
 // and skip — WI is an enhancement, not a blocker for generation).
 func loadAttachedWorlds(ctx context.Context, h *Handler, userID uuid.UUID, charID *uuid.UUID) []*worldinfo.World {

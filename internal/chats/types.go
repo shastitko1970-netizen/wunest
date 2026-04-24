@@ -64,7 +64,33 @@ type Message struct {
 	// character assistant messages where chat.character_id already says
 	// who spoke.
 	CharacterID *uuid.UUID `json:"character_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	// SwipeCharacterIDs is parallel to Swipes: index i here owns index i
+	// there. Populated when the message ships with multi-speaker swipes
+	// (group greetings at chat-create time). Empty slice / nil means
+	// every swipe falls back to CharacterID. Never used for non-group
+	// assistant messages.
+	SwipeCharacterIDs []uuid.UUID `json:"swipe_character_ids,omitempty"`
+	CreatedAt         time.Time   `json:"created_at"`
+}
+
+// ChatGroupMetadata captures per-chat group-chat preferences, stored
+// under chat_metadata.group. Everything is optional; missing values
+// fall back to the defaults documented on each field.
+type ChatGroupMetadata struct {
+	// MutedCharacterIDs are excluded from the speaker picker and from
+	// round-robin rotation, but still appear in the scene manifest
+	// (they're "in the room" — they just don't speak). Nil / empty
+	// means nobody is muted.
+	MutedCharacterIDs []uuid.UUID `json:"muted_character_ids,omitempty"`
+	// AutoSpeaker controls auto-next behaviour:
+	//   "" / "manual"       — no auto-advance (client only)
+	//   "round_robin"       — after each assistant turn, rotate to the
+	//                         next non-muted participant
+	AutoSpeaker string `json:"auto_speaker,omitempty"`
+	// LastSpeakerID is updated after every assistant turn so round-robin
+	// knows where the rotation pointer is. Server-managed, client reads
+	// but shouldn't write.
+	LastSpeakerID *uuid.UUID `json:"last_speaker_id,omitempty"`
 }
 
 // MessageExtras is the typed view of the `extras` JSONB column. Only a

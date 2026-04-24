@@ -190,12 +190,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	// greeting independently. If first_mes is blank but there ARE
 	// alternate_greetings, the first alt becomes the visible greeting so
 	// the UI isn't empty.
-	// Seed greetings only for single-character chats. Group chats open
-	// empty — the user picks a speaker and sends the first turn — which
-	// matches ST's group-chat convention. Per-character greetings in a
-	// group is a future polish (would need per-character first_mes to
-	// all appear as separate opener swipes).
-	if len(characterIDs) == 1 {
+	// Seed the first assistant message with greetings.
+	//
+	// For SINGLE-character chats: first_mes + alternate_greetings as
+	// swipes, same as ST.
+	//
+	// For GROUP chats: collect each character's first_mes (+ their
+	// non-empty alternate_greetings[0] as a fallback for characters
+	// without first_mes) into a multi-speaker swipes pool. Each swipe
+	// is attributed via swipe_character_ids so MessageBubble can label
+	// who said what when the user pages through.
+	if len(characterIDs) > 1 {
+		h.seedGroupGreetings(r.Context(), chat.ID, user, characterIDs)
+	} else if len(characterIDs) == 1 {
 		if ch, err := h.Characters.Get(r.Context(), user.ID, characterIDs[0]); err == nil {
 			personaName := user.DisplayName()
 			if h.Personas != nil {
@@ -489,7 +496,10 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if in.Content == "" {
+	// Empty content is allowed ONLY in group chats, where it means
+	// "continue the scene — next speaker, no user turn". Single-char
+	// chats still require content (there'd be nothing to respond to).
+	if in.Content == "" && !chat.IsGroupChat {
 		http.Error(w, "content is required", http.StatusBadRequest)
 		return
 	}
@@ -546,7 +556,25 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stream.
-	h.streamChat(w, r, user.ID, chat.ID, respondingCharID, up, userName, userDesc, in)
+	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
+	h.streamChat(w, r, user.ID, chat.ID, respondingCharID, others, up, userName, userDesc, in)
+}
+
+// otherParticipantIDs returns all character IDs in the group except the
+// current speaker. Empty / nil for single-character chats (len<=1) so
+// prompt builder's IsGroupChat() stays false.
+func otherParticipantIDs(all []uuid.UUID, speaker *uuid.UUID) []uuid.UUID {
+	if len(all) <= 1 {
+		return nil
+	}
+	out := make([]uuid.UUID, 0, len(all)-1)
+	for _, id := range all {
+		if speaker != nil && id == *speaker {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
 }
 
 // upstream describes where a chat turn should send its chat-completions
@@ -1347,7 +1375,8 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 	if msg.CharacterID != nil {
 		respondingCharID = msg.CharacterID
 	}
-	h.streamChatSwipe(w, r, user.ID, chatID, respondingCharID, up, userName, userDesc, mid, newSwipeID, in)
+	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
+	h.streamChatSwipe(w, r, user.ID, chatID, respondingCharID, others, up, userName, userDesc, mid, newSwipeID, in)
 }
 
 // selectSwipe picks an existing variant for the message. Body: {swipe_id}.
@@ -1459,7 +1488,90 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 		// as a different character").
 		respondingCharID = in.SpeakerID
 	}
-	h.streamChatRegen(w, r, user.ID, chat.ID, respondingCharID, up, userName, userDesc, in)
+	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
+	h.streamChatRegen(w, r, user.ID, chat.ID, respondingCharID, others, up, userName, userDesc, in)
+}
+
+// seedGroupGreetings collects a greeting from each participating
+// character and persists them as attributed swipes on the chat's first
+// assistant message. The visible one defaults to index 0 (first
+// character's greeting); the user can swipe to read how each character
+// opens the scene, then continue the chat from whichever resonates.
+//
+// Characters without any greeting (empty first_mes and empty
+// alternate_greetings) are skipped — their slot isn't reserved.
+//
+// Best-effort: any failure is logged but doesn't fail chat creation.
+// Returning early leaves the group chat empty (same as pre-M36 group
+// behaviour) which is a valid, usable state.
+func (h *Handler) seedGroupGreetings(ctx context.Context, chatID uuid.UUID, user *models.NestUser, characterIDs []uuid.UUID) {
+	// Persona for {{user}} macro expansion. Same resolution as the
+	// single-char path — default persona if one is set, else WuApi
+	// first_name via user.DisplayName().
+	personaName := user.DisplayName()
+	if h.Personas != nil {
+		if p, err := h.Personas.Default(ctx, user.ID); err == nil && p.Name != "" {
+			personaName = p.Name
+		}
+	}
+	userID := user.ID
+
+	type greetingSwipe struct {
+		content     string
+		characterID uuid.UUID
+	}
+	pool := make([]greetingSwipe, 0, len(characterIDs))
+
+	for _, cid := range characterIDs {
+		ch, err := h.Characters.Get(ctx, userID, cid)
+		if err != nil {
+			slog.Warn("group greetings: load character", "err", err, "character_id", cid)
+			continue
+		}
+		// Pick the best greeting: prefer first_mes, fall back to the
+		// first non-empty alternate_greetings entry. Skip if neither
+		// exists — the character just doesn't contribute an opener.
+		macroCtx := PromptInput{Character: ch, UserName: personaName}
+		greeting := strings.TrimSpace(ch.Data.FirstMes)
+		if greeting == "" {
+			for _, alt := range ch.Data.AlternateGreetings {
+				if strings.TrimSpace(alt) != "" {
+					greeting = alt
+					break
+				}
+			}
+		}
+		if greeting == "" {
+			continue
+		}
+		pool = append(pool, greetingSwipe{
+			content:     SubstituteMacros(greeting, macroCtx),
+			characterID: ch.ID,
+		})
+	}
+
+	if len(pool) == 0 {
+		// Nobody had a greeting — leave the chat empty, user sends first.
+		return
+	}
+
+	// Flatten into parallel arrays for the repo call.
+	texts := make([]string, len(pool))
+	ids := make([]uuid.UUID, len(pool))
+	for i, g := range pool {
+		texts[i] = g.content
+		ids[i] = g.characterID
+	}
+
+	firstID := pool[0].characterID
+	if _, err := h.Repo.AppendMessageWithSwipesAttributed(
+		ctx, chatID, RoleAssistant,
+		texts[0], texts, ids, 0,
+		&firstID,
+		&MessageExtras{Model: "greeting"},
+	); err != nil {
+		slog.Warn("group greetings: append failed", "err", err, "chat_id", chatID)
+	}
 }
 
 // --- helpers ---

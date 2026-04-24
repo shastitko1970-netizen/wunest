@@ -146,6 +146,13 @@ func BuildBundleMessages(bundle *presets.OpenAIBundleData, in PromptInput) []Cha
 		}
 	}
 
+	// Group-chat manifest — appended at the end of the merged system
+	// block so the speaker sees who else is in the scene. No-op when
+	// OtherCharacters is empty (single-char chats unchanged).
+	if manifest := buildGroupManifest(in); manifest != "" {
+		systemParts = append(systemParts, manifest)
+	}
+
 	// ── Assemble messages[] ──────────────────────────────
 	out := make([]ChatMessage, 0, 2+len(in.History)+len(relatives))
 
@@ -157,7 +164,9 @@ func BuildBundleMessages(bundle *presets.OpenAIBundleData, in PromptInput) []Cha
 		})
 	}
 
-	// 2. History.
+	// 2. History. In group chats assistant messages get a "{name}: "
+	// prefix so the model keeps voice attribution across long sessions.
+	isGroup := in.IsGroupChat()
 	for _, m := range in.History {
 		if m.Role != RoleUser && m.Role != RoleAssistant {
 			continue
@@ -166,9 +175,15 @@ func BuildBundleMessages(bundle *presets.OpenAIBundleData, in PromptInput) []Cha
 		if content == "" {
 			continue
 		}
+		content = SubstituteMacros(content, in)
+		if isGroup && m.Role == RoleAssistant {
+			if name := in.characterNameByID(m.CharacterID); name != "" {
+				content = name + ": " + content
+			}
+		}
 		out = append(out, ChatMessage{
 			Role:    string(m.Role),
-			Content: SubstituteMacros(content, in),
+			Content: content,
 		})
 	}
 

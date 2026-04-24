@@ -7,6 +7,7 @@ import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
 import { useModelsStore } from '@/stores/models'
 import { useCharactersStore } from '@/stores/characters'
+import { usePreferencesStore } from '@/stores/preferences'
 import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
@@ -238,14 +239,107 @@ const groupCharacterNames = computed<Record<string, string>>(() => {
   return m
 })
 
+// ─── Sprint 2: auto-next + mention detection ──────────────────────
+//
+// `autoNext` (stored in preferences per-user, not per-chat) triggers
+// another generation after each assistant message finishes, picking
+// the next speaker via round-robin. Gives the "characters talking to
+// each other" flow without the user needing to nudge every turn.
+//
+// `detectMention` scans draft against participant names before send;
+// if exactly one matches (or one matches distinctly more than others)
+// it auto-switches the speaker. Saves a click when the user's
+// message already names the addressee.
+const prefs = usePreferencesStore()
+const { groupAutoNext, groupDetectMention } = storeToRefs(prefs)
+
+// Pick the next speaker in character_ids order — round-robin. Skips
+// over the current speaker. Returns current when only one participant
+// (should never happen in a group).
+function nextSpeaker(current: string | null): string | null {
+  const ids = currentChat.value?.character_ids ?? []
+  if (ids.length === 0) return null
+  if (!current) return ids[0]
+  const idx = ids.indexOf(current)
+  if (idx < 0) return ids[0]
+  return ids[(idx + 1) % ids.length]
+}
+
+// If the draft mentions a participant by name (word-boundary match,
+// case-insensitive), return that participant's ID. When multiple
+// match, pick the one that appears first in the text. When none
+// match, return null.
+function detectMentionedSpeaker(text: string): string | null {
+  const t = text.trim()
+  if (!t || !isGroupChat.value) return null
+  type Hit = { id: string; pos: number }
+  const hits: Hit[] = []
+  for (const opt of groupSpeakerOptions.value) {
+    const name = opt.name
+    if (!name) continue
+    // Word-boundary match without false positives on "Alice" in "Malice".
+    // Unicode word-boundary is tricky in regex; approximate with
+    // (^|[^\p{L}]) ... ([^\p{L}]|$).
+    const re = new RegExp(`(^|[^\\p{L}])${escapeRegex(name)}([^\\p{L}]|$)`, 'iu')
+    const m = re.exec(t)
+    if (m && m.index >= 0) {
+      hits.push({ id: opt.id, pos: m.index })
+    }
+  }
+  if (hits.length === 0) return null
+  hits.sort((a, b) => a.pos - b.pos)
+  return hits[0].id
+}
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Watch streaming → false (stream just finished). If autoNext is on
+// and we're in a group chat, trigger the next speaker's turn without
+// a user message (content="" — backend's "continue" path).
+watch(streaming, async (now, prev) => {
+  if (prev && !now && isGroupChat.value && groupAutoNext.value) {
+    const next = nextSpeaker(groupSpeaker.value)
+    if (!next) return
+    groupSpeaker.value = next
+    // Small yield so the UI repaint before we fire the next request.
+    await nextTick()
+    await chats.send({
+      content: '',
+      model: selectedModel.value,
+      speaker_id: next,
+    })
+  }
+})
+
 async function send() {
   const text = draft.value.trim()
-  if (!text) return
+  // Group chat: empty draft = "continue as current speaker"
+  // (typically triggered by the "Continue" button below the composer).
+  if (!text && !isGroupChat.value) return
+  // Mention detection — only if user opted in AND they actually typed
+  // something. Auto-switches speaker so the user doesn't also need
+  // to click a chip.
+  if (text && isGroupChat.value && groupDetectMention.value) {
+    const mentioned = detectMentionedSpeaker(text)
+    if (mentioned) groupSpeaker.value = mentioned
+  }
   draft.value = ''
   await chats.send({
     content: text,
     model: selectedModel.value,
     speaker_id: isGroupChat.value ? (groupSpeaker.value ?? undefined) : undefined,
+  })
+}
+
+// continueAs fires an empty-content "continue" turn for the current
+// speaker. UI button below the composer when the draft is empty.
+async function continueAs() {
+  if (!isGroupChat.value) return
+  await chats.send({
+    content: '',
+    model: selectedModel.value,
+    speaker_id: groupSpeaker.value ?? undefined,
   })
 }
 
@@ -537,10 +631,9 @@ const lastAssistantId = computed(() => {
         <!-- Input. ST-compat id `send_form` so ST CSS targeting the
              composer area (e.g. `#send_form { background: ... }`) hits. -->
         <div class="nest-chat-input" id="send_form">
-          <!-- Group-chat speaker picker — one row above the composer.
-               Horizontal scroll on narrow viewports so 6 participants
-               don't blow up mobile width. Selected chip is the accent
-               color; tap re-selects. -->
+          <!-- Group-chat speaker picker + flow controls. One row above
+               the composer. Horizontal scroll on narrow viewports so
+               6 participants + extra toggles don't blow up mobile. -->
           <div v-if="isGroupChat" class="nest-speaker-bar">
             <span class="nest-speaker-label">
               <v-icon size="14" class="mr-1">mdi-account-voice</v-icon>
@@ -559,6 +652,45 @@ const lastAssistantId = computed(() => {
                 {{ opt.name }}
               </button>
             </div>
+            <v-menu location="top end" :close-on-content-click="false">
+              <template #activator="{ props: activatorProps }">
+                <v-btn
+                  v-bind="activatorProps"
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-cog-outline"
+                  :title="t('groupChat.flow.settings')"
+                />
+              </template>
+              <v-list density="compact" class="nest-group-flow-menu">
+                <v-list-item>
+                  <template #prepend>
+                    <v-switch
+                      v-model="groupAutoNext"
+                      :disabled="streaming"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                    />
+                  </template>
+                  <v-list-item-title>{{ t('groupChat.flow.autoNext') }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ t('groupChat.flow.autoNextHint') }}</v-list-item-subtitle>
+                </v-list-item>
+                <v-list-item>
+                  <template #prepend>
+                    <v-switch
+                      v-model="groupDetectMention"
+                      :disabled="streaming"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                    />
+                  </template>
+                  <v-list-item-title>{{ t('groupChat.flow.detectMention') }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ t('groupChat.flow.detectMentionHint') }}</v-list-item-subtitle>
+                </v-list-item>
+              </v-list>
+            </v-menu>
           </div>
 
           <MessageInput
@@ -567,6 +699,25 @@ const lastAssistantId = computed(() => {
             @send="send"
             @stop="chats.stopStreaming"
           />
+
+          <!-- Group-chat "Continue" — one-click generate as current
+               speaker without a user message. Only surfaces when
+               draft is empty (otherwise the user sends what they
+               typed, as expected). -->
+          <div
+            v-if="isGroupChat && !streaming && draft.trim().length === 0 && groupSpeaker"
+            class="nest-continue-row"
+          >
+            <v-btn
+              size="small"
+              variant="text"
+              color="primary"
+              prepend-icon="mdi-play-circle-outline"
+              @click="continueAs"
+            >
+              {{ t('groupChat.flow.continueAs', { name: characterNameFor(groupSpeaker) || '—' }) }}
+            </v-btn>
+          </div>
         </div>
       </template>
     </section>
@@ -849,6 +1000,22 @@ const lastAssistantId = computed(() => {
     border-color: var(--nest-accent);
   }
   &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.nest-continue-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+.nest-group-flow-menu {
+  max-width: 340px;
+  background: var(--nest-surface) !important;
+  border: 1px solid var(--nest-border);
+
+  :deep(.v-list-item-subtitle) {
+    font-size: 11px;
+    white-space: normal;
+  }
 }
 
 // Jump-to-bottom pill — floats above the input, only when the user

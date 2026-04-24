@@ -17,6 +17,14 @@ interface PersistedPrefs {
   // distracting. The SSE stream still runs; we just don't repaint per
   // token (server doesn't need to change).
   disableStreaming?: boolean
+  // Group-chat flow: after each assistant message, auto-trigger the
+  // next speaker's turn (round-robin, no user message). Gives the
+  // "NPCs chatter among themselves" feel without click-every-turn.
+  groupAutoNext?: boolean
+  // Group-chat flow: when sending a message, scan it for participant
+  // names and auto-switch the speaker accordingly. Saves a click when
+  // the user wrote "Alice, what do you think?" — Alice responds.
+  groupDetectMention?: boolean
 }
 
 function loadFromStorage(): PersistedPrefs {
@@ -34,13 +42,25 @@ function loadFromStorage(): PersistedPrefs {
 export const usePreferencesStore = defineStore('preferences', () => {
   const stored = loadFromStorage()
   const disableStreaming = ref<boolean>(stored.disableStreaming ?? false)
+  // Group-chat preferences default ON — tester feedback said manual-only
+  // group chats feel tedious, and mention-detect is a strict UX win (it
+  // only fires when you actually name someone, so there's no surprise
+  // when you don't).
+  const groupAutoNext = ref<boolean>(stored.groupAutoNext ?? false)
+  const groupDetectMention = ref<boolean>(stored.groupDetectMention ?? true)
+
+  function persist() {
+    const next: PersistedPrefs = {
+      disableStreaming: disableStreaming.value,
+      groupAutoNext: groupAutoNext.value,
+      groupDetectMention: groupDetectMention.value,
+    }
+    try { localStorage.setItem(LS_KEY, JSON.stringify(next)) } catch { /* quota */ }
+  }
 
   // Any mutation → persist the whole bag. Small object, don't bother with
   // a debounce.
-  watch(disableStreaming, () => {
-    const next: PersistedPrefs = { disableStreaming: disableStreaming.value }
-    try { localStorage.setItem(LS_KEY, JSON.stringify(next)) } catch { /* quota */ }
-  })
+  watch([disableStreaming, groupAutoNext, groupDetectMention], persist)
 
   // Cross-tab sync — a different tab toggling the pref should reflect here
   // without waiting for a reload.
@@ -52,9 +72,15 @@ export const usePreferencesStore = defineStore('preferences', () => {
         if (typeof parsed.disableStreaming === 'boolean') {
           disableStreaming.value = parsed.disableStreaming
         }
+        if (typeof parsed.groupAutoNext === 'boolean') {
+          groupAutoNext.value = parsed.groupAutoNext
+        }
+        if (typeof parsed.groupDetectMention === 'boolean') {
+          groupDetectMention.value = parsed.groupDetectMention
+        }
       } catch { /* ignore */ }
     })
   }
 
-  return { disableStreaming }
+  return { disableStreaming, groupAutoNext, groupDetectMention }
 })

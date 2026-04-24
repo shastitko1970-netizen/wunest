@@ -919,6 +919,14 @@ const messages = {
       speaker: {
         label: 'Отвечает:',
       },
+      flow: {
+        settings: 'Настройки потока',
+        autoNext: 'Авто-следующий',
+        autoNextHint: 'После каждого сообщения автоматически передавать ход следующему участнику по кругу.',
+        detectMention: 'Реагировать на имена',
+        detectMentionHint: 'Если в тексте упомянуто имя участника — именно он отвечает следующим.',
+        continueAs: '▶ Продолжить за {name}',
+      },
     },
     chat: {
       newChat: 'Новый чат',
@@ -1969,6 +1977,14 @@ const messages = {
       },
       speaker: {
         label: 'Speaking:',
+      },
+      flow: {
+        settings: 'Flow settings',
+        autoNext: 'Auto next speaker',
+        autoNextHint: 'After each message, round-robin to the next participant automatically.',
+        detectMention: 'Respond to names',
+        detectMentionHint: "If your message names a participant, they're set as the next speaker.",
+        continueAs: '▶ Continue as {name}',
       },
     },
     chat: {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
@@ -21,13 +22,23 @@ type ChatMessage struct {
 
 // PromptInput bundles everything needed to assemble the outbound messages[].
 type PromptInput struct {
-	Character            *characters.Character // may be nil for character-less chats
+	Character            *characters.Character // the SPEAKER — whose voice will generate the next turn
 	History              []Message             // chronological, hidden already filtered
 	UserName             string                // persona or WuApi first_name fallback
 	UserDesc             string                // persona description, may be empty
 	SystemPromptOverride string                // if non-empty, replaces the character-derived system message entirely
 	Worlds               []*worldinfo.World    // lorebooks attached to this chat/character
 	AuthorsNote          *AuthorsNote          // optional mid-history injection
+
+	// OtherCharacters are the non-speaking participants of a group chat.
+	// When non-empty:
+	//   - A "scene manifest" block is injected into the system prompt
+	//     listing them, so the speaker knows who else is in the room.
+	//   - Assistant messages in History are prefixed with "{name}: " when
+	//     their character_id matches one of these (or the speaker) — helps
+	//     the model keep voice attribution straight.
+	// Single-char chats leave this nil/empty; behaviour is unchanged.
+	OtherCharacters []*characters.Character
 
 	// Bundle is the ST-style full preset (prompts + prompt_order + regex
 	// + per-provider flags) if the user's active sampler preset carries
@@ -36,6 +47,31 @@ type PromptInput struct {
 	// prompt assembly. Falls back to the legacy path otherwise so old
 	// skinny presets keep working unchanged.
 	Bundle *presets.OpenAIBundleData
+}
+
+// IsGroupChat is shorthand for "this prompt build is happening inside a
+// chat with 2+ characters". Prompt assembly uses it to enable name
+// prefixing in history + inject the scene manifest.
+func (in PromptInput) IsGroupChat() bool {
+	return len(in.OtherCharacters) > 0
+}
+
+// characterNameByID returns the name of the character with this id if
+// it's among the speaker or other participants. Used to prefix history
+// messages with a speaker label in group chats.
+func (in PromptInput) characterNameByID(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	if in.Character != nil && in.Character.ID == *id {
+		return in.Character.Name
+	}
+	for _, c := range in.OtherCharacters {
+		if c != nil && c.ID == *id {
+			return c.Name
+		}
+	}
+	return ""
 }
 
 // AuthorsNote is a block of prose injected into the prompt at a specific
@@ -85,6 +121,7 @@ func Build(in PromptInput) []ChatMessage {
 		out = append(out, ChatMessage{Role: "system", Content: sys})
 	}
 
+	isGroup := in.IsGroupChat()
 	for _, m := range in.History {
 		if m.Role != RoleUser && m.Role != RoleAssistant {
 			continue
@@ -94,6 +131,16 @@ func Build(in PromptInput) []ChatMessage {
 			continue
 		}
 		content = SubstituteMacros(content, in)
+		// In group chats we prefix assistant messages with the speaker's
+		// name so the model keeps attribution straight across many turns.
+		// User messages and single-char chats stay bare. If the speaker
+		// can't be resolved (e.g. deleted character), fall back to no
+		// prefix rather than an awkward "unknown: ...".
+		if isGroup && m.Role == RoleAssistant {
+			if name := in.characterNameByID(m.CharacterID); name != "" {
+				content = name + ": " + content
+			}
+		}
 		out = append(out, ChatMessage{
 			Role:    string(m.Role),
 			Content: content,
@@ -180,6 +227,14 @@ func buildSystem(in PromptInput) string {
 		}
 	}
 
+	// Group-chat scene manifest — the speaker learns who else is in the
+	// room + short description of each. Without this each character
+	// writes as if alone, and the group chat illusion falls apart.
+	if manifest := buildGroupManifest(in); manifest != "" {
+		b.WriteString(manifest)
+		b.WriteString("\n\n")
+	}
+
 	if ud := strings.TrimSpace(in.UserDesc); ud != "" {
 		b.WriteString("About the user: ")
 		b.WriteString(ud)
@@ -192,6 +247,68 @@ func buildSystem(in PromptInput) string {
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+// buildGroupManifest emits the "other characters in the scene" block for
+// group-chat prompts. Returns "" for single-character chats so legacy
+// behaviour is byte-identical.
+//
+// By design we include the FULL description/personality/scenario of each
+// other participant. Our users burn WuApi tokens, where even heavy models
+// are fine with 2-5× description injection; the coherence gain from
+// "Alice knows Bob exists AND remembers his personality" is worth the
+// tokens. If a user wants to trim, they can leave short descriptions
+// on their character cards.
+func buildGroupManifest(in PromptInput) string {
+	if !in.IsGroupChat() {
+		return ""
+	}
+	speakerName := ""
+	if in.Character != nil {
+		speakerName = in.Character.Name
+	}
+	var b strings.Builder
+	b.WriteString("--- Scene participants ---\n")
+	b.WriteString("You are currently speaking as ")
+	if speakerName != "" {
+		b.WriteString(speakerName)
+	} else {
+		b.WriteString("the current character")
+	}
+	b.WriteString(". Other characters present in this scene:\n\n")
+
+	for _, c := range in.OtherCharacters {
+		if c == nil {
+			continue
+		}
+		b.WriteString("### ")
+		b.WriteString(c.Name)
+		b.WriteString("\n")
+		if desc := strings.TrimSpace(c.Data.Description); desc != "" {
+			b.WriteString(SubstituteMacros(desc, in))
+			b.WriteString("\n")
+		}
+		if pers := strings.TrimSpace(c.Data.Personality); pers != "" {
+			b.WriteString("Personality: ")
+			b.WriteString(SubstituteMacros(pers, in))
+			b.WriteString("\n")
+		}
+		if scen := strings.TrimSpace(c.Data.Scenario); scen != "" {
+			b.WriteString("Scenario: ")
+			b.WriteString(SubstituteMacros(scen, in))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(`Stay in character as `)
+	if speakerName != "" {
+		b.WriteString(speakerName)
+	} else {
+		b.WriteString("your character")
+	}
+	b.WriteString(`. You may address the user or any other character directly. When the history shows "<Name>: <content>", that's who said what — do not impersonate other characters.`)
+	return b.String()
 }
 
 // activateWorlds runs the WI engine across attached lorebooks.
