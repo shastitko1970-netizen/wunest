@@ -163,7 +163,15 @@ async function runSummarize() {
       // Refresh full list so ordering + existing manual/pinned stay in sync.
       await refreshSummaries()
     } else if (res.message) {
-      summarizeError.value = res.message
+      // Backend returns English literal strings for "no-op" responses
+      // (e.g. "nothing new to summarise" when the chat is too short).
+      // Map known strings to localised UX copy so the tester doesn't see
+      // mixed-language error alerts.
+      if (/nothing new/i.test(res.message)) {
+        summarizeError.value = t('chat.settings.memory.tooShortToSummarize')
+      } else {
+        summarizeError.value = res.message
+      }
     }
   } catch (e: any) {
     summarizeError.value = e?.message || String(e)
@@ -318,6 +326,24 @@ async function saveAutoConfig() {
   }
   try {
     await chatsApi.setAutoSummarise(props.chat.id, cfg)
+    // Client-side chat object mirror — server now has the fresh config,
+    // but `props.chat.chat_metadata.auto_summarise` still holds the prior
+    // value (parent didn't refetch). Without this mutation the drawer's
+    // `hydrateAutoFromChat` (called on drawer-open or chat-id change)
+    // reads stale data and overwrites our just-toggled form. Tester:
+    // «настройки автосаммари не сохраняются» — exactly this race.
+    //
+    // Same pattern Chat.vue uses for persona auto-pin: mutate
+    // `chat.chat_metadata` in place via spread so reactivity picks up
+    // the change. Vue allows it because props.chat is a reactive object
+    // (not a primitive); this is explicitly sanctioned for parent-owned
+    // deep structures when the child has authoritative knowledge.
+    if (props.chat) {
+      props.chat.chat_metadata = {
+        ...(props.chat.chat_metadata ?? {}),
+        auto_summarise: cfg,
+      }
+    }
   } catch (e: any) {
     autoSaveError.value = e?.message || String(e)
   }

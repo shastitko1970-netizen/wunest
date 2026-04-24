@@ -30,8 +30,14 @@ import (
 // keepRecentMessages is how many recent messages stay raw in the
 // prompt (not folded into the summary). Higher = better short-term
 // coherence + more tokens per turn; lower = more aggressive
-// compression. 30 balances cost + quality for typical RP flow.
-const keepRecentMessages = 30
+// compression + manual "Summarise now" button works on shorter chats.
+//
+// Was 30 — but that meant manual summarise returned "nothing to do"
+// for any chat under 31 messages, which felt broken on short test
+// sessions. 20 is a compromise: chats with 21+ messages can be
+// summarised on demand, and there's still a solid window of raw recent
+// context for the model to track short-term coherence.
+const keepRecentMessages = 20
 
 // defaultSummariserModel is used when the caller doesn't specify one.
 // Gemini 2.5 Flash is the current sweet spot for WuApi-proxied users:
