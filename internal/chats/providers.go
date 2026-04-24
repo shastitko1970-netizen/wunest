@@ -52,6 +52,15 @@ func PrepareRequestForProvider(provider string, req wuapi.ChatCompletionRequest)
 		out.Stop = nil
 	}
 
+	// Anthropic hard-requires max_tokens — their OAI-compat layer mirrors
+	// the native API here and 400s when it's missing. We default to 4096
+	// (enough for ~3k words of English, a safe Claude default) if the
+	// caller didn't set one. Other providers leave the nil untouched.
+	if caps.requireMaxTokens && out.MaxTokens == nil {
+		defaultMax := 4096
+		out.MaxTokens = &defaultMax
+	}
+
 	// Rebuild Extra: drop reasoning-override keys that don't belong to this
 	// provider, keep everything else verbatim. We never clobber the caller's
 	// keys silently — if they jammed `thinking` into the preset's extra by
@@ -129,6 +138,7 @@ type providerCap struct {
 	presencePenalty   bool
 	seed              bool
 	stop              bool
+	requireMaxTokens  bool             // force a default if caller didn't set one
 	reasoning         map[string]bool // which reasoning-key names survive filtering
 }
 
@@ -149,10 +159,12 @@ func providerCaps(provider string) providerCap {
 	case "anthropic":
 		// OAI-compat endpoint at /v1/chat/completions. Doesn't map the
 		// penalties, min_p, seed, or top_k to Anthropic's native knobs —
-		// sending them yields 400.
+		// sending them yields 400. max_tokens is REQUIRED (mirrors native
+		// API); we inject a default when caller didn't set one.
 		return providerCap{
-			stop:      true,
-			reasoning: map[string]bool{"thinking": true},
+			stop:             true,
+			requireMaxTokens: true,
+			reasoning:        map[string]bool{"thinking": true},
 		}
 	case "google":
 		// Gemini OAI-compat layer at /v1beta/openai. Accepts temperature,
@@ -219,19 +231,14 @@ func isReasoningKey(k string) bool {
 // DirectCallHeaders returns the HTTP headers that directChatStream should
 // layer on top of the common ones (Content-Type/Accept/User-Agent).
 //
-// Most providers are happy with plain `Authorization: Bearer <key>`. The
-// one consistent exception is Anthropic's native endpoints, which want
-// `x-api-key` + `anthropic-version`. Their OAI-compat endpoint accepts
-// both, but Anthropic support reps recommend the native headers so
-// x-api-key is the less-surprising choice.
-func DirectCallHeaders(provider, apiKey string) map[string]string {
-	out := map[string]string{}
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "anthropic":
-		out["x-api-key"] = apiKey
-		out["anthropic-version"] = "2023-06-01"
-	default:
-		out["Authorization"] = "Bearer " + apiKey
+// ALL providers — including Anthropic — use `Authorization: Bearer <key>`
+// for their /chat/completions endpoint. Anthropic's native endpoint at
+// /v1/messages uses `x-api-key`, but the OpenAI-compat layer at
+// /v1/chat/completions follows OpenAI conventions exactly: Bearer auth,
+// no anthropic-version header required. See byok.FetchModels for the
+// separate x-api-key path used against /v1/models (native-only).
+func DirectCallHeaders(_, apiKey string) map[string]string {
+	return map[string]string{
+		"Authorization": "Bearer " + apiKey,
 	}
-	return out
 }

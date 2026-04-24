@@ -86,6 +86,10 @@ func TestPrepareRequestForProvider_Anthropic(t *testing.T) {
 	if out.Stop == nil {
 		t.Error("anthropic: stop should be kept (maps to stop_sequences)")
 	}
+	// max_tokens is required — fullRequest sets 1024, which must survive.
+	if out.MaxTokens == nil || *out.MaxTokens != 1024 {
+		t.Errorf("anthropic: max_tokens should survive, got %v", out.MaxTokens)
+	}
 
 	// Extra: only `thinking` survives.
 	if _, ok := out.Extra["thinking"]; !ok {
@@ -149,6 +153,31 @@ func TestPrepareRequestForProvider_OpenRouter(t *testing.T) {
 	}
 }
 
+func TestPrepareRequestForProvider_Anthropic_InjectsMaxTokens(t *testing.T) {
+	// User preset didn't set max_tokens → we must inject a default, else
+	// Anthropic 400s with "max_tokens is required".
+	req := fullRequest()
+	req.MaxTokens = nil
+	out := PrepareRequestForProvider("anthropic", req)
+	if out.MaxTokens == nil {
+		t.Fatal("anthropic: max_tokens should be injected when caller didn't set one")
+	}
+	if *out.MaxTokens <= 0 || *out.MaxTokens > 200_000 {
+		t.Errorf("anthropic: injected max_tokens out of sane range, got %d", *out.MaxTokens)
+	}
+
+	// And other providers should NOT get a forced default when the caller
+	// left it nil — OpenAI/Google/etc treat missing max_tokens as "no cap".
+	for _, p := range []string{"openai", "google", "openrouter", "deepseek", "mistral"} {
+		req := fullRequest()
+		req.MaxTokens = nil
+		out := PrepareRequestForProvider(p, req)
+		if out.MaxTokens != nil {
+			t.Errorf("%s: should not inject max_tokens default, got %v", p, *out.MaxTokens)
+		}
+	}
+}
+
 func TestPrepareRequestForProvider_EmptyProvider_Passthrough(t *testing.T) {
 	// Empty provider = WuApi path. We never call Prepare there, but make
 	// sure it's still a safe no-op.
@@ -166,23 +195,20 @@ func TestPrepareRequestForProvider_EmptyProvider_Passthrough(t *testing.T) {
 }
 
 func TestDirectCallHeaders(t *testing.T) {
-	// Anthropic uses x-api-key + anthropic-version.
-	h := DirectCallHeaders("anthropic", "sk-ant-abc")
-	if h["x-api-key"] != "sk-ant-abc" {
-		t.Errorf("anthropic: x-api-key mismatch, got %q", h["x-api-key"])
-	}
-	if h["anthropic-version"] == "" {
-		t.Error("anthropic: anthropic-version header missing")
-	}
-	if _, ok := h["Authorization"]; ok {
-		t.Error("anthropic: Authorization header should NOT be set (only x-api-key)")
-	}
-
-	// Everyone else: Bearer.
-	for _, p := range []string{"openai", "google", "openrouter", "deepseek", "mistral", "custom"} {
+	// /chat/completions uses Bearer for EVERY provider — including Anthropic
+	// (whose OAI-compat endpoint follows OpenAI conventions). The x-api-key
+	// case lives only on byok.FetchModels against the native /v1/models
+	// endpoint; chat completions always go through the OAI bridge.
+	for _, p := range []string{"openai", "anthropic", "google", "openrouter", "deepseek", "mistral", "custom"} {
 		h := DirectCallHeaders(p, "sk-abc")
 		if h["Authorization"] != "Bearer sk-abc" {
 			t.Errorf("%s: expected Bearer auth, got %q", p, h["Authorization"])
+		}
+		if _, ok := h["x-api-key"]; ok {
+			t.Errorf("%s: x-api-key must NOT be set on chat endpoint (only on native /models)", p)
+		}
+		if _, ok := h["anthropic-version"]; ok {
+			t.Errorf("%s: anthropic-version not needed on OAI-compat chat endpoint", p)
 		}
 	}
 }
