@@ -207,7 +207,15 @@ const tagline = computed(() => {
   transition: color var(--nest-transition-fast), background var(--nest-transition-fast);
 
   &:hover { background: var(--nest-bg-elevated); color: var(--nest-text); }
-  &.active { color: var(--nest-gold); }
+  // Force the v-icon inside the button to pick up the gold colour too.
+  // Without :deep Vuetify can apply a default colour at higher specificity
+  // than `color:` inheritance, causing the star to render in the theme's
+  // primary/accent colour while the stripe beside it stays gold. Explicit
+  // rule keeps them visually in sync across themes.
+  &.active {
+    color: var(--nest-gold);
+    :deep(.v-icon) { color: var(--nest-gold); }
+  }
 }
 
 .nest-card-name {

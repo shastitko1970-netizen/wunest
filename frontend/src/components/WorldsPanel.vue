@@ -222,28 +222,6 @@ const hasDraftChanges = computed(() => {
               class="nest-world-desc-input"
             />
           </div>
-          <div class="nest-editor-actions">
-            <v-btn
-              size="small"
-              :disabled="!hasDraftChanges"
-              :loading="saving"
-              color="primary"
-              variant="flat"
-              prepend-icon="mdi-content-save"
-              @click="saveDraft"
-            >
-              {{ t('common.save') }}
-            </v-btn>
-            <v-btn
-              size="small"
-              variant="text"
-              color="error"
-              prepend-icon="mdi-delete-outline"
-              @click="confirmDeleteId = selected.id"
-            >
-              {{ t('common.delete') }}
-            </v-btn>
-          </div>
         </div>
 
         <v-alert v-if="saveError" type="error" variant="tonal" density="compact" class="mb-3">
@@ -527,6 +505,35 @@ const hasDraftChanges = computed(() => {
             </div>
           </div>
         </div>
+
+        <!-- Sticky action footer — Save/Delete sit at the bottom of the
+             editor column so they stay reachable during long entry-list
+             edits. Previously these lived in `.nest-editor-head` at the
+             top, forcing a scroll-up after every keystroke edit. Tester's
+             feedback: "хэдер должен ехать вниз, а не оставаться сверху". -->
+        <div class="nest-editor-foot">
+          <v-btn
+            size="small"
+            variant="text"
+            color="error"
+            prepend-icon="mdi-delete-outline"
+            @click="confirmDeleteId = selected.id"
+          >
+            {{ t('common.delete') }}
+          </v-btn>
+          <v-spacer />
+          <v-btn
+            size="small"
+            :disabled="!hasDraftChanges"
+            :loading="saving"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-content-save"
+            @click="saveDraft"
+          >
+            {{ t('common.save') }}
+          </v-btn>
+        </div>
       </template>
     </section>
 
@@ -654,7 +661,24 @@ const hasDraftChanges = computed(() => {
   flex-wrap: wrap;
 }
 .nest-editor-name { flex: 1 1 auto; min-width: 200px; }
-.nest-editor-actions { display: flex; gap: 6px; }
+
+// Sticky action footer for the worlds editor. Save/Delete moved here
+// from the top-of-editor header so they're one tap away during long
+// entry-list edits. `position: sticky` with bottom: 0 keeps the bar
+// pinned on the viewport's lower edge when scrolling a 30+ entry
+// book; elements above it scroll naturally.
+.nest-editor-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px;
+  margin-top: 16px;
+  border-top: 1px solid var(--nest-border);
+  background: var(--nest-surface);
+  z-index: 1;
+}
 
 :deep(.nest-world-name-input input) {
   font-family: var(--nest-font-display);

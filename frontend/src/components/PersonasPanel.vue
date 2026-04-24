@@ -307,7 +307,10 @@ watch(items, () => {
                 referrerpolicy="no-referrer"
               />
               <span v-else class="text-body-1">{{ draftInitials }}</span>
-              <v-icon class="nest-persona-avatar-edit" size="14">mdi-camera</v-icon>
+              <!-- Camera edit badge only when there's an actual avatar to
+                   overlay. On empty (initials-only) state it clutters the
+                   clean letter mark — hover already signals clickability. -->
+              <v-icon v-if="draftAvatar" class="nest-persona-avatar-edit" size="14">mdi-camera</v-icon>
               <v-progress-circular
                 v-if="avatarUploading"
                 class="nest-persona-avatar-spinner"

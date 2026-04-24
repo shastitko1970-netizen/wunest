@@ -212,6 +212,68 @@ html, body, #app {
 // below wire those tokens into Vuetify primitives so slider changes take
 // effect without every component needing to opt in.
 
+// Bridge Vuetify's component styling to our nest tokens. Vuetify's
+// `.v-theme--nest*` classes only carry the base palette (primary, surface,
+// etc) declared in plugins/vuetify.ts — those are static hex values and
+// don't follow preset switches (cyber-neon sets `--nest-accent` to purple
+// via --SmartThemeQuoteColor, but Vuetify's `primary: #ef4444` stays red).
+//
+// Consequence: an outlined v-btn in cyber-neon theme drew a red border
+// while the rest of the shell was purple. Users described this as "white
+// borders not matching the theme". Rules below make v-btn / v-chip /
+// v-avatar read from --nest-* tokens directly, so any preset swap paints
+// every button at once — matching the DS contract (author CSS controls
+// everything via tokens).
+.v-btn--variant-outlined {
+  --v-border-color: var(--nest-border);
+  --v-border-opacity: 1;
+  color: var(--nest-text);
+  border-color: var(--nest-border);
+
+  &:hover:not(:disabled) {
+    border-color: var(--nest-accent);
+    color: var(--nest-text);
+  }
+}
+
+// `color="primary"` on a v-btn/v-chip/v-avatar should track the theme
+// accent, not Vuetify's static hex. The built-in class Vuetify applies
+// is `.v-btn--color-primary`; we override the background+border lookup.
+.v-btn--color-primary.v-btn--variant-outlined {
+  --v-border-color: var(--nest-accent);
+  color: var(--nest-accent);
+  border-color: var(--nest-accent);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--nest-accent) 12%, transparent);
+  }
+}
+.v-btn--color-primary.v-btn--variant-tonal {
+  background: color-mix(in srgb, var(--nest-accent) 18%, transparent);
+  color: var(--nest-accent);
+}
+.v-btn--color-primary.v-btn--variant-flat,
+.v-btn--color-primary.v-btn--variant-elevated {
+  background: var(--nest-accent);
+  color: var(--nest-text-on-accent, white);
+}
+
+// v-chip follows the same logic — color="primary" on a chip should
+// recolour to the theme accent.
+.v-chip--variant-tonal.v-chip--color-primary {
+  background: color-mix(in srgb, var(--nest-accent) 16%, transparent);
+  color: var(--nest-accent);
+}
+
+// Avatar on the topbar uses color="primary" with a text initials
+// inside. Ensure background tracks the accent token so the letter
+// disc matches whichever preset is active.
+.v-avatar.bg-primary,
+.v-avatar[data-v-color="primary"] {
+  background: var(--nest-accent) !important;
+  color: var(--nest-text-on-accent, white);
+}
+
 .v-avatar {
   border-radius: var(--nest-avatar-radius, 50%) !important;
 }
