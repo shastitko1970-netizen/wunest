@@ -89,10 +89,33 @@ const activePersonaLabel = computed(() => {
 })
 
 // Rolling estimate of "what would go in the next prompt" — the full message
-// history content. Sync approximation, no debounce needed.
+// history content. Sync approximation, no debounce needed. Shown in the
+// tooltip alongside the real totals so the user can compare "what I'm about
+// to send" vs "what I've already spent".
 const contextTokens = computed(() =>
   countTokensMany((messages.value ?? []).map(m => m.content ?? '')),
 )
+
+// Real token usage summed across every assistant message in this chat —
+// actual numbers reported by the provider, not an approximation. `in` is
+// what was billed on inputs, `out` what was billed on outputs.
+const chatTokens = computed(() => {
+  let inTok = 0
+  let outTok = 0
+  for (const m of (messages.value ?? [])) {
+    inTok += m.extras?.tokens_in ?? 0
+    outTok += m.extras?.tokens_out ?? 0
+  }
+  return { in: inTok, out: outTok, total: inTok + outTok }
+})
+
+// 2784 → "2.8k", 12 → "12". Keeps chip tight on mobile while still
+// showing at-a-glance magnitude of cumulative spend.
+function formatTokenCount(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 10_000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return Math.round(n / 1000) + 'k'
+}
 
 onMounted(async () => {
   await chats.fetchList()
@@ -777,11 +800,16 @@ const lastAssistantId = computed(() => {
               </v-list>
             </v-menu>
             <span
-              v-if="contextTokens > 0"
+              v-if="chatTokens.total > 0 || contextTokens > 0"
               class="nest-mono nest-ctx-chip"
-              :title="t('chat.contextTokensTitle')"
+              :title="t('chat.tokensChip.title', {
+                inCount: chatTokens.in,
+                outCount: chatTokens.out,
+                totalCount: chatTokens.total,
+                estimate: contextTokens,
+              })"
             >
-              {{ contextTokens }} {{ t('chat.input.tokensShort') }}
+              ↑{{ formatTokenCount(chatTokens.in) }} ↓{{ formatTokenCount(chatTokens.out) }}
             </span>
             <v-btn
               variant="text"
