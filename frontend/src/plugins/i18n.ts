@@ -192,6 +192,10 @@ const messages = {
       tagline: 'Шрифт, ширина, аватарки, фон, свой CSS и импорт тем из SillyTavern.',
       savingHint: 'сохраняю…',
       reset: 'Сбросить',
+      themes: {
+        eyebrow: 'Тема',
+        tagline: 'Готовые пресеты из дизайн-системы. Кликни — применится сразу. Твой custom CSS накладывается поверх.',
+      },
       fontScale: 'Размер шрифта',
       chatWidth: 'Ширина чата',
       avatarStyle: 'Форма аватара',
@@ -1368,6 +1372,10 @@ const messages = {
       tagline: 'Font, width, avatars, background image, custom CSS, and import/export of SillyTavern themes.',
       savingHint: 'saving…',
       reset: 'Reset',
+      themes: {
+        eyebrow: 'Theme',
+        tagline: 'Curated presets from the design system. Click to apply — custom CSS layers on top.',
+      },
       fontScale: 'Font size',
       chatWidth: 'Chat width',
       avatarStyle: 'Avatar shape',

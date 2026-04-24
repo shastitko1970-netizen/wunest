@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useAppearanceStore, resolveScope } from '@/stores/appearance'
+import { useThemeStore, THEME_PRESETS, type ThemePreset } from '@/stores/theme'
 import { fromST, toST, type AvatarStyle, type ChatDisplay, type STTheme } from '@/api/appearance'
 import { uploadBackground } from '@/api/uploads'
 import { auditDangerousSelectors, supportsCSSScope } from '@/lib/cssScope'
@@ -16,6 +17,16 @@ import { auditDangerousSelectors, supportsCSSScope } from '@/lib/cssScope'
 const { t } = useI18n()
 const store = useAppearanceStore()
 const { appearance, saving } = storeToRefs(store)
+
+// M42.2 — Theme preset picker. Surface the five built-in themes from the
+// design-system kit as cards; on click the theme store pulls the preset's
+// CSS chunk and swaps the live <style id="nest-theme"> tag. Custom CSS
+// (below) layers on top.
+const themeStore = useThemeStore()
+const { currentId: currentThemeId, loading: themeLoading } = storeToRefs(themeStore)
+async function pickTheme(id: ThemePreset) {
+  await themeStore.apply(id)
+}
 
 // Bind sliders to writable refs so we can patch the store on change without
 // fighting v-model two-way rules.
@@ -226,6 +237,55 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         >
           {{ t('appearance.reset') }}
         </v-btn>
+      </div>
+    </div>
+
+    <!-- ─── Theme preset picker (M42.2) ─────────────────────────────────
+         Five design-system-compliant themes. Each card swaps
+         <style id="nest-theme"> atomically. Custom CSS (further down)
+         layers on top, so users can start from "Cyber neon" and add
+         their own tweaks without rebuilding the palette from scratch. -->
+    <div class="nest-theme-section nest-md-hint">
+      <div class="nest-eyebrow">{{ t('appearance.themes.eyebrow') }}</div>
+      <p class="nest-subtitle mt-1 mb-3">{{ t('appearance.themes.tagline') }}</p>
+
+      <div class="nest-theme-grid">
+        <button
+          v-for="p in THEME_PRESETS"
+          :key="p.id"
+          type="button"
+          class="nest-theme-card"
+          :class="{
+            'is-active': currentThemeId === p.id,
+            'is-loading': themeLoading && currentThemeId !== p.id,
+            [`is-kind-${p.kind}`]: true,
+          }"
+          :disabled="themeLoading"
+          @click="pickTheme(p.id)"
+        >
+          <!-- Mini-preview: accent stripe + background + two bubble chips.
+               Uses CSS variables the theme defines, so the preview
+               updates automatically if tokens change. -->
+          <div class="nest-theme-preview" :data-theme-id="p.id">
+            <div class="nest-theme-preview-bg" />
+            <div class="nest-theme-preview-msg" />
+            <div class="nest-theme-preview-msg user" />
+            <div class="nest-theme-preview-accent" />
+          </div>
+          <div class="nest-theme-card-body">
+            <div class="nest-theme-card-title">
+              {{ p.label }}
+              <span class="nest-mono nest-theme-kind">{{ p.kind }}</span>
+            </div>
+            <div class="nest-theme-card-desc">{{ p.description }}</div>
+          </div>
+          <v-icon
+            v-if="currentThemeId === p.id"
+            size="18"
+            color="primary"
+            class="nest-theme-check"
+          >mdi-check-circle</v-icon>
+        </button>
       </div>
     </div>
 
@@ -619,6 +679,132 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 
 <style lang="scss" scoped>
 .nest-appearance { display: flex; flex-direction: column; gap: 24px; }
+
+// ─── Theme preset picker (M42.2) ───────────────────────────────────
+// Grid of theme cards with live mini-previews. Each card is a button;
+// :disabled while another theme is loading so two-finger tap doesn't
+// start parallel loads. Active state is a tinted border + check icon.
+.nest-theme-section {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--nest-border-subtle);
+}
+.nest-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+.nest-theme-card {
+  all: unset;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius);
+  background: var(--nest-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--nest-transition-fast),
+    transform var(--nest-transition-fast),
+    box-shadow var(--nest-transition-fast);
+
+  &:hover:not(:disabled):not(.is-active) {
+    border-color: var(--nest-accent);
+    transform: translateY(-1px);
+    box-shadow: var(--nest-shadow-sm);
+  }
+  &.is-active {
+    border-color: var(--nest-accent);
+    box-shadow: 0 0 0 1px var(--nest-accent);
+  }
+  &:disabled { cursor: progress; opacity: 0.7; }
+  &.is-loading { opacity: 0.5; }
+}
+.nest-theme-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.nest-theme-preview {
+  position: relative;
+  flex: 0 0 72px;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--nest-radius-sm);
+  overflow: hidden;
+  // Per-preview theme colours. Uses the `data-theme-id` attribute so we
+  // can show a faithful mini of each preset even before the user picks
+  // it — no live CSS var inheritance from global (which would show the
+  // SAME palette for every card).
+  &[data-theme-id="nest-default-dark"]    { background: #080808; --sw-accent: #ef4444; --sw-msg: #141414; --sw-user: #2a1818; }
+  &[data-theme-id="nest-default-light"]   { background: #fafaf7; --sw-accent: #ef4444; --sw-msg: #ffffff; --sw-user: #fff0f0; }
+  &[data-theme-id="cyber-neon"]           { background: #0a0612; --sw-accent: #c485ff; --sw-msg: #150a20; --sw-user: #2a1740; }
+  &[data-theme-id="minimal-reader"]       { background: #fbfaf5; --sw-accent: #6b5c4a; --sw-msg: transparent; --sw-user: #f0ece0; }
+  &[data-theme-id="tavern-warm"]          { background: #1a0f07; --sw-accent: #e0a96d; --sw-msg: #2a1a10; --sw-user: #3a2418; }
+}
+.nest-theme-preview-bg {
+  position: absolute; inset: 0;
+}
+.nest-theme-preview-msg {
+  position: absolute;
+  left: 8px; right: 32px;
+  top: 16px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--sw-msg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  &.user {
+    top: 34px;
+    left: 20px; right: 8px;
+    background: var(--sw-user);
+  }
+}
+.nest-theme-preview-accent {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sw-accent);
+  opacity: 0.9;
+}
+.nest-theme-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+.nest-theme-card-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--nest-text);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.nest-theme-kind {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
+  padding: 1px 5px;
+  border-radius: var(--nest-radius-pill);
+  background: var(--nest-bg-elevated);
+}
+.nest-theme-card-desc {
+  font-size: 11px;
+  color: var(--nest-text-secondary);
+  line-height: 1.4;
+}
+@media (max-width: 640px) {
+  .nest-theme-grid { grid-template-columns: 1fr; }
+}
 
 // Grid instead of flex+wrap+space-between. The old layout broke when the
 // user cranked fontScale up: the left block grew taller and wider, `wrap`
