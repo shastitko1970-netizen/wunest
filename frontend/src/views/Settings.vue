@@ -6,7 +6,6 @@ import AppearancePanel from '@/components/AppearancePanel.vue'
 import BYOKPanel from '@/components/BYOKPanel.vue'
 import { useModelsStore } from '@/stores/models'
 import { usePreferencesStore } from '@/stores/preferences'
-import { useThemeStore, resolvePairFor } from '@/stores/theme'
 import { apiFetch } from '@/api/client'
 
 const { t, locale, availableLocales } = useI18n()
@@ -15,32 +14,12 @@ const prefs = usePreferencesStore()
 const { disableStreaming } = storeToRefs(prefs)
 const { items: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
-// ─── Theme mode toggle ─────────────────────────────────────
-// Tester: "пропал выбор светлой/тёмной темы". After M42.X removed the
-// legacy Settings radio-group we only kept the 5-preset grid in
-// AppearancePanel — which was one click too many for "just switch to
-// light/dark". This section brings back the two-button affordance,
-// wired through the M42.1 preset store.
-//
-// Behaviour: clicking `dark` switches to the user's LAST-used dark
-// preset if they had one, else nest-default-dark. Same for light.
-// Tester also reported "не запоминает что было выбрано из тёмных
-// тем" — the lastByKind memory fixes that: cyber-neon stays cyber-
-// neon across light↔dark flips unless the user explicitly picks a
-// different preset from the AppearancePanel grid.
-const themeStore = useThemeStore()
-const { currentId: currentThemeId, current: currentPreset } = storeToRefs(themeStore)
-
-const themeMode = computed<'dark' | 'light'>({
-  get: () => currentPreset.value.kind,
-  set: (kind) => {
-    // Preset-pair resolution lives in the theme store (M42.6) — tries
-    // current.pair first, then last-picked-of-kind, then kind default.
-    // Keeps cyber-neon ↔ minimal-reader as a coherent pair, etc.
-    const next = resolvePairFor(currentThemeId.value, kind)
-    themeStore.apply(next)
-  },
-})
+// Theme mode toggle жил здесь до этой итерации — M42.X добавил его как
+// replacement для удалённой radio-group'ы. Тестер попросил убрать и
+// его: «быстрая кнопка светла/тёмная» дублировала 5-preset grid из
+// AppearancePanel ниже. Оставляем единый источник theme UX'а — picker
+// в Appearance. Pair-logic в theme store живёт дальше, используется в
+// /themes галерее как "pair for flip" мета.
 
 const currentLocale = computed({
   get: () => locale.value,
@@ -105,32 +84,9 @@ async function saveDefaultModel(v: string) {
     <div class="nest-eyebrow">{{ t('nav.settings') }}</div>
     <h1 class="nest-h1 mt-1">{{ t('settings.title') }}</h1>
 
-    <!-- Theme-mode quick toggle. The full 5-preset picker lives in
-         AppearancePanel below; this is the "just flip me to dark/light"
-         two-button affordance tester asked for after M42.X. Remembers
-         the last-used preset per kind so cyber-neon → nest-default-light
-         → cyber-neon round-trip preserves the neon pick. -->
-    <section class="nest-section">
-      <h2 class="nest-h2">{{ t('settings.theme.title') }}</h2>
-      <p class="nest-subtitle mb-3">{{ t('settings.theme.tagline') }}</p>
-      <v-btn-toggle
-        v-model="themeMode"
-        mandatory
-        density="compact"
-        color="primary"
-        variant="outlined"
-      >
-        <v-btn value="light" prepend-icon="mdi-weather-sunny">
-          {{ t('settings.theme.light') }}
-        </v-btn>
-        <v-btn value="dark" prepend-icon="mdi-weather-night">
-          {{ t('settings.theme.dark') }}
-        </v-btn>
-      </v-btn-toggle>
-      <p class="nest-hint mt-2">
-        {{ t('settings.theme.currentHint', { name: currentPreset.label }) }}
-      </p>
-    </section>
+    <!-- Theme picker лежит в AppearancePanel ниже — единый источник
+         theme UX'а. Быстрый dark/light toggle был удалён как
+         дублирующий, 5-preset grid делает ту же работу одним кликом. -->
 
     <section class="nest-section">
       <h2 class="nest-h2">{{ t('settings.language') }}</h2>

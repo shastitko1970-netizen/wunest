@@ -94,30 +94,11 @@ export const THEME_PRESETS: ThemePresetMeta[] = [
   },
 ]
 
-/**
- * Preferred pair resolution for dark↔light flips from Settings toggle.
- * Order:
- *   1. Current preset has `pair` → use it.
- *   2. Last-picked of the target kind (per-kind LS memory) → use it.
- *   3. Kind's default (nest-default-{dark,light}) → fallback.
- *
- * This keeps UX predictable: cyber-neon flips to minimal-reader and
- * back as a coherent pair, and custom user round-trips still preserve
- * their last-picked via LS memory.
- */
-export function resolvePairFor(currentId: ThemePreset, targetKind: 'dark' | 'light'): ThemePreset {
-  const current = THEME_PRESETS.find(p => p.id === currentId)
-  if (current?.pair) {
-    const pair = THEME_PRESETS.find(p => p.id === current.pair)
-    if (pair && pair.kind === targetKind) return pair.id
-  }
-  const remembered = localStorage.getItem(`nest:last-theme-${targetKind}`) as
-    ThemePreset | null
-  if (remembered && THEME_PRESETS.some(p => p.id === remembered && p.kind === targetKind)) {
-    return remembered
-  }
-  return targetKind === 'dark' ? 'nest-default-dark' : 'nest-default-light'
-}
+// NOTE: был экспорт `resolvePairFor()` для Settings dark/light toggle'а
+// (M42.6). Сам toggle тестер попросил убрать — grid из 5 пресетов в
+// AppearancePanel делает ту же работу без дубля. Helper удалён как
+// dead code. `pair` поле на ThemePresetMeta оставлено — его использует
+// /themes галерея как "pair for flip" мета.
 
 // Vite bundles each theme as its own chunk via `?raw` + dynamic import.
 // Type the function map so TS catches typos at compile time.
@@ -192,13 +173,6 @@ export const useThemeStore = defineStore('theme', () => {
       el.textContent = css
       currentId.value = id
       localStorage.setItem(LS_THEME, id)
-      // Per-kind memory so the Settings light/dark toggle can round-trip
-      // (user in cyber-neon flips to light → nest-default-light; flips
-      // back to dark → cyber-neon again, not the generic default).
-      const meta = THEME_PRESETS.find(p => p.id === id)
-      if (meta) {
-        localStorage.setItem(`nest:last-theme-${meta.kind}`, id)
-      }
       // Clear any user-applied accent override: the preset's own
       // --SmartThemeQuoteColor should now cascade into --nest-accent
       // without fighting an inline :root override from Appearance.

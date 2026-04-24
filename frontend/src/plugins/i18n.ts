@@ -140,13 +140,6 @@ const messages = {
     },
     settings: {
       title: 'Настройки',
-      theme: {
-        title: 'Тема',
-        tagline: 'Быстрый переключатель светлая / тёмная. Все 5 пресетов — ниже в разделе «Внешний вид».',
-        light: 'Светлая',
-        dark: 'Тёмная',
-        currentHint: 'Сейчас активна: {name}',
-      },
       language: 'Язык',
       appearanceTitle: 'Внешний вид',
       defaultModel: {
@@ -1345,13 +1338,6 @@ const messages = {
     },
     settings: {
       title: 'Settings',
-      theme: {
-        title: 'Theme',
-        tagline: 'Quick light / dark toggle. All 5 presets below in Appearance.',
-        light: 'Light',
-        dark: 'Dark',
-        currentHint: 'Active preset: {name}',
-      },
       language: 'Language',
       appearanceTitle: 'Appearance',
       defaultModel: {
