@@ -117,11 +117,22 @@ export function globalGuardCSS(css: string): string {
   if (!css.trim()) return ''
   const { globalRules, scopable } = splitImports(css)
   if (supportsCSSScope) {
-    // Scope everything to body but exclude .nest-admin subtrees. Any
-    // class the user writes (`.mes`, `body`, `#top-bar`, etc.) still
-    // resolves inside this scope EXCEPT when its element is a
-    // descendant of a `.nest-admin` node.
-    return `${globalRules}\n@scope (body) to (.nest-admin) {\n${scopable}\n}`
+    // Scope everything to body but exclude admin subtrees. Two scope
+    // limits joined via the `@scope` selector-list syntax:
+    //
+    //   - `.nest-admin` — our opt-in marker on Settings/Account/Docs/
+    //     Themes/Converter containers.
+    //   - `.v-overlay__content` — Vuetify's portal root for v-dialog,
+    //     v-menu, v-tooltip etc. Dialogs are teleported to <body>,
+    //     so they'd otherwise be painted by global-scope themes even
+    //     when they contain admin UI (character editor, sprites,
+    //     persona picker, …). Excluding the whole overlay layer is
+    //     broader than strict admin-isolation but trades a small
+    //     theming surface for guaranteed usable modals.
+    //
+    // Rules inside this @scope match elements that are descendants of
+    // `body` AND are NOT inside any subtree rooted at either limit.
+    return `${globalRules}\n@scope (body) to (.nest-admin, .v-overlay__content) {\n${scopable}\n}`
   }
   // Firefox / legacy: no @scope → trust user's global-scope intent.
   return css

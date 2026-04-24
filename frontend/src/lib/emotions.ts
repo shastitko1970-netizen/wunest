@@ -62,8 +62,15 @@ const KEYWORDS: Record<string, string[]> = {
 
 /** explicitTagRegex matches `<name>` or `[name]` or `:name:` (with
  *  word-boundaries around the name so we don't false-positive on
- *  real punctuation in narration). */
-const explicitTagRegex = /[<\[:]\s*(?<name>[a-zA-Zа-яА-Я_-]{2,24})\s*[>\]:]/gi
+ *  real punctuation in narration).
+ *
+ *  Name length: 1..24. Previously {2,24} — tester reported an
+ *  emotion literally named "i" (one letter) wasn't triggering because
+ *  `<i>` failed the min-length gate. No reason to force two chars;
+ *  the Tier-1 validator already requires the name to be a known
+ *  expression in availLower, so random `<a>` in narration stays
+ *  silent. */
+const explicitTagRegex = /[<\[:]\s*(?<name>[a-zA-Zа-яА-Я_-]{1,24})\s*[>\]:]/gi
 
 export interface DetectInput {
   /** Last assistant message content (trimmed, markdown as-is). */

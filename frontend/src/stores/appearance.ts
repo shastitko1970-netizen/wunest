@@ -273,25 +273,42 @@ function applyAppearance(a: Appearance) {
     document.head.appendChild(guardEl)
   }
   guardEl.textContent = `
-/* WuNest admin guard — keeps Settings/Account/Docs/Converter usable
- * even with aggressive user themes in scope=global. Placed AFTER
- * nest-user-css so these rules win on specificity ties. */
+/* WuNest admin guard — keeps Settings/Account/Docs/Converter AND all
+ * Vuetify dialogs usable even with aggressive user themes in
+ * scope=global. Placed AFTER nest-user-css so these rules win on
+ * specificity ties.
+ *
+ * Dialogs (v-dialog, v-menu) are Teleported to body by Vuetify, so
+ * they are not descendants of our .nest-admin containers even when
+ * they contain admin UI (character editor with sprite upload, persona
+ * picker, BYOK dialog, etc.). .v-overlay__content is the portal root
+ * — treating it the same as .nest-admin covers all modals. */
 .nest-admin,
-.nest-admin * {
+.nest-admin *,
+.v-overlay__content,
+.v-overlay__content * {
   visibility: visible !important;
   opacity: initial !important;
   pointer-events: auto !important;
 }
-.nest-admin [hidden] { display: none !important; }
+.nest-admin [hidden],
+.v-overlay__content [hidden] { display: none !important; }
 /* Preserve Vuetify field internals — user themes often zero-out
- * borders on inputs/textareas, which hides v-select triggers and
- * v-text-field frames inside Settings. */
+ * borders / backgrounds on inputs/textareas, which hides v-select
+ * triggers, v-text-field frames, and the sprite-editor's emotion
+ * name input inside character dialogs. */
 .nest-admin .v-field,
 .nest-admin .v-field__input,
 .nest-admin .v-field__outline,
 .nest-admin .v-selection-control,
 .nest-admin .v-input,
-.nest-admin .v-label {
+.nest-admin .v-label,
+.v-overlay__content .v-field,
+.v-overlay__content .v-field__input,
+.v-overlay__content .v-field__outline,
+.v-overlay__content .v-selection-control,
+.v-overlay__content .v-input,
+.v-overlay__content .v-label {
   color: inherit !important;
   background: initial;
 }

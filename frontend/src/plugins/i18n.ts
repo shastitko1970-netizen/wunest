@@ -990,7 +990,7 @@ const messages = {
     },
     characterSprites: {
       title: 'Эмоции (спрайты)',
-      hint: 'Загрузи PNG для разных эмоций (happy, sad, angry и т.д.). В чате автоматически выберется спрайт под последнюю реплику персонажа — по тегам <happy> или ключевым словам («улыбнулся», «нахмурился»).',
+      hint: 'Загрузи PNG для разных эмоций и дай каждой имя. В чате спрайт выберется автоматически по двум правилам: (1) явный тег в сообщении — <имя_эмоции>, [имя] или :имя: — точное совпадение с именем, которое ты задала; (2) ключевые слова («улыбнулся», «нахмурился», «покраснел» и т.п.) — привязаны к стандартным категориям happy / sad / angry / surprised / embarrassed / scared / confused, работают только если у тебя есть спрайт с таким именем.',
       emotionPlaceholder: 'Напр. happy / sad / angry',
       add: 'Добавить спрайты',
       uploadAll: 'Загрузить ({n})',
@@ -2219,7 +2219,7 @@ const messages = {
     },
     characterSprites: {
       title: 'Expressions (sprites)',
-      hint: 'Upload PNGs for different emotions (happy, sad, angry…). The chat picks the matching sprite automatically based on the last message — via <happy> tags or keyword detection (smiled, frowned).',
+      hint: 'Upload PNGs for each emotion and name them. The chat auto-picks a sprite per message by two rules: (1) an explicit tag in the message — <name>, [name], or :name: — exact match against your sprite names; (2) keywords ("smiled", "frowned", "blushed", …) mapped to standard categories happy / sad / angry / surprised / embarrassed / scared / confused — these only fire when you have a sprite with that exact name.',
       emotionPlaceholder: 'e.g. happy / sad / angry',
       add: 'Add sprites',
       uploadAll: 'Upload ({n})',
