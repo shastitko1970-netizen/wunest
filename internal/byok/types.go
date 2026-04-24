@@ -29,11 +29,15 @@ type CreateInput struct {
 }
 
 // Revealed carries a decrypted key plus the base URL it should be sent
-// to. Used by the chat stream to route directly to the real provider
-// (bypassing WuApi's proxy) when the chat is pinned to a BYOK.
+// to, and the provider string so callers can apply provider-specific
+// request shaping (e.g. stripping top_k for OpenAI, picking the right
+// reasoning payload shape). Used by the chat stream to route directly to
+// the real provider (bypassing WuApi's proxy) when the chat is pinned to
+// a BYOK.
 type Revealed struct {
-	Key     string
-	BaseURL string
+	Key      string
+	BaseURL  string
+	Provider string
 }
 
 // SupportedProviders is the allow-list the handler enforces. Keeping it

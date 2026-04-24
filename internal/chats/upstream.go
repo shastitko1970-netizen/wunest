@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
 )
@@ -38,9 +39,12 @@ func (h *Handler) openChatStream(ctx context.Context, up upstream, req wuapi.Cha
 }
 
 // directChatStream POSTs to a user-supplied OpenAI-compatible endpoint
-// with streaming enabled. Identical wire shape to WuApi's client — we
-// just change the URL and auth header.
+// with streaming enabled. The request is shaped per-provider BEFORE
+// serialising (top_k stripped for OpenAI, reasoning keys filtered to the
+// one the provider recognises, etc.); auth headers are chosen per-
+// provider (x-api-key for Anthropic, Bearer for everyone else).
 func directChatStream(ctx context.Context, up upstream, req wuapi.ChatCompletionRequest) (io.ReadCloser, *http.Response, error) {
+	req = PrepareRequestForProvider(up.Provider, req)
 	req.Stream = true
 
 	body, err := json.Marshal(req)
@@ -48,17 +52,21 @@ func directChatStream(ctx context.Context, up upstream, req wuapi.ChatCompletion
 		return nil, nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := up.BaseURL + "/chat/completions"
+	url := strings.TrimRight(up.BaseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+up.APIKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 	// WuNest identifies itself so providers can tell us apart in their logs;
 	// useful if someone reports unexpected traffic from a user's own key.
 	httpReq.Header.Set("User-Agent", "WuNest/0.1 (+https://nest.wusphere.ru)")
+	// Provider-specific auth: Bearer for almost everyone, x-api-key for
+	// Anthropic's native (and OAI-compat) endpoints.
+	for k, v := range DirectCallHeaders(up.Provider, up.APIKey) {
+		httpReq.Header.Set(k, v)
+	}
 
 	resp, err := directHTTPClient.Do(httpReq)
 	if err != nil {

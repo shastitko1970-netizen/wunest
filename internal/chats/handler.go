@@ -685,6 +685,7 @@ func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
 		Messages:                toFold,
 		PromptAPIKey:            up.APIKey,
 		PromptBaseURL:           up.BaseURL,
+		PromptProvider:          up.Provider,
 		SpeakerNameByCharacterID: speakerNames,
 	})
 	if err != nil {
@@ -916,9 +917,16 @@ func otherParticipantIDs(all []uuid.UUID, speaker *uuid.UUID) []uuid.UUID {
 // request. WuApi is the default (empty BaseURL → our own /v1 proxy);
 // when BYOK is pinned the Key + BaseURL route directly to the user's
 // provider, bypassing WuApi entirely so a raw `sk-proj-*` key works.
+//
+// Provider is the BYOK `provider` string (openai/anthropic/google/...) so
+// the direct-call path can shape the request for each provider's quirks
+// (strip top_k for OpenAI, use the anthropic "thinking" field instead of
+// OpenAI's reasoning_effort, etc.). Empty when BaseURL is empty — WuApi
+// normalises on its own side.
 type upstream struct {
-	APIKey  string
-	BaseURL string // empty → use the WuApi client
+	APIKey   string
+	BaseURL  string // empty → use the WuApi client
+	Provider string // populated only for BYOK direct calls
 }
 
 // resolveUpstream picks the upstream auth key AND URL for a chat turn.
@@ -944,7 +952,7 @@ func (h *Handler) resolveUpstream(ctx context.Context, userID uuid.UUID, metadat
 		slog.Warn("byok: reveal failed, falling back to wuapi key", "err", err, "byok_id", byokID)
 		return upstream{APIKey: wuapiKey}
 	}
-	return upstream{APIKey: rev.Key, BaseURL: rev.BaseURL}
+	return upstream{APIKey: rev.Key, BaseURL: rev.BaseURL, Provider: rev.Provider}
 }
 
 // applyUserDefaults populates SendMessageInput fields from per-user settings

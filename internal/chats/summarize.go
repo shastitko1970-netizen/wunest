@@ -71,6 +71,7 @@ type SummariseInput struct {
 	Messages                []Message // messages to fold into the summary
 	PromptAPIKey            string // wuapi/byok key to use for the call
 	PromptBaseURL           string // empty → wuapi proxy; non-empty → direct
+	PromptProvider          string // BYOK provider id; empty on wuapi path (used for per-provider request shaping)
 	SpeakerNameByCharacterID map[string]string // for "Alice:" prefix on group assistant msgs
 }
 
@@ -136,7 +137,7 @@ func (h *Handler) SummariseChat(ctx context.Context, in SummariseInput) (*Summar
 		},
 	}
 
-	upStream := upstream{APIKey: in.PromptAPIKey, BaseURL: in.PromptBaseURL}
+	upStream := upstream{APIKey: in.PromptAPIKey, BaseURL: in.PromptBaseURL, Provider: in.PromptProvider}
 	reader, resp, err := h.openChatStream(ctx, upStream, req)
 	if err != nil {
 		return nil, fmt.Errorf("summarise: upstream connect: %w", err)

@@ -150,7 +150,7 @@ func (r *Repository) Reveal(ctx context.Context, userID, id uuid.UUID) (Revealed
 	if err != nil {
 		return Revealed{}, err
 	}
-	return Revealed{Key: plaintext, BaseURL: baseURL}, nil
+	return Revealed{Key: plaintext, BaseURL: baseURL, Provider: provider}, nil
 }
 
 // Delete removes one key row (ownership-checked).
