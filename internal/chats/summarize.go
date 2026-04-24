@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
@@ -66,7 +67,13 @@ Rules:
 - Write in the same language as the chat (English / Russian / mixed
   — match the input).
 - Output ONLY the summary text. No meta commentary, no headers, no
-  "Here's the summary:" preamble.`
+  "Here's the summary:" preamble.
+- PLAIN PROSE ONLY — no HTML tags, no markdown code blocks,
+  no <tag>-style plates or state markers. If source messages contain
+  formatting markup (<state>, <action>, HTML etc.), describe the
+  events in your own words without reproducing the tags. The summary
+  is fed back into the model as memory; reproducing markup makes the
+  model keep producing it even when user disabled that style.`
 
 // SummariseInput packages everything needed to (re)generate a rolling
 // summary for one chat.
@@ -201,6 +208,13 @@ func (h *Handler) SummariseChat(ctx context.Context, in SummariseInput) (*Summar
 	if text == "" {
 		return nil, errors.New("summarise: empty response from model")
 	}
+	// Belt-and-suspenders HTML/markup strip. System prompt просит
+	// summariser не генерить markup, но cheap-models (Gemini Flash и
+	// подобные) иногда copy-paste'ят куски raw-содержания с тегами.
+	// Тестер: «подтянул html которого должен был забыть». Если tags
+	// попадут в summary → попадут в memory-block prompt'а → модель
+	// увидит их и снова начнёт генерить. Sanitise один раз тут.
+	text = stripHTMLForSummary(text)
 
 	// covered_through = id of the last message we folded in
 	var lastID int64
@@ -265,23 +279,60 @@ func PickSummariserBounds(history []Message, existingCoveredThrough int64, force
 	return toSummarise, keepFromIdx
 }
 
-// FilterHistoryForPrompt drops messages covered by the auto summary
-// so the model doesn't see them twice. Called right before prompt
-// build — handler loads full history, passes through this filter,
-// passes filtered slice into PromptInput.History.
+// FilterHistoryForPrompt — M49 переход к ST-style additive memory.
 //
-// No-op when summary is nil or coveredThrough is 0.
+// **Было (M38.4–M48):** функция дропала сообщения где
+// `m.ID <= covered_through_message_id` — summary ЗАМЕНЯЕТ покрытую
+// историю в промпте. Агрессивная компрессия, но на коротких чатах
+// или после force-summary модель теряла raw context и дрейфовала
+// (тестер: «говорили о небытии → после саммари стали о пицце»).
+// Плюс саммаризер мог воспроизвести HTML теги из старых сообщений,
+// которые модель потом снова начинала генерить.
+//
+// **Стало (M49):** ST-parity additive memory. Мы НЕ дропаем
+// сообщения — summary просто injectится как memory-block в system-
+// prompt рядом с full history. ST-пользователи это так и привыкли
+// — summary это дополнительная «memo», не замена.
+//
+// Trade-offs:
+//   - Token cost растёт линейно с длиной history (как у ST). Для
+//     чатов 500+ сообщений это может стать expensive — но в таких
+//     случаях auto-summary threshold (tokens_in >= N) просто
+//     обновляет summary без drop'а. Модель сама увидит «длинный
+//     prompt + самая свежая summary» — она справится.
+//   - `covered_through_message_id` теперь unused в prompt path
+//     (keepим в schema на будущее — может пригодиться для debug UI
+//     типа «эти сообщения summary покрывает, можно свернуть»).
+//
+// Function kept with original signature для backward compat с
+// callers в stream.go — просто возвращает history unchanged. Убрать
+// саму функцию не стал, call sites пусть остаются read'able как
+// self-documenting «тут раньше был filter».
 func FilterHistoryForPrompt(history []Message, auto *Summary) []Message {
-	if auto == nil || auto.CoveredThroughMessageID == nil {
-		return history
-	}
-	covered := *auto.CoveredThroughMessageID
-	out := make([]Message, 0, len(history))
-	for _, m := range history {
-		if m.ID <= covered {
-			continue
-		}
-		out = append(out, m)
-	}
-	return out
+	// Identity — no drops. Summary уходит в промпт как additive
+	// memory-block (см. buildMemoryBlock в prompt.go), history
+	// остаётся полной.
+	_ = auto
+	return history
+}
+
+// stripHTMLForSummary убирает HTML/XML теги из summary content'а.
+// Belt-and-suspenders защита: system prompt просит LLM не генерить
+// markup, но cheap-models иногда copy-paste'ят теги из source
+// messages. Если попадут в summary → в memory-block → модель снова
+// начнёт генерить `<state>` и прочие плашки даже когда user'ский
+// regex preset их стрипает.
+//
+// Стрипаем ВСЁ что выглядит как tag: `<...>` non-greedy. Text между
+// тегами сохраняется. Markdown fence'ы (```…```) тоже убираем —
+// summary должен быть прозой.
+var summaryTagRegex = regexp.MustCompile(`<[^<>]{1,200}>`)
+var summaryFenceRegex = regexp.MustCompile("```[^`]*```")
+
+func stripHTMLForSummary(s string) string {
+	s = summaryFenceRegex.ReplaceAllString(s, "")
+	s = summaryTagRegex.ReplaceAllString(s, "")
+	// Collapse any double-whitespace the removal introduced.
+	s = strings.TrimSpace(s)
+	return s
 }
