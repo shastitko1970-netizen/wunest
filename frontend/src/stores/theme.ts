@@ -102,12 +102,21 @@ function isSafeMode(): boolean {
   return (window as unknown as { __NEST_SAFE_MODE__?: boolean }).__NEST_SAFE_MODE__ === true
 }
 
+// Defensive read from localStorage — only accept values that exist in the
+// current preset list. A legacy / typo'd entry would otherwise silently
+// break first paint; here it falls back to the safe default.
+function readStoredPreset(): ThemePreset {
+  const raw = localStorage.getItem(LS_THEME)
+  if (raw && THEME_PRESETS.some(p => p.id === raw)) {
+    return raw as ThemePreset
+  }
+  return 'nest-default-dark'
+}
+
 export const useThemeStore = defineStore('theme', () => {
   // Current preset id. On first mount we hydrate from localStorage, falling
   // back to the dark default so brand-new users get a usable shell.
-  const currentId = ref<ThemePreset>(
-    (localStorage.getItem(LS_THEME) as ThemePreset | null) ?? 'nest-default-dark',
-  )
+  const currentId = ref<ThemePreset>(readStoredPreset())
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -143,6 +152,28 @@ export const useThemeStore = defineStore('theme', () => {
       el.textContent = css
       currentId.value = id
       localStorage.setItem(LS_THEME, id)
+      // Per-kind memory so the Settings light/dark toggle can round-trip
+      // (user in cyber-neon flips to light → nest-default-light; flips
+      // back to dark → cyber-neon again, not the generic default).
+      const meta = THEME_PRESETS.find(p => p.id === id)
+      if (meta) {
+        localStorage.setItem(`nest:last-theme-${meta.kind}`, id)
+      }
+      // Clear any user-applied accent override: the preset's own
+      // --SmartThemeQuoteColor should now cascade into --nest-accent
+      // without fighting an inline :root override from Appearance.
+      // Lazy-import so theme store doesn't hard-depend on appearance
+      // store (keeps the store graph acyclic).
+      try {
+        const { useAppearanceStore } = await import('@/stores/appearance')
+        const appearance = useAppearanceStore()
+        if (appearance.appearance.accent) {
+          appearance.update({ accent: undefined })
+        }
+      } catch {
+        // Non-fatal — worst case the old accent stays and the user
+        // can clear it manually from the Appearance color picker.
+      }
     } catch (e) {
       error.value = (e as Error).message
     } finally {

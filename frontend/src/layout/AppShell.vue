@@ -142,20 +142,14 @@ function isNavActive(to: string): boolean {
   return route.path === to || route.path.startsWith(to + '/')
 }
 
-// ─── Theme toggle ───────────────────────────────────────────
-// Unified through the M42.1 theme store. The sun/moon button flips
-// between the user's last light preset and last dark preset — if
-// they picked "Cyber neon" (dark) and hit the sun, they get
-// "Nest — light" (the current default light).
+// ─── Theme store integration ────────────────────────────────
+// The sun/moon toggle used to live in the topbar but tester asked
+// to keep the topbar purely for navigation + context. Theme mode
+// toggle moved to Settings; the picker for all 5 presets stays in
+// AppearancePanel. The watcher below keeps Vuetify's palette class
+// synced to whichever preset is currently active.
 const themeStore = useThemeStore()
 const { current: currentPreset } = storeToRefs(themeStore)
-const isDark = computed(() => currentPreset.value.kind === 'dark')
-
-async function toggleTheme() {
-  const next = isDark.value ? 'nest-default-light' : 'nest-default-dark'
-  await themeStore.apply(next)
-  // Vuetify sync is handled by the watcher below — no need to dup it here.
-}
 
 // Keep Vuetify theme name mirrored to the preset's kind.
 //
@@ -296,14 +290,10 @@ const localeLabel = (code: string) => {
         </v-chip>
       </template>
 
-      <!-- Theme toggle. -->
-      <v-btn
-        :icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'"
-        variant="text"
-        size="small"
-        :title="t('theme.toggle')"
-        @click="toggleTheme"
-      />
+      <!-- Theme toggle moved to Settings by tester request. Topbar is
+           for navigation + context; theme swaps live with the rest of
+           Appearance controls in /settings. The kind-sync watcher below
+           still keeps Vuetify's palette class aligned on preset change. -->
 
       <!-- Language picker. -->
       <v-menu location="bottom end" offset="4">

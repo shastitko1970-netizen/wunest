@@ -416,10 +416,16 @@ function runAction(action: PlateAction) {
   // A runaway height (`height: 2000px`) on a plate makes the chat jump
   // past the composer into the void. Cap every author-set height to the
   // viewport; if they wanted a full scene, they get a scrollable column.
-  :deep(div[style*="height"]),
-  :deep(section[style*="height"]),
-  :deep(header[style*="height"]),
-  :deep(article[style*="height"]) {
+  //
+  // CSS [style*="height"] also matches `line-height:1.4` — a common
+  // author habit that was incorrectly triggering max-height:80vh +
+  // overflow:auto on plates that had no height declaration. The
+  // :not(...) guard excludes line-height so only real height/min/max
+  // declarations get capped.
+  :deep(div[style*="height"]:not([style*="line-height"])),
+  :deep(section[style*="height"]:not([style*="line-height"])),
+  :deep(header[style*="height"]:not([style*="line-height"])),
+  :deep(article[style*="height"]:not([style*="line-height"])) {
     max-height: 80vh;
     overflow: auto;
   }
