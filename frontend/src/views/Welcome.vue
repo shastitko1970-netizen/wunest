@@ -336,7 +336,8 @@ const features: Feature[] = [
 }
 
 // ── Mobile ───────────────────────────────────────────────────
-@media (max-width: 600px) {
+// DS-canonical 640px: "two-column → one-column". Was 600; unified.
+@media (max-width: 640px) {
   .nest-welcome { padding: 40px 16px 60px; gap: 56px; }
   .nest-welcome-lead { font-size: 1rem; }
   .nest-welcome-grid { grid-template-columns: 1fr; }

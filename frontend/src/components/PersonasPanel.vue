@@ -634,7 +634,9 @@ watch(items, () => {
   border: 1px solid var(--nest-border);
 }
 
-@media (max-width: 860px) {
+// DS primary 960px: two-column personas panel collapses to single column.
+// Previously 860 — unified to DS allowed-list.
+@media (max-width: 960px) {
   .nest-personas-panel { grid-template-columns: 1fr; }
   .nest-personas-list { max-height: none; }
 }

@@ -786,17 +786,18 @@ details[open] > .nest-entry-advanced-head::before {
 .nest-entry-position { flex: 0 1 180px; min-width: 140px; }
 .nest-entry-num      { flex: 0 1 120px; min-width: 90px; }
 
-@media (max-width: 860px) {
+// DS primary 960px: worlds panel's two-column split collapses so the
+// list fills width above the editor. Previously 860 — unified.
+@media (max-width: 960px) {
   .nest-worlds-panel {
     grid-template-columns: 1fr;
   }
   .nest-worlds-list { max-height: none; }
 }
 
-// iPhone SE territory: stack the keys row fully, let number inputs be
-// full-width. Editor right column gets a single visible column. New
-// M19-M21 fields (probability, group, sticky/cooldown/delay) also stack.
-@media (max-width: 480px) {
+// DS-canonical 520px: tight phone layout (iPhone SE territory).
+// Keys/number inputs go full-width; group fields stack. Previously 480.
+@media (max-width: 520px) {
   .nest-worlds-editor { padding: 12px; }
   .nest-entry-keys, .nest-entry-position { flex: 1 1 100%; }
   .nest-entry-num { flex: 1 1 calc(50% - 6px); }

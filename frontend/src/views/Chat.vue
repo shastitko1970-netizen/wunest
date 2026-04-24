@@ -1519,7 +1519,9 @@ async function requestReplyFromLastUser() {
   flex-direction: column;
   gap: 12px;
 }
-@media (max-width: 600px) {
+// 640px is one of the DS-sanctioned secondary breakpoints ("two-column →
+// one-column in Appearance"); reusing it here keeps the allowed-list short.
+@media (max-width: 640px) {
   .nest-chat-messages { max-width: 100%; }
 }
 

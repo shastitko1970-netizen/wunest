@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAccountStore } from '@/stores/account'
+import { useThemeStore } from '@/stores/theme'
 import { useI18n } from 'vue-i18n'
 import ChatSearchDialog from '@/components/ChatSearchDialog.vue'
 
@@ -142,12 +143,23 @@ function isNavActive(to: string): boolean {
 }
 
 // ─── Theme toggle ───────────────────────────────────────────
-const isDark = computed(() => vTheme.global.name.value === 'nestDark')
+// Unified through the M42.1 theme store. The sun/moon button flips
+// between the user's last light preset and last dark preset — if
+// they picked "Cyber neon" (dark) and hit the sun, they get
+// "Nest — light" (the current default light). We also sync Vuetify's
+// `v-theme--nest*` class so any remaining component that reads the
+// semantic palette via Vuetify's theme name still gets the right one.
+const themeStore = useThemeStore()
+const { current: currentPreset } = storeToRefs(themeStore)
+const isDark = computed(() => currentPreset.value.kind === 'dark')
 
-function toggleTheme() {
-  const next = isDark.value ? 'nestLight' : 'nestDark'
-  vTheme.global.name.value = next
-  localStorage.setItem('nest:theme', next)
+async function toggleTheme() {
+  const next = isDark.value ? 'nest-default-light' : 'nest-default-dark'
+  await themeStore.apply(next)
+  // Mirror into Vuetify theme name so `.v-theme--nest*` classes in
+  // global.scss pick up correctly. Keeping this sync means hand-rolled
+  // rules tied to the Vuetify name still apply.
+  vTheme.global.name.value = isDark.value ? 'nestLight' : 'nestDark'
 }
 
 // ─── Locale picker ──────────────────────────────────────────
@@ -207,9 +219,14 @@ const localeLabel = (code: string) => {
       />
 
       <!-- Logo → home (landing). Consistent for authed and anon so the
-           page a logo click lands on is never surprising. -->
+           page a logo click lands on is never surprising.
+           Mark is token-driven: `--nest-logo-text` (glyph, default "▲")
+           is rendered via ::before, `--nest-logo-image` (url, default
+           none) layers on top as a background — author chooses text
+           OR image without touching the template. Wordmark text sits
+           in its own span so authors can retokenize or hide independently. -->
       <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/')">
-        <div class="nest-logo-mark">▲</div>
+        <div class="nest-logo-mark" aria-hidden="true" />
         <div class="nest-logo-text">WuNest</div>
       </div>
 
@@ -469,17 +486,33 @@ const localeLabel = (code: string) => {
   border-bottom: 1px solid var(--nest-border);
 }
 
+// Logo mark — token-driven so modders can swap glyph OR image without
+// forking the template. `--nest-logo-text` is a CSS string (including
+// quotes) rendered via ::before; `--nest-logo-image` is a CSS url()
+// that layers on top as background — when both are set the image wins
+// and the glyph stays as a fallback for screen-readers / RSS previews.
 .nest-logo-mark {
-  width: 28px;
-  height: 28px;
+  width:  var(--nest-logo-size, 28px);
+  height: var(--nest-logo-size, 28px);
   display: grid;
   place-items: center;
   color: var(--nest-accent);
-  font-size: 18px;
   font-weight: 600;
+  font-size: calc(var(--nest-logo-size, 28px) * 0.65);
   border: 1px solid var(--nest-accent);
-  border-radius: 6px;
+  border-radius: var(--nest-radius-sm);
   font-family: var(--nest-font-mono);
+  background-image: var(--nest-logo-image, none);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+
+  &::before {
+    content: var(--nest-logo-text, '▲');
+  }
+  // When the author supplies an image, hide the glyph so it doesn't
+  // peek through. Author sets `--nest-logo-text: ""` to suppress the
+  // glyph in image-less themes too.
 }
 
 .nest-logo-text {
@@ -594,19 +627,24 @@ const localeLabel = (code: string) => {
 // Topbar Sign In — takes the avatar menu's slot for anon users. Same
 // right-edge rhythm as the avatar so the topbar doesn't shift when
 // the user logs in.
+// Sign-in CTA for anon visitors. Background is accent; foreground is
+// fixed white via keyword (selector contract forbids hex in components,
+// `white` is a CSS keyword — portable and never drifts with theme).
+// Authors can override via `.nest-topbar-login { color: ... }` or
+// `--nest-btn-primary-fg` if we introduce it later.
 .nest-topbar-login {
   display: inline-flex;
   align-items: center;
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: #fff;
+  color: white;
   background: var(--nest-accent);
   border-radius: var(--nest-radius-sm);
   text-decoration: none;
   transition: filter var(--nest-transition-fast);
   &:hover { filter: brightness(1.1); }
-  .v-icon { color: #fff; }
+  .v-icon { color: white; }
 }
 
 // Inline "sign in to continue" card — shown instead of a protected

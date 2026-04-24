@@ -581,7 +581,10 @@ function kindChipColor(kind: string): string {
 .is-positive { color: var(--nest-green); }
 .is-negative { color: var(--nest-accent); }
 
-@media (max-width: 720px) {
+// DS-canonical 640px. The transaction rows collapse into a stacked
+// two-col layout below this; above, they keep their five-col desktop
+// grid. Previously 720 — unified to the allowed-list.
+@media (max-width: 640px) {
   .nest-account { padding: 20px 12px 60px; }
 
   .nest-txn-row {

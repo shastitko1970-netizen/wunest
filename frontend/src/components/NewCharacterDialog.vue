@@ -838,7 +838,8 @@ async function save() {
   }
 }
 
-@media (max-width: 600px) {
+// DS-canonical 640px: dialog two-col grid collapses to single column.
+@media (max-width: 640px) {
   .nest-create-grid {
     grid-template-columns: 1fr;
   }

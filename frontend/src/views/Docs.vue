@@ -430,7 +430,9 @@ function topicSummary(t: DocTopic) {
 .nest-docs-pager-spacer { /* empty column filler */ }
 
 // ── Mobile ───────────────────────────────────────────────────
-@media (max-width: 760px) {
+// DS primary 960px: docs-layout TOC collapses to a topmost row.
+// Previously 760 — unified to the DS-canonical primary breakpoint.
+@media (max-width: 960px) {
   .nest-docs-layout {
     grid-template-columns: 1fr;
     gap: 24px;

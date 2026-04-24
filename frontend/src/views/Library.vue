@@ -374,7 +374,8 @@ async function confirmDelete() {
   border: 1px solid var(--nest-border);
 }
 
-@media (max-width: 600px) {
+// DS-canonical 640px. Below this the 3+ col card grid collapses to two.
+@media (max-width: 640px) {
   .nest-library { padding: 20px 12px; }
   .nest-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 }

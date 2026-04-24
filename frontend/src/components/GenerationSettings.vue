@@ -749,7 +749,8 @@ function close() {
 // Phones. Drawer goes full-width, and the half-half field rows stack
 // into one column since at ~375px each half would be 150px — too
 // cramped for any of the penalty / seed / stop / depth / role fields.
-@media (max-width: 600px) {
+// DS-canonical 640px breakpoint; was 600.
+@media (max-width: 640px) {
   .nest-sampler-body {
     padding: 12px;
     gap: 14px;
