@@ -142,6 +142,72 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   }
 })
 
+// Strip author-supplied inline styles that would escape the bubble's
+// containment. This fires for EVERY style="..." attribute that reaches
+// DOMPurify, so a character card can't ship a plate with
+// `position: fixed; top: 0; width: 100vw;` and paint the whole viewport.
+// The same predicate is reused to filter declarations inside <style>
+// blocks (see sanitiseCssRuleBody below) — belt and suspenders.
+DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'style' && typeof data.attrValue === 'string') {
+    data.attrValue = filterInlineStyle(data.attrValue)
+    // If every declaration got stripped there's nothing left — remove the
+    // attribute entirely to keep the DOM clean.
+    if (!data.attrValue.trim()) {
+      data.keepAttr = false
+    }
+  }
+})
+
+// filterInlineStyle splits a `style=""` value into declarations, drops the
+// ones that match a disallow-list, rejoins. Single-pass, permissive by
+// default: we only strip what we explicitly recognise as dangerous. Authors
+// keep full control over colour, typography, spacing, borders, animations.
+function filterInlineStyle(style: string): string {
+  return style
+    .split(';')
+    .map(d => d.trim())
+    .filter(d => d && !isBadDeclaration(d))
+    .join('; ')
+}
+
+// isBadDeclaration reports whether a single CSS declaration (property: value,
+// no trailing semicolon) is one we refuse to honour. Keeps the author's
+// colours, fonts, borders etc — only blocks the shapes that let content
+// break out of its bubble:
+//
+//   - position: fixed / sticky / absolute — escapes the scrolling container,
+//     paints over other UI.
+//   - width/height in viewport units (vw/vh/svh/dvh/lvh) — lets a plate
+//     claim the whole screen regardless of how narrow the chat column is.
+//   - transform: scale(>2) — nuclear zoom.
+//   - z-index > 100 — pushes above Vuetify overlays (dialog > 2400, tooltip
+//     > 2000, nav-drawer > 1500 — 100 is well below all of those).
+function isBadDeclaration(decl: string): boolean {
+  const low = decl.toLowerCase()
+  if (/^position\s*:\s*(fixed|sticky|absolute)\b/.test(low)) return true
+  if (/^(?:width|height|min-width|min-height|max-width|max-height)\s*:.*\b\d+\s*(?:vw|vh|svw|svh|dvw|dvh|lvw|lvh)\b/.test(low)) return true
+  if (/^transform\s*:.*\bscale\s*\(\s*[3-9]/.test(low)) return true
+  if (/^inset\s*:/.test(low)) return true  // pairs with position:fixed; block defensively
+  const z = /^z-index\s*:\s*(-?\d+)/.exec(low)
+  if (z && parseInt(z[1], 10) > 100) return true
+  return false
+}
+
+// sanitiseCssRuleBody — same predicate applied to a CSS declaration block
+// from inside a <style> tag. Used by serializeRule below.
+function sanitiseCssRuleBody(style: CSSStyleDeclaration): string {
+  const parts: string[] = []
+  for (const prop of Array.from(style)) {
+    const value = style.getPropertyValue(prop)
+    const priority = style.getPropertyPriority(prop)
+    const decl = `${prop}: ${value}${priority ? ' !' + priority : ''}`
+    if (isBadDeclaration(decl)) continue
+    parts.push(decl)
+  }
+  return parts.join('; ')
+}
+
 // Unique scope for this message instance. Every <style> block inside this
 // bubble gets its selectors prefixed with the matching data attribute, so
 // character-authored CSS stays inside its own message bubble and never
@@ -213,14 +279,19 @@ function scopeCssText(css: string, scope: string): string | null {
 }
 
 function serializeRule(rule: CSSRule, scope: string): string {
-  // Plain style rule: prefix every comma-separated selector with scope.
+  // Plain style rule: prefix every comma-separated selector with scope
+  // AND filter the declaration block so dangerous properties (position:
+  // fixed, viewport units, huge z-index) from authored <style> blocks
+  // can't escape the bubble any more easily than the inline-style path.
   if (rule instanceof CSSStyleRule) {
     const selectors = rule.selectorText
       .split(',')
       .map(s => scopedSelector(s.trim(), scope))
       .filter(s => s)
       .join(', ')
-    return `${selectors} { ${rule.style.cssText} }`
+    const body = sanitiseCssRuleBody(rule.style)
+    if (!body) return ''  // whole rule was dangerous — drop it
+    return `${selectors} { ${body} }`
   }
   // Grouping rules — @media, @supports. Recurse the inner rules.
   const groupRule = rule as CSSRule & { cssRules?: CSSRuleList; conditionText?: string; name?: string }
@@ -326,6 +397,33 @@ function runAction(action: PlateAction) {
 }
 
 .nest-md {
+  // Layout+style containment on every message bubble. Authored CSS
+  // inside can't affect anything outside this box (layout calculations,
+  // counters, container queries) — paired with the scoped <style>
+  // rewrite above, this is the second line of defence against
+  // "a plate that ate the whole app" bugs.
+  contain: layout style;
+  max-width: 100%;
+  // Block-level children shouldn't be able to overflow the text column
+  // via absurd inline widths ("width: 1500px") — cap them. `!important`
+  // because authors love inline styles and we need to win.
+  :deep(div), :deep(section), :deep(article), :deep(aside),
+  :deep(header), :deep(footer), :deep(nav), :deep(main),
+  :deep(blockquote), :deep(figure) {
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  // A runaway height (`height: 2000px`) on a plate makes the chat jump
+  // past the composer into the void. Cap every author-set height to the
+  // viewport; if they wanted a full scene, they get a scrollable column.
+  :deep(div[style*="height"]),
+  :deep(section[style*="height"]),
+  :deep(header[style*="height"]),
+  :deep(article[style*="height"]) {
+    max-height: 80vh;
+    overflow: auto;
+  }
+
   :deep(p) { margin: 0 0 8px; line-height: 1.55; }
   :deep(p:last-child) { margin-bottom: 0; }
   // strong/em intentionally DON'T override color — inherit from the
