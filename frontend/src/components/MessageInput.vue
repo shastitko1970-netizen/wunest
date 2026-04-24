@@ -347,8 +347,13 @@ function insertMarkdownImage(alt: string, url: string) {
     </button>
   </div>
 
+  <!-- Composer root. `id="send_form"` is the ST-compat anchor documented
+       in SELECTOR_CONTRACT.md — theme authors style the composer wrapper
+       via this id; the `nest-composer` class is our own anchor for the
+       same root (gives scoped SCSS + Selector Contract a hand-hold). -->
   <div
-    class="nest-input-wrap"
+    id="send_form"
+    class="nest-composer nest-input-wrap"
     :class="{ 'nest-input-wrap--dragging': isDragging }"
     @dragover="onDragOver"
     @dragleave="onDragLeave"
