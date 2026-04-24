@@ -264,10 +264,14 @@ const messages = {
       },
       io: {
         title: 'Совместимость с SillyTavern',
-        hint: 'Загружай темы в формате SillyTavern .json, или выгружай свою настройку, чтобы поделиться.',
-        import: 'Импорт темы ST',
+        hint: 'Загружай темы в формате SillyTavern .json или сырой .css, или выгружай свою настройку, чтобы поделиться.',
+        import: 'Импорт темы ST (.json)',
+        importCss: 'Импорт .css файла',
         export: 'Экспорт в .json',
+        exportCss: 'Экспорт в .css',
       },
+      customCssParseError: 'CSS не парсится',
+      customCssImportEmpty: 'Файл пустой',
     },
     theme: {
       dark: 'Тёмная',
@@ -1449,10 +1453,14 @@ const messages = {
       },
       io: {
         title: 'SillyTavern compatibility',
-        hint: 'Import SillyTavern .json themes, or export yours to share with ST users.',
-        import: 'Import ST theme',
+        hint: 'Import ST .json themes or raw .css files; export your tweaks to share.',
+        import: 'Import ST theme (.json)',
+        importCss: 'Import .css file',
         export: 'Export as .json',
+        exportCss: 'Export as .css',
       },
+      customCssParseError: 'CSS parse error',
+      customCssImportEmpty: 'File is empty',
     },
     theme: {
       dark: 'Dark',

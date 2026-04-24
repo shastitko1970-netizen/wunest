@@ -16,7 +16,13 @@ import { scopeCSS } from '@/lib/cssScope'
  */
 
 const LS_KEY = 'nest:appearance'
-const CUSTOM_STYLE_ID = 'nest-custom-appearance-css'
+// Public Selector Contract (M42.1): user CSS injected into <style id="nest-
+// user-css">. Theme preset CSS lives in <style id="nest-theme"> appended
+// earlier so our injection here wins by DOM order.
+const CUSTOM_STYLE_ID = 'nest-user-css'
+// Legacy id used pre-M42.4. Removed on first apply so browsers don't end
+// up with two stale <style> blocks after upgrade.
+const LEGACY_CUSTOM_STYLE_ID = 'nest-custom-appearance-css'
 
 /**
  * Safe mode flag — read once at boot from the URL query string.
@@ -223,6 +229,12 @@ function applyAppearance(a: Appearance) {
   // Short version: fresh installs default to 'chat', pre-M26 users who
   // already had CSS get 'global' (their legacy behaviour) unless they
   // explicitly flip the toggle.
+  // One-time cleanup: if a previous build of WuNest injected under the
+  // legacy id, remove it so upgrade doesn't leave a stale <style> in the
+  // head. Safe to call every apply — document.getElementById is cheap.
+  const legacyEl = document.getElementById(LEGACY_CUSTOM_STYLE_ID)
+  if (legacyEl) legacyEl.remove()
+
   let styleEl = document.getElementById(CUSTOM_STYLE_ID) as HTMLStyleElement | null
   if (a.customCss && a.customCss.trim() && !SAFE_MODE) {
     if (!styleEl) {

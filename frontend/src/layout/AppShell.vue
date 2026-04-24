@@ -238,7 +238,7 @@ const localeLabel = (code: string) => {
            none) layers on top as a background — author chooses text
            OR image without touching the template. Wordmark text sits
            in its own span so authors can retokenize or hide independently. -->
-      <div class="d-flex align-center ga-2 cursor-pointer" @click="router.push('/')">
+      <div class="d-flex align-center ga-2 cursor-pointer nest-logo" @click="router.push('/')">
         <div class="nest-logo-mark" aria-hidden="true" />
         <div class="nest-logo-text">WuNest</div>
       </div>
@@ -503,6 +503,15 @@ const localeLabel = (code: string) => {
   padding-top:   env(safe-area-inset-top, 0);
   padding-left:  env(safe-area-inset-left, 0);
   padding-right: env(safe-area-inset-right, 0);
+}
+
+// Logo cluster (mark + wordmark). Left-padding away from the topbar
+// edge so the mark doesn't touch the safe-area inset when the notch
+// is hidden; tester feedback: "дай небольшой отступ от края у
+// логотипа". Keeps things visually balanced against the avatar menu
+// on the right which has its own natural gap.
+.nest-logo {
+  padding-left: 8px;
 }
 
 // Logo mark — token-driven so modders can swap glyph OR image without

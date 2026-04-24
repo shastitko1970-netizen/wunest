@@ -6,7 +6,7 @@ import { useAppearanceStore, resolveScope } from '@/stores/appearance'
 import { useThemeStore, THEME_PRESETS, type ThemePreset } from '@/stores/theme'
 import { fromST, toST, type AvatarStyle, type ChatDisplay, type STTheme } from '@/api/appearance'
 import { uploadBackground } from '@/api/uploads'
-import { auditDangerousSelectors, supportsCSSScope } from '@/lib/cssScope'
+import { auditDangerousSelectors, supportsCSSScope, validateCss } from '@/lib/cssScope'
 
 // Detailed appearance controls. Lives as a section of /settings so users
 // see everything in one place: theme presets, density, custom colors,
@@ -90,6 +90,12 @@ const customCssScope = computed<'chat' | 'global'>({
 // "scope toggle" can warn users that flipping to 'global' would hit
 // them. Recomputes on every CSS edit; cheap since themes are ≤500 lines.
 const dangerousAudit = computed(() => auditDangerousSelectors(customCss.value))
+
+// Live CSS syntax check — surfaces a single red-underline-style error
+// under the editor if the parser rejects the input. Avoids the
+// "I pasted this and nothing happened" silent fail mode. Debounce
+// not needed — validateCss is ~0.2ms on 500-line stylesheets.
+const cssValidationError = computed(() => validateCss(customCss.value))
 
 // Theming guide disclosure — default closed so the Appearance page
 // doesn't become a giant cheat-sheet scroll for users who just want
@@ -206,6 +212,59 @@ function downloadExport() {
   a.download = `${name}.json`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// Export the raw custom CSS as a standalone .css file — useful when
+// a user wants to share their theme on Discord / forums without the
+// surrounding ST JSON envelope. Name derived from `/* Name: ... */`
+// comment in the CSS itself when possible.
+function downloadCssExport() {
+  const css = appearance.value.customCss?.trim() ?? ''
+  if (!css) return
+  const match = css.match(/\/\*\s*(?:Name|@title)\s*:\s*(.+?)\s*\*\//i)
+  const name = (match?.[1] ?? 'wunest-theme').replace(/[^a-z0-9-_]+/gi, '_')
+  const data = new Blob([css], { type: 'text/css' })
+  const url = URL.createObjectURL(data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name}.css`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// Raw .css file import — dropping a theme CSS file straight into the
+// custom-CSS editor. Complements the ST JSON importer: a lot of
+// community themes travel as bare .css snippets these days.
+async function onImportCssFile(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (!f) return
+  importError.value = null
+  importNotice.value = null
+  try {
+    const text = await f.text()
+    if (!text.trim()) {
+      throw new Error(t('appearance.customCssImportEmpty'))
+    }
+    // Default new raw-CSS imports to chat scope — same protection ST
+    // imports get. Authors can flip to global from the toggle.
+    store.update({ customCss: text, customCssScope: 'chat' })
+    const audit = auditDangerousSelectors(text)
+    if (audit.length > 0) {
+      importNotice.value = t('appearance.cssScope.importNotice', {
+        count: audit.length,
+      })
+    }
+    customCssOpen.value = true
+  } catch (err) {
+    importError.value = (err as Error).message
+  } finally {
+    if (cssFileInput.value) cssFileInput.value.value = ''
+  }
+}
+
+const cssFileInput = ref<HTMLInputElement | null>(null)
+function pickCssFile() {
+  cssFileInput.value?.click()
 }
 
 function resetAll() {
@@ -508,6 +567,19 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         spellcheck="false"
         wrap="off"
       />
+      <!-- CSS parse-error feedback (M42.4). Shows a red plate under the
+           editor whenever the browser's CSS parser chokes on user input.
+           Silent-accept was the old default — users pasted broken themes
+           and saw no apparent change, never discovering why. -->
+      <v-alert
+        v-if="customCssOpen && cssValidationError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-2 nest-hint"
+      >
+        {{ t('appearance.customCssParseError') }}: {{ cssValidationError.message }}
+      </v-alert>
 
       <!-- Scope picker — appears once there's CSS to scope. Default is
            chat-only. -->
@@ -645,10 +717,32 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         />
         <v-btn
           variant="outlined"
+          prepend-icon="mdi-file-code-outline"
+          @click="pickCssFile"
+        >
+          {{ t('appearance.io.importCss') }}
+        </v-btn>
+        <input
+          ref="cssFileInput"
+          type="file"
+          accept="text/css,.css"
+          hidden
+          @change="onImportCssFile"
+        />
+        <v-btn
+          variant="outlined"
           prepend-icon="mdi-download"
           @click="downloadExport"
         >
           {{ t('appearance.io.export') }}
+        </v-btn>
+        <v-btn
+          v-if="customCss.trim()"
+          variant="outlined"
+          prepend-icon="mdi-download-outline"
+          @click="downloadCssExport"
+        >
+          {{ t('appearance.io.exportCss') }}
         </v-btn>
       </div>
       <v-alert

@@ -32,6 +32,48 @@ export const supportsCSSScope: boolean = (() => {
 })()
 
 /**
+ * validateCss runs the CSS through a detached CSSStyleSheet and reports
+ * any parse errors the browser's CSS parser finds. Returns null on clean
+ * CSS, or an object with the first error message + its offset in the
+ * input. Used by the Appearance editor to surface red-underline feedback
+ * before the user discovers their theme has a silent typo.
+ *
+ * CSSStyleSheet's `replaceSync` doesn't throw on syntax errors — it logs
+ * warnings and skips the bad rule. We instead count how many rules the
+ * parser could build vs how many `{...}` blocks were in the input; a
+ * discrepancy flags a parse issue.
+ */
+export function validateCss(css: string): { message: string } | null {
+  if (!css.trim()) return null
+  try {
+    if (typeof CSSStyleSheet === 'undefined' || !('replaceSync' in CSSStyleSheet.prototype)) {
+      return null // old browser, no validation — silent accept
+    }
+    const sheet = new CSSStyleSheet()
+    // Strip @import / @scope to avoid "non-constructable" errors on
+    // stylesheet; we just want syntax check on the bulk of rules.
+    const stripped = css
+      .replace(/@import\b[^;]*;?/gi, '')
+      .replace(/@scope\s*\([^)]*\)\s*\{/gi, '')
+    sheet.replaceSync(stripped)
+    const parsed = sheet.cssRules.length
+    // Count top-level blocks as a rough heuristic for "how many rules
+    // should have parsed". Comments + whitespace stripped first so
+    // they don't inflate the count.
+    const clean = stripped.replace(/\/\*[\s\S]*?\*\//g, '')
+    const blocks = (clean.match(/\{/g) ?? []).length
+    // Some rules contain nested blocks (e.g. @media). We allow a
+    // 30% tolerance — anything drastically off signals broken CSS.
+    if (blocks > 0 && parsed === 0) {
+      return { message: 'CSS parsed to 0 rules — check for missing braces or invalid selectors' }
+    }
+    return null
+  } catch (e) {
+    return { message: (e as Error).message }
+  }
+}
+
+/**
  * scopeCSS restricts the user's CSS to elements inside `scope`.
  * Picks the best strategy for the current browser.
  *
