@@ -354,4 +354,13 @@ function groupByDay(chats: Chat[]): Record<'today' | 'yesterday' | 'week' | 'old
 
   &:hover { background: var(--nest-border); color: var(--nest-text); }
 }
+
+// Touch-first: on devices without hover the delete ✕ stays visible
+// permanently. Without this rule, tapping on a chat-item on mobile
+// would never expose the delete button — you'd have to long-press to
+// find some other escape. DS adaptive rule: "actions always visible
+// on touch".
+@media (hover: none) {
+  .nest-chatitem-del { opacity: 0.6; }
+}
 </style>

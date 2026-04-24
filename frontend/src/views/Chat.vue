@@ -1500,7 +1500,12 @@ async function requestReplyFromLastUser() {
   min-height: 0;                 // Firefox refuses to shrink without this
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;  // scroll chain doesn't bubble to the shell
+  // `none` instead of `contain`: in mobile-app webview a top-of-scroll
+  // swipe-down used to trigger pull-to-refresh and reload the whole chat
+  // mid-conversation. `none` blocks that outright and still prevents
+  // scroll-chain bubble (which `contain` covered). DS adaptive rule:
+  // "Mobile app webview — block pull-to-refresh in #chat".
+  overscroll-behavior: none;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;  // iOS momentum scroll
 }

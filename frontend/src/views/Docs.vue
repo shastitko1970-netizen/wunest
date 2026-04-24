@@ -169,7 +169,8 @@ function topicSummary(t: DocTopic) {
 
 <style lang="scss" scoped>
 .nest-docs {
-  min-height: 100vh;
+  // 100dvh — DS rule: mobile browser URL-bar reflow + IME keyboard.
+  min-height: 100dvh;
   background: var(--nest-bg);
   color: var(--nest-text);
 }
@@ -242,7 +243,9 @@ function topicSummary(t: DocTopic) {
   position: sticky;
   top: 80px;
   align-self: start;
-  max-height: calc(100vh - 120px);
+  // 100dvh — TOC's max-height must shrink with the URL bar so the
+  // list doesn't extend behind it on mobile Safari.
+  max-height: calc(100dvh - 120px);
   overflow-y: auto;
 }
 .nest-docs-toc-group {

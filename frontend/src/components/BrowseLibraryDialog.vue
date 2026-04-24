@@ -434,7 +434,10 @@ function stars(n: number): string {
   background: var(--nest-bg) !important;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  // Fullscreen dialog — 100dvh so it reflows when the mobile URL bar
+  // collapses or the IME keyboard pops up. 100vh here left a dead
+  // strip at the bottom on mobile Safari.
+  height: 100dvh;
 }
 
 .nest-browse-head {

@@ -477,13 +477,23 @@ const localeLabel = (code: string) => {
 
 <style lang="scss" scoped>
 .nest-shell {
-  min-height: 100vh;
+  // 100dvh reflows on mobile browser URL-bar collapse and on IME
+  // keyboard show/hide. 100vh stays pinned to "bar collapsed" height,
+  // leaving a dead strip. DS rule: always 100dvh.
+  min-height: 100dvh;
   background: var(--nest-bg);
 }
 
 .nest-topbar {
   background: var(--nest-bg) !important;
   border-bottom: 1px solid var(--nest-border);
+  // Notch-aware padding on iOS PWA / mobile Safari fullscreen. Without
+  // this the logo is partly hidden behind the notch on iPhone 14+ in
+  // landscape. Kept additive (logical + safe-area) so the base 2px
+  // inline padding is preserved.
+  padding-top:   env(safe-area-inset-top, 0);
+  padding-left:  env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
 }
 
 // Logo mark — token-driven so modders can swap glyph OR image without
@@ -652,7 +662,10 @@ const localeLabel = (code: string) => {
 // empty-state hero so users recognise it as an "I need to do something
 // to unblock" screen, not an error.
 .nest-auth-prompt {
-  min-height: calc(100vh - var(--nest-header-height) - 40px);
+  // Use 100dvh so the hero centres correctly after the mobile URL bar
+  // retracts on scroll (100vh would pin to the collapsed height and
+  // leave a ghost-gap at the bottom).
+  min-height: calc(100dvh - var(--nest-header-height) - 40px);
   display: flex;
   flex-direction: column;
   align-items: center;

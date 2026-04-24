@@ -687,6 +687,14 @@ function insertMarkdownImage(alt: string, url: string) {
   font: 15px/1.5 var(--nest-font-body);
   max-height: 240px;
   overflow-y: auto;
+  // IME keyboard handling — when the virtual keyboard opens on mobile,
+  // the viewport shrinks and the textarea can end up hidden behind
+  // the IME. `scroll-margin-bottom` tells the browser's auto-scroll-
+  // into-view behaviour to keep ~140px of clearance beneath the caret
+  // (enough for our action row + some breathing room). Paired with
+  // 100dvh on the shell, the textarea stays visible while the user
+  // types.
+  scroll-margin-bottom: 140px;
 
   &::placeholder { color: var(--nest-text-muted); }
   &:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -48,7 +48,11 @@ watch(authenticated, (ok) => {
 
 <style lang="scss">
 .nest-boot {
-  min-height: 100vh;
+  // 100dvh — dynamic viewport height. On mobile Safari/Chrome 100vh
+  // stays pegged to the "URL bar collapsed" height, so the boot screen
+  // got clipped by 56px whenever the bar was visible. 100dvh reflows
+  // correctly. DS rule: never 100vh, always 100dvh.
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   background: var(--nest-bg);
