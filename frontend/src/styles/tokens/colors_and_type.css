@@ -80,11 +80,20 @@
   --nest-bg-elevated:    var(--SmartThemeChatTintColor, #0f0f0f);
   --nest-surface:        var(--SmartThemeChatTintColor, #141414);
   --nest-border:         var(--SmartThemeBorderColor,    #222);
-  --nest-border-subtle:  var(--SmartThemeBorderColor,    #1a1a1a);
+  /* M45 color audit — derive subtle border + muted text via color-mix
+     so custom themes don't collapse the visual hierarchy. */
+  --nest-border-subtle:  color-mix(in srgb,
+                           var(--SmartThemeBorderColor, #222) 55%,
+                           var(--SmartThemeBlurTintColor, #080808) 45%);
   --nest-text:           var(--SmartThemeBodyColor,      #f0f0f0);
-  --nest-text-secondary: var(--SmartThemeBodyColor,      #999);
-  --nest-text-muted:     var(--SmartThemeBodyColor,      #666);
+  --nest-text-secondary: color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #f0f0f0) 70%,
+                           var(--SmartThemeBlurTintColor, #080808) 30%);
+  --nest-text-muted:     color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #f0f0f0) 45%,
+                           var(--SmartThemeBlurTintColor, #080808) 55%);
   --nest-accent:         var(--SmartThemeQuoteColor,     #ef4444);
+  --nest-text-on-accent: #ffffff;
   --nest-gold:   #f7c948;
   --nest-green:  #22c55e;
   --nest-blue:   #60a5fa;
@@ -98,11 +107,18 @@
   --nest-bg-elevated:    var(--SmartThemeChatTintColor, #F3F2EC);
   --nest-surface:        var(--SmartThemeChatTintColor, #FFFFFF);
   --nest-border:         var(--SmartThemeBorderColor,    #E2DFD6);
-  --nest-border-subtle:  var(--SmartThemeBorderColor,    #EFECE4);
+  --nest-border-subtle:  color-mix(in srgb,
+                           var(--SmartThemeBorderColor, #E2DFD6) 55%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 45%);
   --nest-text:           var(--SmartThemeBodyColor,      #141412);
-  --nest-text-secondary: var(--SmartThemeBodyColor,      #4A4740);
-  --nest-text-muted:     var(--SmartThemeBodyColor,      #7A756C);
+  --nest-text-secondary: color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #141412) 70%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 30%);
+  --nest-text-muted:     color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #141412) 45%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 55%);
   --nest-accent:         var(--SmartThemeQuoteColor,     #ef4444);
+  --nest-text-on-accent: #ffffff;
   --nest-gold:   #b45309;
   --nest-green:  #4c8b4f;
   --nest-blue:   #1e6fd9;

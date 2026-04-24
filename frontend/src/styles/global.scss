@@ -72,16 +72,52 @@
 // the tree. If the user has made an explicit pick via the Appearance UI,
 // the store writes an inline style on :root (higher specificity than any
 // stylesheet rule), so user picks still win.
+// Adaptive color derivation — M45 colour audit.
+//
+// Прежняя схема: --nest-text-secondary / --nest-text-muted fallback-или в
+// тот же --SmartThemeBodyColor что и --nest-text. Как только тема
+// устанавливала BodyColor (практически любая тема) — вся типографская
+// иерархия схлопывалась в один цвет: eyebrow, subtitle, caption и body
+// text становились визуально неотличимы. Тестер: «цвета ломаны получаются
+// в части тем».
+//
+// Fix: derive secondary/muted через `color-mix()`: берём base body text и
+// миксуем с фоном темы. `color-mix(in srgb, text X%, bg (100-X)%)` даёт
+// fade-towards-background — визуально читается как «муcted» на любом фоне.
+// Параметр процента подобран так чтобы:
+//   - secondary ≈ 70% text + 30% bg (читаемо, но visibly less prominent)
+//   - muted ≈ 45% text + 55% bg (явно второстепенно, но не совсем исчезает)
+// Работает на тёмной и светлой темах единообразно — если body = #f0f0f0 и
+// bg = #080808, muted получает #6f6f6f; если body = #141412 и bg = #FAFAF7
+// — muted = #8c8b88. Натурально адаптивно.
+//
+// color-mix() requires Chromium 111 / Safari 16.2 / Firefox 113 — все
+// поддерживаются в 2026 году.
+//
+// Борд: --nest-border-subtle тоже выводим через mix, чтобы fade-to-bg
+// давал более тонкую hairline даже когда тема форсит насыщенный BorderColor.
 .v-theme--nestDark {
   --nest-bg:             var(--SmartThemeBlurTintColor, #080808);
   --nest-bg-elevated:    var(--SmartThemeChatTintColor, #0f0f0f);
   --nest-surface:        var(--SmartThemeChatTintColor, #141414);
   --nest-border:         var(--SmartThemeBorderColor, #222);
-  --nest-border-subtle:  var(--SmartThemeBorderColor, #1a1a1a);
+  --nest-border-subtle:  color-mix(in srgb,
+                           var(--SmartThemeBorderColor, #222) 55%,
+                           var(--SmartThemeBlurTintColor, #080808) 45%);
   --nest-text:           var(--SmartThemeBodyColor, #f0f0f0);
-  --nest-text-secondary: var(--SmartThemeBodyColor, #999);
-  --nest-text-muted:     var(--SmartThemeBodyColor, #666);
+  --nest-text-secondary: color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #f0f0f0) 70%,
+                           var(--SmartThemeBlurTintColor, #080808) 30%);
+  --nest-text-muted:     color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #f0f0f0) 45%,
+                           var(--SmartThemeBlurTintColor, #080808) 55%);
   --nest-accent:         var(--SmartThemeQuoteColor, #ef4444);
+  // Foreground-on-accent — обратно-контрастный текст на accent-фоне
+  // (кнопки, чипы, active-состояния). Existing code reads `--nest-text-
+  // on-accent`; мы оставляем это имя (legacy). На тёмных темах accent
+  // обычно насыщенный/яркий — white fg читается. Тема может переопределить
+  // явно (например, для pastel-accent — поставить тёмный fg).
+  --nest-text-on-accent: #ffffff;
   --nest-gold:           #f7c948;
   --nest-green:          #22c55e;
   --nest-blue:           #60a5fa;
@@ -89,18 +125,27 @@
 }
 
 // ── Light palette (Dossier-inspired paper, coral accent) ───────────
-// Same ST fallback chain as the dark palette. ST themes that opt into
-// these vars apply to both modes without a matrix of overrides.
+// Same ST fallback chain as the dark palette + same color-mix derivation
+// so typography hierarchy holds on every custom theme.
 .v-theme--nestLight {
   --nest-bg:             var(--SmartThemeBlurTintColor, #FAFAF7);
   --nest-bg-elevated:    var(--SmartThemeChatTintColor, #F3F2EC);
   --nest-surface:        var(--SmartThemeChatTintColor, #FFFFFF);
   --nest-border:         var(--SmartThemeBorderColor, #E2DFD6);
-  --nest-border-subtle:  var(--SmartThemeBorderColor, #EFECE4);
+  --nest-border-subtle:  color-mix(in srgb,
+                           var(--SmartThemeBorderColor, #E2DFD6) 55%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 45%);
   --nest-text:           var(--SmartThemeBodyColor, #141412);
-  --nest-text-secondary: var(--SmartThemeBodyColor, #4A4740);
-  --nest-text-muted:     var(--SmartThemeBodyColor, #7A756C);
+  --nest-text-secondary: color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #141412) 70%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 30%);
+  --nest-text-muted:     color-mix(in srgb,
+                           var(--SmartThemeBodyColor, #141412) 45%,
+                           var(--SmartThemeBlurTintColor, #FAFAF7) 55%);
   --nest-accent:         var(--SmartThemeQuoteColor, #ef4444);
+  // Light themes: accent обычно насыщенный coral/crimson — белый fg
+  // читается хорошо. Held consistent for button text contrast.
+  --nest-text-on-accent: #ffffff;
   --nest-gold:           #b45309;  // bronze (decorative, light-friendly)
   --nest-green:          #4c8b4f;
   --nest-blue:           #1e6fd9;
