@@ -226,6 +226,15 @@ async function maybeLoadFromRoute() {
   const id = route.params.id as string | undefined
   if (id) {
     await chats.open(id)
+    // Auto-pin the user's default persona on first open if the chat
+    // doesn't already have a persona override. Backend has a fallback
+    // chain (chat_metadata.persona_id → is_default persona → session
+    // name), but that chain fails silently when is_default-sync gets
+    // out of step with the DB, so pinning the explicit id here makes
+    // the chat self-describing and survives any future persona-store
+    // hiccups. Only happens once — if user later clears the pin via
+    // the picker we respect that choice (null is an explicit value).
+    await autoPinDefaultPersona()
     // ?message=<id> comes from the chat-search dialog — jump to the hit
     // once messages are rendered. Wait 2 ticks so MessageBubble has
     // painted and DOM refs exist.
@@ -235,6 +244,32 @@ async function maybeLoadFromRoute() {
       await nextTick()
       scrollToMessage(parseInt(msgID, 10))
     }
+  }
+}
+
+async function autoPinDefaultPersona() {
+  const chat = currentChat.value
+  if (!chat) return
+  // Only pin when metadata has NO persona_id key at all (fresh chat).
+  // If value is `null`, user explicitly selected "no persona" in the
+  // picker — leave it alone.
+  const meta = chat.chat_metadata ?? {}
+  if ('persona_id' in meta) return
+  if (!personas.loaded) await personas.fetchAll()
+  const def = personas.defaultPersona
+  if (!def) return
+  try {
+    const { personasApi } = await import('@/api/personas')
+    await personasApi.setForChat(chat.id, def.id)
+    if (currentChat.value && currentChat.value.id === chat.id) {
+      currentChat.value.chat_metadata = {
+        ...(currentChat.value.chat_metadata ?? {}),
+        persona_id: def.id,
+      }
+    }
+  } catch (e) {
+    // Silent — this is a UX nicety, not a correctness requirement.
+    console.warn('auto-pin default persona failed', e)
   }
 }
 

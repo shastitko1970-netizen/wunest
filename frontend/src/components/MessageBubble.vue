@@ -257,7 +257,18 @@ function onEditKeydown(e: KeyboardEvent) {
         </span>
       </template>
       <template v-else-if="!message.content && streaming && !liveSplit.live">
-        <span class="nest-thinking">▍</span>
+        <!-- "Thinking" placeholder — shown when the assistant row exists
+             but no tokens have arrived yet. Wording matches the
+             streaming-toggle hint in Settings ("Думает… then the full
+             response"), so users who turned streaming off actually see
+             what the hint promised. The three dots are separate spans
+             so they can be individually staggered in the animation. -->
+        <span class="nest-thinking">
+          <span class="nest-thinking-label">{{ t('chat.thinkingPlaceholder') }}</span>
+          <span class="nest-thinking-dot">.</span>
+          <span class="nest-thinking-dot">.</span>
+          <span class="nest-thinking-dot">.</span>
+        </span>
       </template>
       <template v-else>
         <div class="nest-msg-content mes_text">
@@ -425,7 +436,11 @@ function onEditKeydown(e: KeyboardEvent) {
 }
 
 .nest-msg-body {
-  font-size: 15px;
+  // Scale chat message text with the appearance fontScale slider.
+  // Baseline 15px × multiplier (1 = default, 0.75–1.4 range). UI chrome
+  // elsewhere (Vuetify buttons, header chips) stays at native size so
+  // the chrome doesn't shrink/grow with the reader's preference.
+  font-size: calc(15px * var(--nest-chat-font-scale, 1));
   line-height: 1.55;
   color: var(--nest-text);
   white-space: pre-wrap;
@@ -434,8 +449,7 @@ function onEditKeydown(e: KeyboardEvent) {
 
 .nest-msg-content { display: inline; }
 
-.nest-cursor,
-.nest-thinking {
+.nest-cursor {
   color: var(--nest-accent);
   animation: nest-blink 0.9s steps(2) infinite;
 }
@@ -443,6 +457,34 @@ function onEditKeydown(e: KeyboardEvent) {
 @keyframes nest-blink {
   0%,  50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+// "Thinking…" placeholder — label sits steady, the three dots pulse in
+// sequence so it reads as activity rather than a dead indicator.
+.nest-thinking {
+  color: var(--nest-text-secondary);
+  font-style: italic;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+.nest-thinking-label {
+  color: var(--nest-accent);
+  margin-right: 2px;
+  font-style: italic;
+}
+.nest-thinking-dot {
+  animation: nest-thinking-pulse 1.4s ease-in-out infinite;
+  color: var(--nest-accent);
+  font-weight: bold;
+}
+.nest-thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.nest-thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+.nest-thinking-dot:nth-child(4) { animation-delay: 0.6s; }
+
+@keyframes nest-thinking-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
 }
 
 .nest-msg-footer {
@@ -498,7 +540,9 @@ function onEditKeydown(e: KeyboardEvent) {
 }
 .nest-reasoning-body {
   font-family: var(--nest-font-mono);
-  font-size: 12px;
+  // Reasoning is chat content — scale with fontScale so users who
+  // sized up for the message body can actually read the think block too.
+  font-size: calc(12px * var(--nest-chat-font-scale, 1));
   line-height: 1.55;
   color: var(--nest-text-secondary);
   white-space: pre-wrap;

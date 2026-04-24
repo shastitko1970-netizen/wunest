@@ -120,14 +120,22 @@ function applyAppearance(a: Appearance) {
   set('--nest-text', a.mainTextColor)
   set('--nest-border', a.borderColor)
 
-  // Font scale — multiply the root font-size. 14px is our baseline.
+  // Font scale — expose as a CSS variable consumed by chat-content
+  // stylesheets (MessageBubble/MessageContent) via calc(). We intentionally
+  // DO NOT mutate <html> font-size: that also scaled Vuetify button
+  // heights, icon sizes and header chips via rem, which users read as
+  // "the send button shrunk for no reason". Only message text obeys the
+  // slider now; UI chrome stays stable.
   if (typeof a.fontScale === 'number' && a.fontScale > 0) {
-    root.style.setProperty('--nest-font-scale', String(a.fontScale))
-    root.style.fontSize = `${14 * a.fontScale}px`
+    root.style.setProperty('--nest-chat-font-scale', String(a.fontScale))
   } else {
-    root.style.removeProperty('--nest-font-scale')
-    root.style.fontSize = ''
+    root.style.removeProperty('--nest-chat-font-scale')
   }
+  // Legacy --nest-font-scale kept for any older CSS that still reads
+  // it; always removed so Reset cleans up fully (prior versions wrote it
+  // together with the root font-size change).
+  root.style.removeProperty('--nest-font-scale')
+  root.style.fontSize = ''
 
   // Chat width: writes a var consumed by .nest-chat-messages max-width.
   if (typeof a.chatWidth === 'number' && a.chatWidth > 0) {

@@ -357,7 +357,9 @@ function runAction(action: PlateAction) {
     padding: 10px 12px;
     overflow-x: auto;
     font-family: var(--nest-font-mono);
-    font-size: 12.5px;
+    // em-relative to the message body so pre blocks scale with
+    // fontScale (which lives on .nest-msg-body via calc()).
+    font-size: 0.85em;
     line-height: 1.5;
     margin: 8px 0;
     code { background: transparent; padding: 0; }
@@ -375,10 +377,12 @@ function runAction(action: PlateAction) {
     margin: 10px 0 6px;
     letter-spacing: -0.01em;
   }
-  :deep(h1) { font-size: 20px; }
-  :deep(h2) { font-size: 18px; }
-  :deep(h3) { font-size: 16px; }
-  :deep(h4) { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nest-text-muted); }
+  // em-relative headings — inherit the fontScale from .nest-msg-body
+  // while keeping the original 20/18/16/14 hierarchy at scale=1.
+  :deep(h1) { font-size: 1.33em; }
+  :deep(h2) { font-size: 1.2em; }
+  :deep(h3) { font-size: 1.07em; }
+  :deep(h4) { font-size: 0.93em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nest-text-muted); }
   // Horizontal rule. Markdown `---` maps here. The previous 1px dashed
   // border on --nest-border was basically invisible on the dark chat
   // bubble — users complained they couldn't see their scene-breaks.
@@ -459,7 +463,7 @@ function runAction(action: PlateAction) {
     padding: 4px 12px;
     margin: 2px;
     font: inherit;
-    font-size: 12.5px;
+    font-size: 0.85em;
     color: var(--nest-text);
     background: var(--nest-bg-elevated);
     border: 1px solid var(--nest-border);
@@ -487,7 +491,7 @@ function runAction(action: PlateAction) {
   :deep(table) {
     border-collapse: collapse;
     margin: 8px 0;
-    font-size: 12.5px;
+    font-size: 0.85em;
     max-width: 100%;
     display: block;
     overflow-x: auto;
