@@ -38,6 +38,34 @@ func TestSplitJSONL_NoTrailingNewline(t *testing.T) {
 	}
 }
 
+func TestDetectChatFormat(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"wunest native", `{"type":"chat_meta","name":"x"}`, "wunest"},
+		{"ST with user_name", `{"user_name":"U","character_name":"C"}`, "silly-tavern"},
+		{"ST with chat_metadata only", `{"chat_metadata":{}}`, "silly-tavern"},
+		{"ST with create_date only", `{"create_date":"2024-1-1"}`, "silly-tavern"},
+		{"neither", `{"foo":"bar"}`, "unknown"},
+		// A WuNest file masquerading wouldn't match the literal "chat_meta" check.
+		{"wrong type value", `{"type":"something_else","user_name":"U"}`, "silly-tavern"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(tc.line), &m); err != nil {
+				t.Fatalf("bad test fixture %q: %v", tc.line, err)
+			}
+			got := detectChatFormat(m)
+			if got != tc.want {
+				t.Errorf("line=%q: got %q, want %q", tc.line, got, tc.want)
+			}
+		})
+	}
+}
+
 // ── parseMessageExtras ──────────────────────────────────────────────
 
 func TestParseMessageExtras_EmptyReturnsNil(t *testing.T) {

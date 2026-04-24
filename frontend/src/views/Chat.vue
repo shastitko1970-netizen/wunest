@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useChatsStore } from '@/stores/chats'
 import { useAuthStore } from '@/stores/auth'
 import { useModelsStore } from '@/stores/models'
+import { useCharactersStore } from '@/stores/characters'
 import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
@@ -174,15 +175,85 @@ const characterName = computed(() => currentChat.value?.character_name ?? undefi
 const userName = computed(() => profile.value?.first_name || profile.value?.username || 'You')
 const hasSelection = computed(() => !!currentChat.value)
 
+// ─── Group-chat state ─────────────────────────────────────────────
+//
+// For group chats we expose a speaker picker in the composer: the user
+// picks "who responds next", backend loads that character's prompt
+// context and attributes the saved assistant message to them.
+const isGroupChat = computed(() => currentChat.value?.is_group_chat ?? false)
+
+// Characters store — needed to resolve character_id → name for the
+// speaker picker and the per-message attribution label.
+const charsStore = useCharactersStore()
+
+// Speaker selection. Defaults to the first participant when the chat
+// opens. Reset whenever the route/chat changes so a different group
+// doesn't inherit a stale pick.
+const groupSpeaker = ref<string | null>(null)
+watch(currentChat, (c) => {
+  if (!c) {
+    groupSpeaker.value = null
+    return
+  }
+  if (c.is_group_chat && c.character_ids?.length) {
+    // Default to first participant; user can override via the picker.
+    groupSpeaker.value = c.character_ids[0]
+  } else {
+    groupSpeaker.value = null
+  }
+})
+
+// Lazy-load characters if we're in a group — speaker names come from
+// the characters store, which may not yet be populated when landing
+// directly on /chat/:id via a shared link.
+watch(isGroupChat, async (grp) => {
+  if (grp && charsStore.items.length === 0) {
+    await charsStore.fetchAll()
+  }
+}, { immediate: true })
+
+function characterNameFor(id: string | null | undefined): string {
+  if (!id) return ''
+  return charsStore.items.find(c => c.id === id)?.name ?? ''
+}
+
+const groupSpeakerOptions = computed(() => {
+  const ids = currentChat.value?.character_ids ?? []
+  return ids.map(id => ({
+    id,
+    name: characterNameFor(id) || id.slice(0, 6),
+  }))
+})
+
+// Flat map of character_id → display name, passed to every MessageBubble
+// so each assistant message can label its speaker (group chats only —
+// single-char chats fall through to characterName and the map is empty).
+const groupCharacterNames = computed<Record<string, string>>(() => {
+  if (!isGroupChat.value) return {}
+  const m: Record<string, string> = {}
+  for (const id of currentChat.value?.character_ids ?? []) {
+    const n = characterNameFor(id)
+    if (n) m[id] = n
+  }
+  return m
+})
+
 async function send() {
   const text = draft.value.trim()
   if (!text) return
   draft.value = ''
-  await chats.send({ content: text, model: selectedModel.value })
+  await chats.send({
+    content: text,
+    model: selectedModel.value,
+    speaker_id: isGroupChat.value ? (groupSpeaker.value ?? undefined) : undefined,
+  })
 }
 
 async function regenerate(_m: Message) {
-  await chats.regenerate({ model: selectedModel.value })
+  await chats.regenerate({
+    model: selectedModel.value,
+    speaker_id: isGroupChat.value ? (groupSpeaker.value ?? undefined) : undefined,
+  })
 }
 
 async function onSwipe(m: Message) {
@@ -421,6 +492,7 @@ const lastAssistantId = computed(() => {
                 :key="m.id"
                 :message="m"
                 :character-name="characterName"
+                :character-names="groupCharacterNames"
                 :user-name="userName"
                 :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
                 :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
@@ -465,6 +537,30 @@ const lastAssistantId = computed(() => {
         <!-- Input. ST-compat id `send_form` so ST CSS targeting the
              composer area (e.g. `#send_form { background: ... }`) hits. -->
         <div class="nest-chat-input" id="send_form">
+          <!-- Group-chat speaker picker — one row above the composer.
+               Horizontal scroll on narrow viewports so 6 participants
+               don't blow up mobile width. Selected chip is the accent
+               color; tap re-selects. -->
+          <div v-if="isGroupChat" class="nest-speaker-bar">
+            <span class="nest-speaker-label">
+              <v-icon size="14" class="mr-1">mdi-account-voice</v-icon>
+              {{ t('groupChat.speaker.label') }}
+            </span>
+            <div class="nest-speaker-chips">
+              <button
+                v-for="opt in groupSpeakerOptions"
+                :key="opt.id"
+                type="button"
+                class="nest-speaker-chip"
+                :class="{ active: groupSpeaker === opt.id }"
+                :disabled="streaming"
+                @click="groupSpeaker = opt.id"
+              >
+                {{ opt.name }}
+              </button>
+            </div>
+          </div>
+
           <MessageInput
             v-model="draft"
             :streaming="streaming"
@@ -701,6 +797,58 @@ const lastAssistantId = computed(() => {
   max-width: 820px;
   width: 100%;
   margin: 0 auto;
+}
+
+// Group-chat speaker picker — sits above the composer. Horizontal
+// scroll when 6 participants exceed the viewport width.
+.nest-speaker-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--nest-text-muted);
+}
+.nest-speaker-label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nest-speaker-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px; // room for scroll shadow
+  -webkit-overflow-scrolling: touch;
+  &::-webkit-scrollbar { height: 4px; }
+  &::-webkit-scrollbar-thumb { background: var(--nest-border); border-radius: 4px; }
+}
+.nest-speaker-chip {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--nest-text-secondary);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-pill);
+  cursor: pointer;
+  transition:
+    border-color var(--nest-transition-fast),
+    color var(--nest-transition-fast),
+    background var(--nest-transition-fast);
+
+  &:hover:not(:disabled) {
+    border-color: var(--nest-accent);
+    color: var(--nest-text);
+  }
+  &.active {
+    color: var(--nest-text-on-accent, #fff);
+    background: var(--nest-accent);
+    border-color: var(--nest-accent);
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 // Jump-to-bottom pill — floats above the input, only when the user

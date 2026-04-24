@@ -16,11 +16,19 @@ import (
 )
 
 // Chat represents a single conversation thread.
+//
+// For single-character chats (pre-M35 shape) CharacterID + CharacterName
+// are populated and CharacterIDs holds a 1-element array. For group
+// chats CharacterIDs is the source of truth (2+ characters); CharacterID
+// mirrors CharacterIDs[0] for legacy query paths (e.g. "filter chats by
+// character" in Library) and the displayed avatar on the chat list row.
 type Chat struct {
 	ID            uuid.UUID       `json:"id"`
 	UserID        uuid.UUID       `json:"user_id"`
 	CharacterID   *uuid.UUID      `json:"character_id,omitempty"`
 	CharacterName string          `json:"character_name,omitempty"` // denormalised for list view
+	CharacterIDs  []uuid.UUID     `json:"character_ids,omitempty"`  // all participants (group chats)
+	IsGroupChat   bool            `json:"is_group_chat,omitempty"`  // derived: len(CharacterIDs) > 1
 	Name          string          `json:"name"`
 	Metadata      json.RawMessage `json:"chat_metadata,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
@@ -51,7 +59,12 @@ type Message struct {
 	SwipeID   int             `json:"swipe_id"`
 	Extras    json.RawMessage `json:"extras,omitempty"`
 	Hidden    bool            `json:"hidden,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	// CharacterID attributes an assistant message to a specific character
+	// in a group chat. Nil for user/system messages and for single-
+	// character assistant messages where chat.character_id already says
+	// who spoke.
+	CharacterID *uuid.UUID `json:"character_id,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // MessageExtras is the typed view of the `extras` JSONB column. Only a
@@ -68,11 +81,18 @@ type MessageExtras struct {
 }
 
 // CreateChatInput captures what a caller needs to start a new chat.
+//
+// CharacterIDs is the source of truth for participants. When non-empty
+// CharacterID will be derived as CharacterIDs[0] by the repo (legacy
+// column stays in sync for backward-compat queries). When both are
+// empty the chat is character-less (valid — rare, used for sandbox /
+// system-prompt-only flows).
 type CreateChatInput struct {
-	UserID      uuid.UUID
-	CharacterID *uuid.UUID
-	Name        string
-	Metadata    json.RawMessage
+	UserID       uuid.UUID
+	CharacterID  *uuid.UUID
+	CharacterIDs []uuid.UUID
+	Name         string
+	Metadata     json.RawMessage
 }
 
 // SendMessageInput is the body accepted by POST /api/chats/:id/messages.
@@ -99,6 +119,10 @@ type SendMessageInput struct {
 	PersonaID            *uuid.UUID     `json:"persona_id,omitempty"`
 	Overrides            map[string]any `json:"overrides,omitempty"`
 	SystemPromptOverride string         `json:"-"`
+	// SpeakerID names the character that should respond in a group chat.
+	// Must be ∈ chat.character_ids; validated server-side. Single-char
+	// chats ignore this field (speaker is always the sole participant).
+	SpeakerID *uuid.UUID `json:"speaker_id,omitempty"`
 	// Server-populated from chat_metadata.authors_note right before the
 	// prompt is built; not accepted from the wire body.
 	AuthorsNote *AuthorsNote `json:"-"`

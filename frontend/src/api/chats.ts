@@ -7,8 +7,16 @@ export type Role = 'user' | 'assistant' | 'system'
 export interface Chat {
   id: string
   user_id: string
+  /** Primary character. For single-char chats this is THE character;
+   *  for group chats this mirrors `character_ids[0]` for legacy filters
+   *  (sidebar avatar, "find chat by character" flows). */
   character_id?: string | null
   character_name?: string
+  /** All participants. 1-element for single chats, 2+ for groups.
+   *  Source of truth for who's IN the chat. */
+  character_ids?: string[]
+  /** Derived: true iff character_ids.length > 1. */
+  is_group_chat?: boolean
   name: string
   chat_metadata?: {
     sampler?: ChatSamplerMetadata
@@ -66,6 +74,9 @@ export interface Message {
   swipe_id: number
   extras?: MessageExtras
   hidden?: boolean
+  /** Speaker attribution in a group chat. Nil for user/system and for
+   *  single-character assistant messages (fall back to chat.character_id). */
+  character_id?: string | null
   created_at: string
 }
 
@@ -86,7 +97,7 @@ export const chatsApi = {
 
   get: (id: string) => apiFetch<Chat>(`/api/chats/${id}`),
 
-  create: (input: { character_id?: string; name?: string }) =>
+  create: (input: { character_id?: string; character_ids?: string[]; name?: string }) =>
     apiFetch<Chat>('/api/chats', {
       method: 'POST',
       body: JSON.stringify(input),
@@ -190,6 +201,10 @@ export interface SendMessageInput {
   model?: string
   temperature?: number
   max_tokens?: number
+  /** Who speaks next in a group chat. Ignored for single-char chats.
+   *  When omitted from a group chat the server picks the first
+   *  participant as a safe default. */
+  speaker_id?: string
 }
 
 /**

@@ -109,8 +109,12 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 type createChatRequest struct {
 	CharacterID *uuid.UUID      `json:"character_id,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Metadata    json.RawMessage `json:"chat_metadata,omitempty"`
+	// CharacterIDs is the preferred modern field — a list of character
+	// participants. Single-character chats send a 1-element array (or
+	// just CharacterID for backward compat). Group chats send 2+.
+	CharacterIDs []uuid.UUID     `json:"character_ids,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Metadata     json.RawMessage `json:"chat_metadata,omitempty"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -125,11 +129,34 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default the chat name from the character if not provided.
+	// Reconcile old/new shape so the rest of the handler can treat
+	// CharacterIDs as the single source of truth.
+	characterIDs := req.CharacterIDs
+	if len(characterIDs) == 0 && req.CharacterID != nil {
+		characterIDs = []uuid.UUID{*req.CharacterID}
+	}
+
+	// Validate every participant belongs to this user (cheap check —
+	// prevents a malicious caller from "starting a group chat" with
+	// somebody else's character ID to probe existence).
+	for _, cid := range characterIDs {
+		if _, err := h.Characters.Get(r.Context(), user.ID, cid); err != nil {
+			http.Error(w, "character not found: "+cid.String(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Default the chat name from the first character if not provided.
 	name := req.Name
-	if name == "" && req.CharacterID != nil {
-		if ch, err := h.Characters.Get(r.Context(), user.ID, *req.CharacterID); err == nil {
+	if name == "" && len(characterIDs) > 0 {
+		if ch, err := h.Characters.Get(r.Context(), user.ID, characterIDs[0]); err == nil {
 			name = ch.Name
+			// Append a " + N" suffix for group chats so the list view
+			// makes the participant count obvious without expanding
+			// each row.
+			if len(characterIDs) > 1 {
+				name = fmt.Sprintf("%s + %d", ch.Name, len(characterIDs)-1)
+			}
 		}
 	}
 	if name == "" {
@@ -144,10 +171,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	metadata := req.Metadata
 
 	chat, err := h.Repo.CreateChat(r.Context(), CreateChatInput{
-		UserID:      user.ID,
-		CharacterID: req.CharacterID,
-		Name:        name,
-		Metadata:    metadata,
+		UserID:       user.ID,
+		CharacterIDs: characterIDs,
+		Name:         name,
+		Metadata:     metadata,
 	})
 	if err != nil {
 		h.writeErr(w, err)
@@ -163,8 +190,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	// greeting independently. If first_mes is blank but there ARE
 	// alternate_greetings, the first alt becomes the visible greeting so
 	// the UI isn't empty.
-	if req.CharacterID != nil {
-		if ch, err := h.Characters.Get(r.Context(), user.ID, *req.CharacterID); err == nil {
+	// Seed greetings only for single-character chats. Group chats open
+	// empty — the user picks a speaker and sends the first turn — which
+	// matches ST's group-chat convention. Per-character greetings in a
+	// group is a future polish (would need per-character first_mes to
+	// all appear as separate opener swipes).
+	if len(characterIDs) == 1 {
+		if ch, err := h.Characters.Get(r.Context(), user.ID, characterIDs[0]); err == nil {
 			personaName := user.DisplayName()
 			if h.Personas != nil {
 				if p, err := h.Personas.Default(r.Context(), user.ID); err == nil && p.Name != "" {
@@ -484,8 +516,37 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	// HTML; harmless no-op when the bundle has no placement=1 scripts.
 	in.Content = ApplyRegexToUserInput(in.Bundle, in.Content)
 
+	// Resolve which character responds this turn.
+	//   - Single-char chat: always chat.CharacterID (client may pass nil
+	//     speaker_id, that's fine — the one participant speaks).
+	//   - Group chat: require speaker_id AND it must be in character_ids,
+	//     otherwise fall back to the first character as a safe default
+	//     rather than 400-erroring (better DX: lead character just speaks).
+	respondingCharID := chat.CharacterID
+	if in.SpeakerID != nil {
+		ok := false
+		for _, cid := range chat.CharacterIDs {
+			if cid == *in.SpeakerID {
+				ok = true
+				break
+			}
+		}
+		// Legacy: chat has character_ids empty (pre-migration backfill
+		// edge case) — accept speaker_id anyway if it was requested.
+		if !ok && len(chat.CharacterIDs) == 0 {
+			ok = true
+		}
+		if ok {
+			respondingCharID = in.SpeakerID
+		}
+	} else if chat.IsGroupChat && len(chat.CharacterIDs) > 0 {
+		// Group chat without speaker_id: default to first participant.
+		first := chat.CharacterIDs[0]
+		respondingCharID = &first
+	}
+
 	// Stream.
-	h.streamChat(w, r, user.ID, chat.ID, chat.CharacterID, up, userName, userDesc, in)
+	h.streamChat(w, r, user.ID, chat.ID, respondingCharID, up, userName, userDesc, in)
 }
 
 // upstream describes where a chat turn should send its chat-completions
@@ -920,13 +981,29 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Line-by-line decode. First meta, rest messages. Tolerant of leading
-	// blank lines. Strict on unknown `type` values — fail fast beats silent
-	// partial imports.
+	// blank lines. We accept TWO flavours:
+	//
+	//   1. WuNest native format — `{"type":"chat_meta",...}` + `{"type":"message",...}`
+	//      lines (what exportChat emits).
+	//   2. SillyTavern chat exports — meta line with `user_name`/`character_name`
+	//      + message lines with `name`/`is_user`/`mes`/`swipes`. No `type` field.
+	//
+	// We auto-detect on the first line: if it lacks `type:"chat_meta"` but
+	// DOES have ST-style keys, transparently translate. This saves users
+	// the trouble of converting files by hand when migrating from ST.
 	lines := splitJSONL(body)
 	if len(lines) == 0 {
 		http.Error(w, "no JSON lines", http.StatusBadRequest)
 		return
 	}
+
+	// Generic peek to detect format.
+	var peek map[string]json.RawMessage
+	if err := json.Unmarshal(lines[0], &peek); err != nil {
+		http.Error(w, "first line is not valid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	format := detectChatFormat(peek)
 
 	var metaLine struct {
 		Type          string          `json:"type"`
@@ -934,8 +1011,38 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 		CharacterName string          `json:"character_name"`
 		Metadata      json.RawMessage `json:"metadata"`
 	}
-	if err := json.Unmarshal(lines[0], &metaLine); err != nil || metaLine.Type != "chat_meta" {
-		http.Error(w, "first line must be chat_meta", http.StatusBadRequest)
+	switch format {
+	case "wunest":
+		if err := json.Unmarshal(lines[0], &metaLine); err != nil || metaLine.Type != "chat_meta" {
+			http.Error(w, "first line must be chat_meta", http.StatusBadRequest)
+			return
+		}
+	case "silly-tavern":
+		// ST meta: {"user_name":"...","character_name":"...","create_date":"...","chat_metadata":{...}}
+		var stMeta struct {
+			UserName      string          `json:"user_name"`
+			CharacterName string          `json:"character_name"`
+			CreateDate    string          `json:"create_date"`
+			ChatMetadata  json.RawMessage `json:"chat_metadata"`
+		}
+		if err := json.Unmarshal(lines[0], &stMeta); err != nil {
+			http.Error(w, "ST meta line invalid: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		metaLine.CharacterName = stMeta.CharacterName
+		// ST files don't include a chat name — default to "{char} chat" or date.
+		if stMeta.CharacterName != "" {
+			metaLine.Name = "ST: " + stMeta.CharacterName
+		} else {
+			metaLine.Name = "Imported ST chat"
+		}
+		metaLine.Metadata = stMeta.ChatMetadata
+	default:
+		http.Error(w,
+			"unrecognised chat format — expected a WuNest export "+
+				`({"type":"chat_meta",...}) or a SillyTavern export `+
+				`({"user_name":"...","character_name":"..."})`,
+			http.StatusBadRequest)
 		return
 	}
 	name := strings.TrimSpace(metaLine.Name)
@@ -996,29 +1103,79 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 	}
 	for i, line := range lines[1:] {
 		lineIdx := i + 2 // +1 for meta, +1 for 1-based numbering
-		var m msgLine
-		if err := json.Unmarshal(line, &m); err != nil {
-			recordSkip(lineIdx, "invalid json: "+err.Error())
-			continue
+		var (
+			role    Role
+			content string
+			swipes  json.RawMessage
+			swipeID int
+			extras  *MessageExtras
+		)
+		switch format {
+		case "wunest":
+			var m msgLine
+			if err := json.Unmarshal(line, &m); err != nil {
+				recordSkip(lineIdx, "invalid json: "+err.Error())
+				continue
+			}
+			if m.Type != "message" {
+				recordSkip(lineIdx, "unknown type "+strconv.Quote(m.Type))
+				continue
+			}
+			role = Role(m.Role)
+			content = m.Content
+			swipes = m.Swipes
+			swipeID = m.SwipeID
+			extras = parseMessageExtras(m.Extras)
+
+		case "silly-tavern":
+			// ST message shape:
+			//   {"name":"Alice","is_user":false,"is_system":false,
+			//    "send_date":"...","mes":"...",
+			//    "swipe_id":0,"swipes":["..."]}
+			var st struct {
+				Name     string          `json:"name"`
+				IsUser   bool            `json:"is_user"`
+				IsSystem bool            `json:"is_system"`
+				Mes      string          `json:"mes"`
+				SwipeID  int             `json:"swipe_id"`
+				Swipes   json.RawMessage `json:"swipes"`
+			}
+			if err := json.Unmarshal(line, &st); err != nil {
+				recordSkip(lineIdx, "invalid json: "+err.Error())
+				continue
+			}
+			switch {
+			case st.IsSystem:
+				role = RoleSystem
+			case st.IsUser:
+				role = RoleUser
+			default:
+				role = RoleAssistant
+			}
+			content = st.Mes
+			swipes = st.Swipes
+			swipeID = st.SwipeID
+			// Skip ST's first-message placeholder (is_user=false, often
+			// empty mes for greeting that was never shown). Non-empty
+			// first_mes IS the greeting — let it through.
+			if content == "" && len(swipes) == 0 {
+				recordSkip(lineIdx, "empty ST message with no swipes")
+				continue
+			}
+			extras = nil
 		}
-		if m.Type != "message" {
-			recordSkip(lineIdx, "unknown type "+strconv.Quote(m.Type))
-			continue
-		}
-		role := Role(m.Role)
 		if role != RoleUser && role != RoleAssistant && role != RoleSystem {
-			recordSkip(lineIdx, "invalid role "+strconv.Quote(m.Role))
+			recordSkip(lineIdx, "invalid role "+strconv.Quote(string(role)))
 			continue
 		}
-		extras := parseMessageExtras(m.Extras)
-		appended, err := h.Repo.AppendMessage(r.Context(), chat.ID, role, m.Content, extras)
+		appended, err := h.Repo.AppendMessage(r.Context(), chat.ID, role, content, extras)
 		if err != nil {
 			slog.Warn("import: append", "err", err, "line", lineIdx)
 			recordSkip(lineIdx, "db insert failed")
 			continue
 		}
-		if len(m.Swipes) > 0 && string(m.Swipes) != "null" && string(m.Swipes) != "[]" {
-			if err := h.Repo.RestoreSwipes(r.Context(), chat.ID, appended.ID, m.Swipes, m.SwipeID); err != nil {
+		if len(swipes) > 0 && string(swipes) != "null" && string(swipes) != "[]" {
+			if err := h.Repo.RestoreSwipes(r.Context(), chat.ID, appended.ID, swipes, swipeID); err != nil {
 				// Not fatal — content is in; just note the swipes slot didn't.
 				slog.Warn("import: restore swipes", "err", err, "line", lineIdx)
 			}
@@ -1035,6 +1192,34 @@ func (h *Handler) importChat(w http.ResponseWriter, r *http.Request) {
 		"total_data_lines":  len(lines) - 1,
 	}
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// detectChatFormat sniffs the first-line object and decides whether the
+// file is a WuNest export, a SillyTavern export, or something else.
+//
+// Rules (cheap key-presence checks, no value parsing):
+//
+//   - `"type":"chat_meta"` present → "wunest" (that's exactly what exportChat writes).
+//   - Otherwise, if any of `user_name`/`character_name`/`chat_metadata`/`create_date`
+//     is present → "silly-tavern". ST meta lines reliably ship at least
+//     `character_name`; `chat_metadata` and `create_date` are near-universal too.
+//   - Everything else → "unknown", surfaced as a 400 so the user gets a
+//     clear "we don't recognise this file" message instead of a confusing
+//     "first line must be chat_meta" when they tried to import ST.
+func detectChatFormat(first map[string]json.RawMessage) string {
+	if t, ok := first["type"]; ok {
+		// Fast path — if the first line literally says `"type":"chat_meta"`,
+		// it's our native shape regardless of what else is there.
+		if string(t) == `"chat_meta"` {
+			return "wunest"
+		}
+	}
+	for _, k := range []string{"user_name", "character_name", "chat_metadata", "create_date"} {
+		if _, ok := first[k]; ok {
+			return "silly-tavern"
+		}
+	}
+	return "unknown"
 }
 
 // splitJSONL trims each line of its surrounding whitespace and skips empties.
@@ -1155,7 +1340,14 @@ func (h *Handler) swipeMessage(w http.ResponseWriter, r *http.Request) {
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
-	h.streamChatSwipe(w, r, user.ID, chatID, chat.CharacterID, up, userName, userDesc, mid, newSwipeID, in)
+	// Swipe should re-generate as the SAME speaker who produced the
+	// original message. For group chats this pulls character_id off the
+	// row; single-char chats fall back to chat.CharacterID.
+	respondingCharID := chat.CharacterID
+	if msg.CharacterID != nil {
+		respondingCharID = msg.CharacterID
+	}
+	h.streamChatSwipe(w, r, user.ID, chatID, respondingCharID, up, userName, userDesc, mid, newSwipeID, in)
 }
 
 // selectSwipe picks an existing variant for the message. Body: {swipe_id}.
@@ -1233,8 +1425,12 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Drop the latest assistant message so streamChatRegen builds the
-	// prompt from the preceding user turn.
+	// prompt from the preceding user turn. Capture its character_id so a
+	// group-chat regenerate re-runs as the SAME speaker (otherwise the
+	// regen would silently fall back to the first participant).
+	var lastCharID *uuid.UUID
 	if last, err := h.Repo.LastAssistantMessage(r.Context(), chatID); err == nil {
+		lastCharID = last.CharacterID
 		if err := h.Repo.DeleteMessage(r.Context(), chatID, last.ID); err != nil {
 			slog.Warn("regenerate: delete last assistant failed", "err", err, "id", last.ID)
 		}
@@ -1253,7 +1449,17 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	in.AuthorsNote = readAuthorsNote(chat.Metadata)
 	in = h.applyUserDefaults(r.Context(), user.ID, in)
 
-	h.streamChatRegen(w, r, user.ID, chat.ID, chat.CharacterID, up, userName, userDesc, in)
+	// Prefer the original message's speaker for regen; fall back to the
+	// chat's primary character (single-char chats or pre-group-migration).
+	respondingCharID := chat.CharacterID
+	if lastCharID != nil {
+		respondingCharID = lastCharID
+	} else if in.SpeakerID != nil {
+		// Client explicitly switched speaker before regen (e.g. "try this
+		// as a different character").
+		respondingCharID = in.SpeakerID
+	}
+	h.streamChatRegen(w, r, user.ID, chat.ID, respondingCharID, up, userName, userDesc, in)
 }
 
 // --- helpers ---

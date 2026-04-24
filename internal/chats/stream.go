@@ -82,12 +82,12 @@ func (h *Handler) streamChatRegen(
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
 	}
 
-	placeholder, err := h.Repo.AppendMessage(ctx, chatID, RoleAssistant, "", &MessageExtras{Model: model})
+	placeholder, err := h.Repo.AppendMessageForCharacter(ctx, chatID, RoleAssistant, "", charID, &MessageExtras{Model: model})
 	if err != nil {
 		writeSSEError(w, flusher, "save_placeholder", err)
 		return
 	}
-	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model})
+	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model, "character_id": charID})
 
 	h.pipeStream(w, flusher, ctx, placeholder, model, ups, in, up)
 }
@@ -333,15 +333,17 @@ func (h *Handler) streamChat(
 		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
 	}
 
-	// 5. Insert empty assistant placeholder with the model chosen.
-	placeholder, err := h.Repo.AppendMessage(ctx, chatID, RoleAssistant, "", &MessageExtras{
+	// 5. Insert empty assistant placeholder with the model chosen and the
+	//    responding character attribution (nil for single-char chats →
+	//    column stays NULL and the UI falls back to chat.character_id).
+	placeholder, err := h.Repo.AppendMessageForCharacter(ctx, chatID, RoleAssistant, "", charID, &MessageExtras{
 		Model: model,
 	})
 	if err != nil {
 		writeSSEError(w, flusher, "save_placeholder", err)
 		return
 	}
-	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model})
+	writeSSE(w, flusher, "assistant_start", map[string]any{"id": placeholder.ID, "model": model, "character_id": charID})
 
 	started := time.Now()
 

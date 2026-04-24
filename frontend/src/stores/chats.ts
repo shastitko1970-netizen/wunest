@@ -77,6 +77,19 @@ export const useChatsStore = defineStore('chats', () => {
     return chat
   }
 
+  // createGroupChat starts a chat with 2+ character participants.
+  // Server picks the name (first character + " + N"); caller can
+  // override via `name`. Single-member arrays fall through to the
+  // existing single-char path for cleaner sidebar UX.
+  async function createGroupChat(characterIDs: string[], name?: string): Promise<Chat> {
+    if (characterIDs.length === 1) {
+      return createForCharacter(characterIDs[0])
+    }
+    const chat = await chatsApi.create({ character_ids: characterIDs, name })
+    list.value = [chat, ...list.value]
+    return chat
+  }
+
   // existingForCharacter returns the newest chat owned by the given
   // character (or null if none). Used by Library's "Chat" button so
   // clicking a card reopens the last conversation instead of piling up
@@ -381,7 +394,7 @@ export const useChatsStore = defineStore('chats', () => {
     currentId, currentChat, messages, messagesLoading,
     streaming, streamError,
     currentCharacterId,
-    fetchList, open, createForCharacter, existingForCharacter, remove, rename,
+    fetchList, open, createForCharacter, createGroupChat, existingForCharacter, remove, rename,
     send, regenerate, swipe, selectSwipe, stopStreaming,
     editMessage, deleteMessage,
     setSampler, setAuthorsNote,

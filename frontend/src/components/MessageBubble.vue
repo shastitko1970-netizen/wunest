@@ -13,6 +13,9 @@ const props = defineProps<{
   streaming?: boolean
   // Only the last assistant message gets a Regenerate action in V1.
   allowRegenerate?: boolean
+  /** Optional map of character_id → display name. Supplied by Chat.vue
+   *  in group chats so each assistant message can show who spoke. */
+  characterNames?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +33,13 @@ const emit = defineEmits<{
 const isUser = computed(() => props.message.role === 'user')
 const displayName = computed(() => {
   if (isUser.value) return props.userName || t('chat.you')
+  // Group-chat attribution: if the message carries a character_id and
+  // the parent gave us a resolution map, show that character's name
+  // instead of the chat-level characterName.
+  const cid = props.message.character_id
+  if (cid && props.characterNames?.[cid]) {
+    return props.characterNames[cid]
+  }
   return props.characterName || t('chat.assistant')
 })
 const timestamp = computed(() => {

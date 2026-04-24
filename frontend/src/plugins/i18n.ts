@@ -320,6 +320,7 @@ const messages = {
         import: 'Импорт',
         new: 'Создать',
         browse: 'Библиотека CHUB',
+        groupChat: 'Групповой чат',
       },
       search: 'Поиск персонажей…',
       favorites: 'Избранные',
@@ -905,6 +906,20 @@ const messages = {
       pageNext: 'Дальше',
       pageN: 'Стр. {n}',
     },
+    groupChat: {
+      setup: {
+        title: 'Групповой чат',
+        subtitle: 'Собери от {min} до {max} персонажей в один диалог. Каждым можно поговорить по очереди.',
+        nameLabel: 'Название чата',
+        namePlaceholder: 'Например: Таверна «Три копья»',
+        search: 'Поиск персонажей…',
+        empty: 'Нет персонажей — сначала создай или импортируй.',
+        create: 'Создать чат',
+      },
+      speaker: {
+        label: 'Отвечает:',
+      },
+    },
     chat: {
       newChat: 'Новый чат',
       empty: {
@@ -1372,6 +1387,7 @@ const messages = {
         import: 'Import',
         new: 'New',
         browse: 'CHUB library',
+        groupChat: 'Group chat',
       },
       search: 'Search characters…',
       favorites: 'Favorites',
@@ -1940,6 +1956,20 @@ const messages = {
       pageBack: 'Prev',
       pageNext: 'Next',
       pageN: 'Page {n}',
+    },
+    groupChat: {
+      setup: {
+        title: 'Group chat',
+        subtitle: 'Pick {min}–{max} characters and talk to them all in one thread.',
+        nameLabel: 'Chat name',
+        namePlaceholder: 'e.g. Three Spears Tavern',
+        search: 'Search characters…',
+        empty: 'No characters yet — create or import one first.',
+        create: 'Create chat',
+      },
+      speaker: {
+        label: 'Speaking:',
+      },
     },
     chat: {
       newChat: 'New chat',

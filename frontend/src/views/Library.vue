@@ -10,6 +10,7 @@ import CharacterCard from '@/components/CharacterCard.vue'
 import ImportCharacterDialog from '@/components/ImportCharacterDialog.vue'
 import NewCharacterDialog from '@/components/NewCharacterDialog.vue'
 import BrowseLibraryDialog from '@/components/BrowseLibraryDialog.vue'
+import GroupChatSetupDialog from '@/components/GroupChatSetupDialog.vue'
 import WorldsPanel from '@/components/WorldsPanel.vue'
 import CharacterWorldsDialog from '@/components/CharacterWorldsDialog.vue'
 import PersonasPanel from '@/components/PersonasPanel.vue'
@@ -43,6 +44,7 @@ watch(activeTab, (t) => {
 const importOpen = ref(false)
 const createOpen = ref(false)
 const browseOpen = ref(false)
+const groupSetupOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 const worldsDialogOpen = ref(false)
 // Edit-mode reuses NewCharacterDialog with a `character` prop. This ref
@@ -141,6 +143,13 @@ async function confirmDelete() {
           @click="createOpen = true"
         >
           {{ t('library.actions.new') }}
+        </v-btn>
+        <v-btn
+          variant="outlined"
+          prepend-icon="mdi-account-multiple-plus-outline"
+          @click="groupSetupOpen = true"
+        >
+          {{ t('library.actions.groupChat') }}
         </v-btn>
       </div>
     </div>
@@ -285,6 +294,12 @@ async function confirmDelete() {
 
     <!-- CHUB browse dialog -->
     <BrowseLibraryDialog v-model="browseOpen" />
+
+    <!-- Group chat setup: multi-select, 2..6 participants, name. -->
+    <GroupChatSetupDialog
+      v-model="groupSetupOpen"
+      @created="(id) => router.push(`/chat/${id}`)"
+    />
 
     <!-- Per-character lorebook attachment -->
     <CharacterWorldsDialog

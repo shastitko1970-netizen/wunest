@@ -31,6 +31,7 @@ func (r *Repository) ListChats(ctx context.Context, userID uuid.UUID) ([]Chat, e
 	const q = `
 		SELECT
 		    c.id, c.user_id, c.character_id, COALESCE(ch.name, '') AS character_name,
+		    c.character_ids,
 		    c.name, c.chat_metadata, c.created_at, c.updated_at,
 		    COALESCE((SELECT MAX(m.created_at) FROM nest_messages m WHERE m.chat_id = c.id), c.updated_at) AS last_message_at
 		  FROM nest_chats c
@@ -50,11 +51,13 @@ func (r *Repository) ListChats(ctx context.Context, userID uuid.UUID) ([]Chat, e
 		var meta []byte
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.CharacterID, &c.CharacterName,
+			&c.CharacterIDs,
 			&c.Name, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan chat: %w", err)
 		}
 		c.Metadata = meta
+		c.IsGroupChat = len(c.CharacterIDs) > 1
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -65,6 +68,7 @@ func (r *Repository) GetChat(ctx context.Context, userID, id uuid.UUID) (*Chat, 
 	const q = `
 		SELECT
 		    c.id, c.user_id, c.character_id, COALESCE(ch.name, '') AS character_name,
+		    c.character_ids,
 		    c.name, c.chat_metadata, c.created_at, c.updated_at,
 		    COALESCE((SELECT MAX(m.created_at) FROM nest_messages m WHERE m.chat_id = c.id), c.updated_at)
 		  FROM nest_chats c
@@ -75,6 +79,7 @@ func (r *Repository) GetChat(ctx context.Context, userID, id uuid.UUID) (*Chat, 
 	var meta []byte
 	err := r.pg.QueryRow(ctx, q, userID, id).Scan(
 		&c.ID, &c.UserID, &c.CharacterID, &c.CharacterName,
+		&c.CharacterIDs,
 		&c.Name, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -84,6 +89,7 @@ func (r *Repository) GetChat(ctx context.Context, userID, id uuid.UUID) (*Chat, 
 		return nil, fmt.Errorf("get chat: %w", err)
 	}
 	c.Metadata = meta
+	c.IsGroupChat = len(c.CharacterIDs) > 1
 	return &c, nil
 }
 
@@ -94,21 +100,39 @@ func (r *Repository) CreateChat(ctx context.Context, in CreateChatInput) (*Chat,
 	if in.Metadata == nil {
 		in.Metadata = []byte("{}")
 	}
+	// Reconcile CharacterID vs CharacterIDs. Callers may pass either (or
+	// both for clarity); we treat CharacterIDs as the source of truth and
+	// derive CharacterID from position 0 when needed.
+	if len(in.CharacterIDs) == 0 && in.CharacterID != nil {
+		in.CharacterIDs = []uuid.UUID{*in.CharacterID}
+	}
+	if in.CharacterID == nil && len(in.CharacterIDs) > 0 {
+		first := in.CharacterIDs[0]
+		in.CharacterID = &first
+	}
+	// nest_chats.character_ids is NOT NULL; a nil Go slice marshals as
+	// NULL via pgx. Force to empty-array so the INSERT doesn't panic.
+	if in.CharacterIDs == nil {
+		in.CharacterIDs = []uuid.UUID{}
+	}
 	id := uuid.New() // app-side UUID; see characters/repo.go comment
 	const q = `
-		INSERT INTO nest_chats (id, user_id, character_id, name, chat_metadata)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO nest_chats (id, user_id, character_id, character_ids, name, chat_metadata)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING created_at, updated_at
 	`
 	var createdAt, updAt time.Time
-	if err := r.pg.QueryRow(ctx, q, id, in.UserID, in.CharacterID, in.Name, in.Metadata).
-		Scan(&createdAt, &updAt); err != nil {
+	if err := r.pg.QueryRow(ctx, q,
+		id, in.UserID, in.CharacterID, in.CharacterIDs, in.Name, in.Metadata,
+	).Scan(&createdAt, &updAt); err != nil {
 		return nil, fmt.Errorf("insert chat: %w", err)
 	}
 	return &Chat{
 		ID:            id,
 		UserID:        in.UserID,
 		CharacterID:   in.CharacterID,
+		CharacterIDs:  in.CharacterIDs,
+		IsGroupChat:   len(in.CharacterIDs) > 1,
 		Name:          in.Name,
 		Metadata:      in.Metadata,
 		CreatedAt:     createdAt,
@@ -359,7 +383,7 @@ func (r *Repository) DeleteChat(ctx context.Context, userID, id uuid.UUID) error
 // Hidden messages are NOT returned unless includeHidden is true.
 func (r *Repository) ListMessages(ctx context.Context, chatID uuid.UUID, includeHidden bool) ([]Message, error) {
 	q := `
-		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, created_at
+		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, character_id, created_at
 		  FROM nest_messages
 		 WHERE chat_id = $1
 	`
@@ -380,7 +404,7 @@ func (r *Repository) ListMessages(ctx context.Context, chatID uuid.UUID, include
 		var swipes, extras []byte
 		var role string
 		if err := rows.Scan(
-			&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CreatedAt,
+			&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CharacterID, &m.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
@@ -393,7 +417,24 @@ func (r *Repository) ListMessages(ctx context.Context, chatID uuid.UUID, include
 }
 
 // AppendMessage inserts a new message. Returns the persisted row with its id.
+// Delegates to AppendMessageForCharacter with a nil speaker — keeps legacy
+// callers working unchanged.
 func (r *Repository) AppendMessage(ctx context.Context, chatID uuid.UUID, role Role, content string, extras *MessageExtras) (*Message, error) {
+	return r.AppendMessageForCharacter(ctx, chatID, role, content, nil, extras)
+}
+
+// AppendMessageForCharacter inserts a new message and records the speaking
+// character (for group-chat assistant turns). `characterID` should be nil
+// for user/system messages and for single-character assistant messages
+// where chat.character_id already says who spoke.
+func (r *Repository) AppendMessageForCharacter(
+	ctx context.Context,
+	chatID uuid.UUID,
+	role Role,
+	content string,
+	characterID *uuid.UUID,
+	extras *MessageExtras,
+) (*Message, error) {
 	extrasJSON := []byte("{}")
 	if extras != nil {
 		b, err := json.Marshal(extras)
@@ -404,15 +445,15 @@ func (r *Repository) AppendMessage(ctx context.Context, chatID uuid.UUID, role R
 	}
 
 	const q = `
-		INSERT INTO nest_messages (chat_id, role, content, extras)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO nest_messages (chat_id, role, content, character_id, extras)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
 	var (
 		id        int64
 		createdAt time.Time
 	)
-	if err := r.pg.QueryRow(ctx, q, chatID, string(role), content, extrasJSON).
+	if err := r.pg.QueryRow(ctx, q, chatID, string(role), content, characterID, extrasJSON).
 		Scan(&id, &createdAt); err != nil {
 		return nil, fmt.Errorf("insert message: %w", err)
 	}
@@ -424,12 +465,13 @@ func (r *Repository) AppendMessage(ctx context.Context, chatID uuid.UUID, role R
 	}
 
 	return &Message{
-		ID:        id,
-		ChatID:    chatID,
-		Role:      role,
-		Content:   content,
-		Extras:    extrasJSON,
-		CreatedAt: createdAt,
+		ID:          id,
+		ChatID:      chatID,
+		Role:        role,
+		Content:     content,
+		Extras:      extrasJSON,
+		CharacterID: characterID,
+		CreatedAt:   createdAt,
 	}, nil
 }
 
@@ -580,7 +622,7 @@ func (r *Repository) RestoreSwipes(ctx context.Context, chatID uuid.UUID, messag
 // to inspect an existing row (swipe, edit, delete confirmation).
 func (r *Repository) GetMessage(ctx context.Context, chatID uuid.UUID, messageID int64) (*Message, error) {
 	const q = `
-		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, created_at
+		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, character_id, created_at
 		  FROM nest_messages
 		 WHERE chat_id = $1 AND id = $2
 	`
@@ -588,7 +630,7 @@ func (r *Repository) GetMessage(ctx context.Context, chatID uuid.UUID, messageID
 	var swipes, extras []byte
 	var role string
 	err := r.pg.QueryRow(ctx, q, chatID, messageID).Scan(
-		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CreatedAt,
+		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CharacterID, &m.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -754,7 +796,7 @@ func (r *Repository) SelectSwipe(ctx context.Context, chatID uuid.UUID, messageI
 // or ErrNotFound if the chat has none yet. Used by the regenerate endpoint.
 func (r *Repository) LastAssistantMessage(ctx context.Context, chatID uuid.UUID) (*Message, error) {
 	const q = `
-		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, created_at
+		SELECT id, chat_id, role, content, swipes, swipe_id, extras, hidden, character_id, created_at
 		  FROM nest_messages
 		 WHERE chat_id = $1 AND role = 'assistant' AND hidden = FALSE
 		 ORDER BY id DESC
@@ -764,7 +806,7 @@ func (r *Repository) LastAssistantMessage(ctx context.Context, chatID uuid.UUID)
 	var swipes, extras []byte
 	var role string
 	err := r.pg.QueryRow(ctx, q, chatID).Scan(
-		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CreatedAt,
+		&m.ID, &m.ChatID, &role, &m.Content, &swipes, &m.SwipeID, &extras, &m.Hidden, &m.CharacterID, &m.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
