@@ -217,18 +217,20 @@ const localeLabel = (code: string) => {
   <v-layout class="nest-shell">
     <!-- Top bar. ST-compat: `#top-bar` + `.topbar` so user CSS targeting
          SillyTavern's top bar selector also styles ours.
-         `scroll-behavior="hide"` — тестер: «хэдер всё ещё не едет вниз».
-         Дефолт Vuetify — app-bar sticky-fixed сверху. Hide-режим
-         прячет его при scroll-down и показывает обратно при scroll-up
-         (хендлер использует window-scroll, так что срабатывает на всех
-         страницах кроме Chat'а — там внутренний `#chat` скроллер, а
-         window статичен, и это ожидаемо: чат хочет постоянный navbar). -->
+
+         Positioning: регулярный `flow`-элемент, уезжает при скролле вверх.
+         Vuetify по дефолту делает app-bar `position: fixed` через
+         layout-item систему, плюс scroll-behavior="hide" (первая попытка)
+         не спасал — на коротких страницах Vuetify отключает hide,
+         hasEnoughScrollableSpace bails out. Тестер хочет просто чтобы
+         хэдер вёл себя как обычный `<header>` — в документе, не sticky.
+         CSS override + `--v-layout-top: 0` снимают fixed-behavior и
+         убирают auto-padding на v-main, возвращая документу нативный
+         flow. См. .nest-topbar / .nest-shell в стилях ниже. -->
     <v-app-bar
       id="top-bar"
       flat
       :elevation="0"
-      scroll-behavior="hide"
-      :scroll-threshold="80"
       class="nest-topbar topbar px-2"
       height="56"
     >
@@ -499,18 +501,42 @@ const localeLabel = (code: string) => {
   // leaving a dead strip. DS rule: always 100dvh.
   min-height: 100dvh;
   background: var(--nest-bg);
+  // v-layout по дефолту flex-direction: row. С sticky-fixed app-bar'ом
+  // это работало (fixed выпадает из flow). Мы вернули бар в поток
+  // (.nest-topbar { position: static }), значит направление flex'а
+  // должно стать вертикальным — иначе бар окажется слева от v-main'а.
+  flex-direction: column;
+  // Vuetify layout-item система кладёт `--v-layout-top: {barHeight}px`
+  // на v-main (чтобы контент не ушёл под fixed-bar). Бар теперь в
+  // документе и сам занимает своё место — auto-padding лишний, иначе
+  // получим двойной offset (бар + padding).
+  --v-layout-top: 0 !important;
 }
 
 .nest-topbar {
   background: var(--nest-bg) !important;
   border-bottom: 1px solid var(--nest-border);
-  // Notch-aware padding on iOS PWA / mobile Safari fullscreen. Without
-  // this the logo is partly hidden behind the notch on iPhone 14+ in
-  // landscape. Kept additive (logical + safe-area) so the base 2px
-  // inline padding is preserved.
+  // Notch-aware padding on iOS PWA / mobile Safari fullscreen. Без этого
+  // логотип частично прячется за notch на iPhone 14+ в landscape. Additive:
+  // логическое + safe-area, base 2px inline padding сохраняется.
   padding-top:   env(safe-area-inset-top, 0);
   padding-left:  env(safe-area-inset-left, 0);
   padding-right: env(safe-area-inset-right, 0);
+
+  // Тестер: «хэдер всё ещё не едет вниз и всегда сверху остаётся».
+  // Vuetify по дефолту через layoutItemStyles кладёт `position: fixed`
+  // + `top: 0` + `transform: translateY(...)` на .v-toolbar (app-bar).
+  // Это и делает его sticky. Мы хотим обычный header — в потоке
+  // документа, уезжает вверх при скролле. `!important` нужен, чтобы
+  // перебить inline style от useLayoutItem.
+  &.v-app-bar {
+    position: static !important;
+    top: auto !important;
+    transform: none !important;
+    // z-index больше не нужен boost'ить — элемент в flow, не пересекается
+    // с dialog'ами / overlay'ями.
+    z-index: auto !important;
+  }
 }
 
 // Logo cluster (mark + wordmark). Left-padding away from the topbar
