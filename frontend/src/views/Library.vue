@@ -61,6 +61,12 @@ function onAttachWorlds(c: Character) {
 
 onMounted(() => {
   store.fetchAll()
+  // Also fetch chats — the character cards use `chats.list` to decide
+  // whether to show "Продолжить" (existing chat present) vs "Начать
+  // чат" (fresh) and to enable the ⋯ menu's "Новый чат" shortcut.
+  // Without this the button could label stale (say "Начать чат" when
+  // the user in fact already has 10 chats with that character).
+  chats.fetchList()
 })
 
 function onOpen(c: Character) {

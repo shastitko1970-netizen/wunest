@@ -117,11 +117,14 @@ const tagline = computed(() => {
           <v-icon>mdi-dots-horizontal</v-icon>
           <v-menu activator="parent">
             <v-list density="compact">
-              <!-- Explicit "new chat" — shown when the primary button
-                   would reopen the existing one. Users clicking here
-                   want a fresh conversation regardless. -->
+              <!-- Explicit "new chat" — ALWAYS available. The primary
+                   button smart-reuses an existing chat (continue); if
+                   the user wants a fresh conversation regardless of
+                   history, they reach for this menu item. Keeping it
+                   unconditional means new users see it too, matching
+                   the ST mental model where chat creation is distinct
+                   from chat resuming. -->
               <v-list-item
-                v-if="hasExistingChat"
                 prepend-icon="mdi-forum-plus-outline"
                 :title="t('library.card.newChat')"
                 @click="emit('new-chat', character)"
