@@ -69,7 +69,7 @@ function applyQuickReply(qr: { text: string; send_now: boolean }) {
 }
 
 const models = useModelsStore()
-const { items: modelOptions, selected: selectedModel, loading: modelsLoading } = storeToRefs(models)
+const { items: modelOptions, selected: selectedModel, loading: modelsLoading, error: modelsError } = storeToRefs(models)
 
 // Chats store provides the active chat — we need it so the provider picker
 // can pin a BYOK onto the right row, and so we know which pin (if any) is
@@ -498,6 +498,14 @@ function insertMarkdownImage(alt: string, url: string) {
           </button>
         </template>
         <v-list density="compact" class="nest-model-list">
+          <!-- Surfaced error: an empty list after a failed fetch is
+               indistinguishable from "no models here yet"; showing the
+               actual provider message turns a debugging dead-end into a
+               one-glance answer ("HTTP 401: invalid api key"). -->
+          <div v-if="modelsError && !modelOptions.length" class="nest-model-error">
+            <v-icon size="14" color="error">mdi-alert-circle</v-icon>
+            <span class="nest-mono">{{ modelsError }}</span>
+          </div>
           <v-list-item
             v-for="m in modelOptions"
             :key="m.id"
@@ -506,7 +514,7 @@ function insertMarkdownImage(alt: string, url: string) {
           >
             <v-list-item-title class="nest-mono">{{ m.id }}</v-list-item-title>
           </v-list-item>
-          <v-list-item v-if="!modelOptions.length && !modelsLoading" disabled>
+          <v-list-item v-if="!modelOptions.length && !modelsLoading && !modelsError" disabled>
             <v-list-item-title class="nest-mini-hint">
               {{ t('chat.input.modelEmpty') }}
             </v-list-item-title>
@@ -741,6 +749,28 @@ function insertMarkdownImage(alt: string, url: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+// Inline provider-error surfaced inside the model-picker popover. Wraps to
+// multi-line because provider messages can be long ("Invalid API key: your
+// organization 'org_abc' does not have access to this model family …").
+.nest-model-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  margin: 4px 8px;
+  border-radius: var(--nest-radius-sm);
+  background: rgba(244, 67, 54, 0.08);
+  border: 1px solid rgba(244, 67, 54, 0.25);
+  font-size: 10.5px;
+  max-width: 320px;
+  line-height: 1.35;
+
+  span {
+    word-break: break-word;
+    white-space: normal;
+  }
 }
 
 .nest-token-count {

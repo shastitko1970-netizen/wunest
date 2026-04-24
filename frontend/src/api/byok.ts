@@ -48,4 +48,16 @@ export const byokApi = {
       method: 'PUT',
       body: JSON.stringify({ byok_id: byokID }),
     }),
+
+  /** Live-pings the provider via /models. On failure returns the provider's
+   *  own error message so the user can tell "bad key" from "wrong base URL". */
+  test: (id: string) =>
+    apiFetch<BYOKTestResult>(`/api/byok/${id}/test`, { method: 'POST' }),
+}
+
+export interface BYOKTestResult {
+  ok: boolean
+  error?: string
+  model_count?: number
+  sample?: string[]
 }

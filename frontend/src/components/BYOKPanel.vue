@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
-import { byokApi, type BYOKKey, type BYOKProviderInfo } from '@/api/byok'
+import { byokApi, type BYOKKey, type BYOKProviderInfo, type BYOKTestResult } from '@/api/byok'
 
 // BYOKPanel — manage "bring-your-own" provider API keys. Keys are
 // encrypted at rest server-side using AES-GCM and never round-trip
@@ -110,8 +110,32 @@ async function doDelete() {
   try {
     await byokApi.delete(id)
     items.value = items.value.filter(k => k.id !== id)
+    delete testResults.value[id]
   } catch (e) {
     error.value = (e as Error).message
+  }
+}
+
+// Per-key Test state. Map id → { loading, result } so each row has its own
+// spinner and result card without clobbering siblings when the user tests
+// several keys in a row.
+const testResults = ref<Record<string, { loading: boolean; result: BYOKTestResult | null }>>({})
+
+async function testKey(id: string) {
+  testResults.value = {
+    ...testResults.value,
+    [id]: { loading: true, result: null },
+  }
+  try {
+    const r = await byokApi.test(id)
+    testResults.value[id] = { loading: false, result: r }
+  } catch (e) {
+    // Network failure, auth failure, etc — surface raw message so user
+    // can tell "bad cookie" from "bad provider key".
+    testResults.value[id] = {
+      loading: false,
+      result: { ok: false, error: (e as Error).message },
+    }
   }
 }
 
@@ -166,26 +190,68 @@ function formatDate(iso: string): string {
       <div v-for="(keys, provider) in groupedByProvider" :key="provider" class="nest-byok-group">
         <h3 class="nest-h4">{{ providerLabel(provider) }}</h3>
         <div class="nest-byok-list">
-          <div v-for="k in keys" :key="k.id" class="nest-byok-row">
-            <div class="nest-byok-meta">
-              <div class="nest-byok-label">
-                {{ k.label || t('byok.unnamed') }}
+          <div v-for="k in keys" :key="k.id" class="nest-byok-row-wrap">
+            <div class="nest-byok-row">
+              <div class="nest-byok-meta">
+                <div class="nest-byok-label">
+                  {{ k.label || t('byok.unnamed') }}
+                </div>
+                <div class="nest-byok-mask nest-mono">{{ k.masked }}</div>
+                <div v-if="k.base_url" class="nest-byok-url nest-mono" :title="k.base_url">
+                  {{ k.base_url.replace(/^https?:\/\//, '') }}
+                </div>
               </div>
-              <div class="nest-byok-mask nest-mono">{{ k.masked }}</div>
-              <div v-if="k.base_url" class="nest-byok-url nest-mono" :title="k.base_url">
-                {{ k.base_url.replace(/^https?:\/\//, '') }}
+              <div class="nest-byok-actions">
+                <v-btn
+                  size="x-small"
+                  variant="tonal"
+                  :prepend-icon="testResults[k.id]?.result?.ok === true
+                    ? 'mdi-check-circle-outline'
+                    : testResults[k.id]?.result?.ok === false
+                      ? 'mdi-alert-circle-outline'
+                      : 'mdi-connection'"
+                  :loading="testResults[k.id]?.loading"
+                  :color="testResults[k.id]?.result?.ok === true
+                    ? 'success'
+                    : testResults[k.id]?.result?.ok === false
+                      ? 'error'
+                      : undefined"
+                  @click="testKey(k.id)"
+                >
+                  {{ t('byok.test.button') }}
+                </v-btn>
+                <span class="nest-mono nest-byok-date">{{ formatDate(k.created_at) }}</span>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  icon="mdi-delete-outline"
+                  :title="t('common.delete')"
+                  @click="confirmDeleteId = k.id"
+                />
               </div>
             </div>
-            <div class="nest-byok-actions">
-              <span class="nest-mono nest-byok-date">{{ formatDate(k.created_at) }}</span>
-              <v-btn
-                size="x-small"
-                variant="text"
-                color="error"
-                icon="mdi-delete-outline"
-                :title="t('common.delete')"
-                @click="confirmDeleteId = k.id"
-              />
+            <!-- Test result card — green when ok, red on error. Shows the
+                 first 3 model ids so the user sees proof that /models
+                 actually returned real data from their provider. -->
+            <div
+              v-if="testResults[k.id]?.result"
+              class="nest-byok-test-result"
+              :class="{ ok: testResults[k.id]!.result!.ok, fail: !testResults[k.id]!.result!.ok }"
+            >
+              <div v-if="testResults[k.id]!.result!.ok" class="nest-byok-test-success">
+                <v-icon size="14" color="success">mdi-check-circle</v-icon>
+                <span>
+                  {{ t('byok.test.success', { n: testResults[k.id]!.result!.model_count ?? 0 }) }}
+                </span>
+                <span v-if="testResults[k.id]!.result!.sample?.length" class="nest-mono nest-byok-test-sample">
+                  {{ testResults[k.id]!.result!.sample!.join(', ') }}…
+                </span>
+              </div>
+              <div v-else class="nest-byok-test-fail">
+                <v-icon size="14" color="error">mdi-alert-circle</v-icon>
+                <span class="nest-mono">{{ testResults[k.id]!.result!.error }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -351,6 +417,50 @@ function formatDate(iso: string): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.nest-byok-row-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nest-byok-test-result {
+  padding: 8px 12px;
+  border-radius: var(--nest-radius-sm);
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &.ok {
+    background: rgba(76, 175, 80, 0.08);
+    border: 1px solid rgba(76, 175, 80, 0.25);
+  }
+  &.fail {
+    background: rgba(244, 67, 54, 0.08);
+    border: 1px solid rgba(244, 67, 54, 0.25);
+  }
+}
+.nest-byok-test-success,
+.nest-byok-test-fail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--nest-text-secondary);
+  flex-wrap: wrap;
+}
+.nest-byok-test-fail {
+  color: var(--nest-text);
+  word-break: break-word;
+
+  span {
+    font-size: 11px;
+  }
+}
+.nest-byok-test-sample {
+  font-size: 10.5px;
+  opacity: 0.75;
+  word-break: break-all;
 }
 
 .nest-byok-row {

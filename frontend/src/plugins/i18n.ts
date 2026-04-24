@@ -178,6 +178,11 @@ const messages = {
         emptyHint: 'Нет ни одного BYOK-ключа. Добавь в Настройках → BYOK.',
         manageKeys: 'Управлять ключами…',
       },
+      test: {
+        button: 'Проверить',
+        success: 'Работает — {n} моделей',
+        sampleLabel: 'Первые:',
+      },
     },
     appearance: {
       headline: 'Как выглядит чат',
@@ -1323,6 +1328,11 @@ const messages = {
         useDefaultHint: 'wu-gold on your plan',
         emptyHint: 'No BYOK keys yet. Add one in Settings → BYOK.',
         manageKeys: 'Manage keys…',
+      },
+      test: {
+        button: 'Test',
+        success: 'Works — {n} models',
+        sampleLabel: 'First:',
       },
     },
     appearance: {

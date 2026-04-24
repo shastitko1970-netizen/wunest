@@ -36,6 +36,10 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	// picker open latency stays in single-digit ms after a warm-up call.
 	// `?refresh=1` bypasses the cache on demand.
 	mux.Handle("GET /api/byok/{id}/models", authRequired(http.HandlerFunc(h.models)))
+	// Explicit key-check: pings the provider and returns {ok, model_count,
+	// sample[]} or {ok:false, error}. Used by the "Test" button in the
+	// BYOK settings panel.
+	mux.Handle("POST /api/byok/{id}/test", authRequired(http.HandlerFunc(h.test)))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -191,19 +195,95 @@ func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
 
 	list, err := FetchModels(r.Context(), provider, revealed)
 	if err != nil {
-		// Upstream errors → 502 so the SPA can distinguish them from 4xx on
-		// our side. Include the provider's message so a bad key is obvious.
+		// Log the full error server-side (with base URL, provider, message)
+		// so we can diagnose when a user reports "list is empty". User-
+		// visible body stays the truncated provider message.
+		slog.Error("byok fetch models",
+			"err", err,
+			"provider", provider,
+			"base_url", revealed.BaseURL,
+			"byok_id", id,
+		)
 		if errors.Is(err, ErrUpstream) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		slog.Error("byok fetch models", "err", err, "provider", provider)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
 	}
 
 	SetCachedModels(r.Context(), h.Redis, id, list)
 	writeJSON(w, http.StatusOK, list)
+}
+
+// test pings the provider with a cheap request (model list fetch) to verify
+// the stored key actually works. Surfaces the provider's own error message
+// so the user can see whether it's a bad key, wrong base URL, rate-limited,
+// etc. Returns 200 on success with `{ok:true, model_count:N}`; 4xx/5xx with
+// `{ok:false, error: "..."}` on any failure.
+//
+// Bypasses the Redis cache so it's a real live ping. Does NOT write to the
+// cache — a `Test` click that happens to succeed shouldn't silently prime
+// the cache with a stale list seconds before it expires naturally.
+func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	provider, err := h.Repo.GetProvider(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	revealed, err := h.Repo.Reveal(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	list, err := FetchModels(r.Context(), provider, revealed)
+	if err != nil {
+		slog.Warn("byok test failed",
+			"err", err,
+			"provider", provider,
+			"base_url", revealed.BaseURL,
+		)
+		// 200 with ok:false so the frontend doesn't have to parse 4xx body
+		// shapes that differ by provider. The SPA renders `error` inline
+		// under the key card.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":    false,
+			"error": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"model_count": len(list.Data),
+		"sample":      sampleModelIDs(list, 3),
+	})
+}
+
+// sampleModelIDs picks up to n model ids from the catalogue — useful in the
+// Test response so the user sees "yes it really returned {gpt-4o, gpt-4o-mini,
+// o1}", confirming both the auth AND the base URL are right.
+func sampleModelIDs(list *ModelList, n int) []string {
+	if list == nil {
+		return nil
+	}
+	if n > len(list.Data) {
+		n = len(list.Data)
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, list.Data[i].ID)
+	}
+	return out
 }
 
 // ProviderInfo is a single entry in the providers allow-list returned to
