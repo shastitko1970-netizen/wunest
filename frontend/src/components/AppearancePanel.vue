@@ -927,7 +927,8 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   font-size: 12px;
   color: var(--nest-text);
   padding: 2px 8px;
-  border-radius: 999px;
+  // Token for the pill shape; was hardcoded 999px.
+  border-radius: var(--nest-radius-pill);
   background: var(--nest-surface);
   border: 1px solid var(--nest-border-subtle);
   white-space: nowrap;

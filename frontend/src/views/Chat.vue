@@ -1674,10 +1674,14 @@ async function requestReplyFromLastUser() {
   padding: 6px 14px 6px 10px;
   font-size: 12.5px;
   line-height: 1;
-  color: var(--nest-text-on-accent, #fff);
+  // Keyword fallback — DS contract forbids hex in components. `white`
+  // is a CSS keyword, portable across themes; authors override via
+  // --nest-text-on-accent when they want brand-specific contrast.
+  color: var(--nest-text-on-accent, white);
   background: var(--nest-accent);
   border: 0;
-  border-radius: 999px;
+  // Token instead of hardcoded 999 — both yield a pill.
+  border-radius: var(--nest-radius-pill);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   z-index: 5;

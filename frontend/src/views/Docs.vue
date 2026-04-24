@@ -205,7 +205,9 @@ function topicSummary(t: DocTopic) {
   font-size: 18px;
   font-weight: 600;
   border: 1px solid var(--nest-accent);
-  border-radius: 6px;
+  // Token instead of hardcoded 6 — matches --nest-radius-sm (6px),
+  // mod authors controlling the small-radius scale pick this up.
+  border-radius: var(--nest-radius-sm);
   font-family: var(--nest-font-mono);
 }
 .nest-docs-top-nav {

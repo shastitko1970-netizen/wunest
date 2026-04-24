@@ -199,7 +199,9 @@ const tagline = computed(() => {
   background: transparent;
   border: none;
   padding: 4px;
-  border-radius: 6px;
+  // Token instead of the hardcoded 6 — same value, contract-compliant,
+  // mod authors who change the small-radius scale pick this up.
+  border-radius: var(--nest-radius-sm);
   color: var(--nest-text-muted);
   cursor: pointer;
   transition: color var(--nest-transition-fast), background var(--nest-transition-fast);

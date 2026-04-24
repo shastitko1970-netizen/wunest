@@ -577,7 +577,9 @@ watch(items, () => {
   background: var(--nest-surface-variant, var(--nest-bg-elevated));
   overflow: hidden;
   cursor: pointer;
-  border-radius: 12px;
+  // Token instead of hardcoded 12 — matches the persona tile radius
+  // scale with the global --nest-radius token.
+  border-radius: var(--nest-radius);
   display: flex;
   align-items: center;
   justify-content: center;

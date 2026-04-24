@@ -57,7 +57,9 @@ const loginUrl = computed(() => `/auth/start?return_to=${returnTo.value}`)
   font-size: 40px;
   font-weight: 600;
   border: 2px solid var(--nest-accent);
-  border-radius: 12px;
+  // Token instead of hardcoded 12 — same value today, picks up mod
+  // overrides on the card-radius scale.
+  border-radius: var(--nest-radius);
   font-family: var(--nest-font-mono);
 }
 

@@ -753,7 +753,8 @@ async function save() {
   flex-shrink: 0;
   width: 88px;
   aspect-ratio: 3 / 4;
-  border-radius: 12px;
+  // Token instead of hardcoded 12 — matches --nest-radius default.
+  border-radius: var(--nest-radius);
   overflow: hidden;
   background: var(--nest-surface-variant, var(--nest-bg-elevated));
   display: flex;

@@ -195,7 +195,7 @@ async function confirmDelete() {
             density="compact"
             single-line
             clearable
-            style="max-width: 320px"
+            class="nest-filterbar-search"
           />
           <v-btn
             :variant="favoriteOnly ? 'tonal' : 'text'"
@@ -243,7 +243,7 @@ async function confirmDelete() {
         <div v-else-if="filtered.length === 0" class="nest-state text-center">
           <v-icon size="48" color="surface-variant">mdi-bookshelf</v-icon>
           <div class="nest-h2 mt-4">{{ t('library.empty.title') }}</div>
-          <p class="nest-subtitle mt-2" style="max-width: 360px; margin: 0 auto">
+          <p class="nest-subtitle nest-empty-hint mt-2">
             {{ t('library.empty.hint') }}
           </p>
           <div class="d-flex ga-2 mt-4 justify-center flex-wrap">
@@ -255,7 +255,7 @@ async function confirmDelete() {
             </v-btn>
           </div>
         </div>
-        <div v-else class="nest-grid">
+        <div v-else class="nest-card-grid">
           <CharacterCard
             v-for="c in filtered"
             :key="c.id"
@@ -349,6 +349,17 @@ async function confirmDelete() {
   padding: 16px 0;
   flex-wrap: wrap;
 }
+// Search field width — was inline style; lifted into class so mod
+// authors can .nest-filterbar-search { max-width: ... } without
+// needing !important.
+.nest-filterbar-search { max-width: 320px; }
+
+// Empty-state caption centred + capped so long copy doesn't span the
+// full page width. Was inline style; moved here per DS contract.
+.nest-empty-hint {
+  max-width: 360px;
+  margin: 0 auto;
+}
 
 .nest-tagbar {
   display: flex;
@@ -356,7 +367,11 @@ async function confirmDelete() {
   margin-bottom: 20px;
 }
 
-.nest-grid {
+// .nest-card-grid is distinct from the DS-contract .nest-grid (which is a
+// strict two-column that collapses to one at 640px). Here we want
+// adaptive cards — 3+ columns on desktop, down to two on narrow phones.
+// Different shape → different name so they don't drift into each other.
+.nest-card-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -377,6 +392,6 @@ async function confirmDelete() {
 // DS-canonical 640px. Below this the 3+ col card grid collapses to two.
 @media (max-width: 640px) {
   .nest-library { padding: 20px 12px; }
-  .nest-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .nest-card-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 }
 </style>
