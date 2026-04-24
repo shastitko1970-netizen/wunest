@@ -92,8 +92,18 @@ const regexCount = computed(() => bundle.value.extensions?.regex_scripts?.length
 // Raw-JSON mode state. Raw lets the user edit the JSONB payload
 // directly — useful for ST fields we don't surface (mirostat_*, tfs,
 // xtc_*, dry_*, etc.) which round-trip but are otherwise invisible.
+//
+// rawSnapshot captures the JSON we served when the user opened the tab
+// — used as a "Revert" target and to detect destructive edits (parsing
+// trivially empty JSON would wipe prompts / prompt_order / regex; we
+// force a confirm dialog in that case).
 const rawText = ref('')
 const rawError = ref<string | null>(null)
+const rawSnapshot = ref('')
+const rawConfirmOpen = ref(false)
+// Stored pending-save payload while the user is deciding whether to
+// accept a destructive raw edit. Applied on confirm, discarded on cancel.
+let rawConfirmPayload: Record<string, any> | null = null
 
 // Initial default tab depends on the preset type. For sampler/openai
 // we start on the sampler knobs; for template types on the single form.
@@ -302,7 +312,14 @@ function applyStarter(tpl: StarterTemplate) {
   // Starter template only fills sampler knobs — preserve any prompts /
   // prompt_order / regex the user (or their imported preset) already had.
   bundle.value = { ...bundle.value, ...tpl.data }
-  if (!name.value) name.value = tpl.label
+  // Also bump the name: empty → use the label; previously-used starter
+  // label → swap to the new one (so clicking Creative then Balanced
+  // renames "Creative" → "Balanced" without stomping on custom names).
+  // Any other name is treated as user-authored and left alone.
+  const starterLabels = starterTemplates.value.map(s => s.label)
+  if (!name.value || starterLabels.includes(name.value)) {
+    name.value = tpl.label
+  }
 }
 
 // ── Raw JSON mode (P4) ────────────────────────────────────────
@@ -312,51 +329,128 @@ function applyStarter(tpl: StarterTemplate) {
 // the typed refs so the form stays consistent. On parse failure we leave
 // the typed state alone and show rawError; Save is disabled until the
 // user either fixes the JSON or switches back.
-function syncRawToForm(): boolean {
-  rawError.value = null
+// parseRaw returns the parsed object or null on error (error stored on
+// rawError). Separate from syncRawToForm so the save path can inspect
+// the payload and flag destructive edits BEFORE applying.
+function parseRaw(): Record<string, any> | null {
   try {
-    const parsed = JSON.parse(rawText.value || '{}') as Record<string, any>
-    switch (type.value) {
-      case 'sampler':
-      case 'openai': {
-        // Full bundle resync — pulls any prompts/regex/flags the user
-        // edited in raw mode back into the typed refs.
-        const b: OpenAIBundleData = { ...defaultBundle(), ...(parsed as OpenAIBundleData) }
-        bundle.value = b
-        stopText.value = Array.isArray(parsed.stop) ? parsed.stop.join(', ') : ''
-        break
-      }
-      case 'instruct':
-        instruct.value = { ...defaultInstruct(), ...(parsed as InstructData) }
-        break
-      case 'context':
-        context.value = { ...defaultContext(), ...(parsed as ContextData) }
-        break
-      case 'sysprompt':
-        sysprompt.value = { ...defaultSysprompt(), ...(parsed as SyspromptData) }
-        break
-      case 'reasoning':
-        reasoning.value = { ...defaultReasoning(), ...(parsed as ReasoningData) }
-        break
-    }
-    return true
+    return JSON.parse(rawText.value || '{}') as Record<string, any>
   } catch (e) {
     rawError.value = (e as Error).message
-    return false
+    return null
   }
+}
+
+// isDestructiveRawEdit reports whether applying `parsed` would drop
+// non-trivial state the user built up in the form tabs. Checked on
+// save; a `true` triggers a confirm dialog instead of silently wiping.
+//
+// "Destructive" in practice means: parsed is missing a rich field that
+// the current form has. Trivial fields (the 40+ scalar flags) are
+// ignored — those are fine to reset to defaults. We only protect the
+// three lists that are hard to rebuild:
+//
+//   - prompts[]           (custom prompt blocks)
+//   - prompt_order[]      (the ordering + enabled flags per group)
+//   - extensions.regex_scripts[]  (regex transforms)
+//
+// Templates (instruct/context/sysprompt/reasoning) are single-record
+// so there's little data to lose — we don't gate those.
+function isDestructiveRawEdit(parsed: Record<string, any>): boolean {
+  if (type.value !== 'sampler' && type.value !== 'openai') return false
+  const current = bundle.value
+  const newPromptCount = Array.isArray(parsed.prompts) ? parsed.prompts.length : 0
+  const newOrderCount  = Array.isArray(parsed.prompt_order) ? parsed.prompt_order.length : 0
+  const newRegexCount  = Array.isArray(parsed.extensions?.regex_scripts) ? parsed.extensions.regex_scripts.length : 0
+  const curPromptCount = current.prompts?.length ?? 0
+  const curOrderCount  = current.prompt_order?.length ?? 0
+  const curRegexCount  = current.extensions?.regex_scripts?.length ?? 0
+  // Strict: any of the three dropping is destructive enough to ask.
+  return (
+    (curPromptCount > 0 && newPromptCount < curPromptCount) ||
+    (curOrderCount  > 0 && newOrderCount  < curOrderCount)  ||
+    (curRegexCount  > 0 && newRegexCount  < curRegexCount)
+  )
+}
+
+// applyParsedRaw pushes the parsed JSON into the typed refs. No
+// validation — that's the caller's job.
+function applyParsedRaw(parsed: Record<string, any>) {
+  switch (type.value) {
+    case 'sampler':
+    case 'openai': {
+      // Full bundle resync — pulls any prompts/regex/flags the user
+      // edited in raw mode back into the typed refs.
+      const b: OpenAIBundleData = { ...defaultBundle(), ...(parsed as OpenAIBundleData) }
+      bundle.value = b
+      stopText.value = Array.isArray(parsed.stop) ? parsed.stop.join(', ') : ''
+      break
+    }
+    case 'instruct':
+      instruct.value = { ...defaultInstruct(), ...(parsed as InstructData) }
+      break
+    case 'context':
+      context.value = { ...defaultContext(), ...(parsed as ContextData) }
+      break
+    case 'sysprompt':
+      sysprompt.value = { ...defaultSysprompt(), ...(parsed as SyspromptData) }
+      break
+    case 'reasoning':
+      reasoning.value = { ...defaultReasoning(), ...(parsed as ReasoningData) }
+      break
+  }
+}
+
+// syncRawToForm tries to parse + apply. Returns false if parse failed
+// (rawError set). Apply is silent; destructive-edit protection lives
+// in the save path, not here.
+function syncRawToForm(): boolean {
+  rawError.value = null
+  const parsed = parseRaw()
+  if (!parsed) return false
+  applyParsedRaw(parsed)
+  return true
+}
+
+// revertRawToSnapshot rewinds rawText to whatever we captured when the
+// user first opened the tab. Escape hatch for "oops deleted everything".
+function revertRawToSnapshot() {
+  rawText.value = rawSnapshot.value
+  rawError.value = null
+}
+
+// confirmDestructiveRaw / cancelDestructiveRaw are wired to the
+// <v-dialog> shown when saving from raw would drop prompts/order/regex.
+async function confirmDestructiveRaw() {
+  if (!rawConfirmPayload) {
+    rawConfirmOpen.value = false
+    return
+  }
+  applyParsedRaw(rawConfirmPayload)
+  rawConfirmPayload = null
+  rawConfirmOpen.value = false
+  await doSave()
+}
+function cancelDestructiveRaw() {
+  rawConfirmPayload = null
+  rawConfirmOpen.value = false
 }
 
 function onTabChange(to: TabKey) {
   // Leaving Raw tab — parse JSON back into the typed refs. If the
   // JSON is broken, block the tab switch so the user can't lose
-  // edits by navigating away from a malformed raw payload.
+  // edits by navigating away from a malformed raw payload. Destructive
+  // edits (empty JSON → wipe prompts) are intentionally NOT gated
+  // here — tab navigation should feel snappy. The guard fires on Save.
   if (activeTab.value === 'raw' && to !== 'raw') {
     if (!syncRawToForm()) return
   }
   // Entering Raw tab — refresh the text from whatever the form now
-  // holds so the user sees live state, not stale JSON.
+  // holds so the user sees live state, and snapshot for "Revert".
   if (to === 'raw') {
-    rawText.value = JSON.stringify(buildData(), null, 2)
+    const fresh = JSON.stringify(buildData(), null, 2)
+    rawText.value = fresh
+    rawSnapshot.value = fresh
     rawError.value = null
   }
   activeTab.value = to
@@ -387,12 +481,32 @@ function buildData(): unknown {
 }
 
 async function save() {
-  // Raw mode: parse once more before save so any last edits are picked up.
-  if (activeTab.value === 'raw' && !syncRawToForm()) return
   if (!name.value.trim()) {
     apiError.value = t('presets.editor.nameRequired')
     return
   }
+  // When saving from Raw tab, validate + guard destructive edits.
+  if (activeTab.value === 'raw') {
+    const parsed = parseRaw()
+    if (!parsed) return // rawError already set
+    if (isDestructiveRawEdit(parsed)) {
+      // Stash the payload and let the user confirm — they might
+      // genuinely want to wipe prompts, but usually they deleted by
+      // accident and a one-click "are you sure" prevents the loss.
+      rawConfirmPayload = parsed
+      rawConfirmOpen.value = true
+      return
+    }
+    // Non-destructive — apply now and fall through to real save.
+    applyParsedRaw(parsed)
+  }
+  await doSave()
+}
+
+// doSave is the inner save — typed state is assumed current. Split out
+// so the destructive-raw confirm path can reuse it after the user
+// approves.
+async function doSave() {
   saving.value = true
   apiError.value = null
   try {
@@ -929,9 +1043,32 @@ function cancel() {
 
       <!-- ── Raw JSON tab ──────────────────────────────────── -->
       <div v-else-if="activeTab === 'raw'" class="nest-raw-mode">
-        <div class="nest-raw-hint">
-          <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
-          {{ t('presets.editor.rawHint') }}
+        <v-alert
+          type="warning"
+          variant="tonal"
+          density="compact"
+          :icon="false"
+          class="nest-raw-warning"
+        >
+          <div class="nest-raw-warning-title">
+            <v-icon size="16" class="mr-1">mdi-alert-octagon-outline</v-icon>
+            {{ t('presets.editor.rawWarningTitle') }}
+          </div>
+          <div class="nest-raw-warning-body">
+            {{ t('presets.editor.rawWarningBody') }}
+          </div>
+        </v-alert>
+        <div class="nest-raw-toolbar">
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            prepend-icon="mdi-restore"
+            :disabled="rawText === rawSnapshot"
+            @click="revertRawToSnapshot"
+          >
+            {{ t('presets.editor.rawRevert') }}
+          </v-btn>
+          <div class="nest-raw-toolbar-hint">{{ t('presets.editor.rawHint') }}</div>
         </div>
         <v-textarea
           v-model="rawText"
@@ -954,6 +1091,31 @@ function cancel() {
       </div>
     </div>
     <!-- End nest-form-body -->
+
+    <!-- Destructive-raw confirm. Shown when saving from the Raw tab
+         would drop prompts / prompt_order / regex that currently exist
+         on the preset. User either confirms the wipe or goes back to
+         edit the JSON. -->
+    <v-dialog v-model="rawConfirmOpen" max-width="460" persistent>
+      <v-card class="nest-confirm">
+        <v-card-title class="text-h6">
+          <v-icon size="20" color="warning" class="mr-2">mdi-alert</v-icon>
+          {{ t('presets.editor.rawConfirmTitle') }}
+        </v-card-title>
+        <v-card-text class="text-body-2">
+          {{ t('presets.editor.rawConfirmBody') }}
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" @click="cancelDestructiveRaw">
+            {{ t('common.cancel') }}
+          </v-btn>
+          <v-spacer />
+          <v-btn color="error" variant="flat" @click="confirmDestructiveRaw">
+            {{ t('presets.editor.rawConfirmProceed') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- API error banner (for Save failures). -->
     <v-alert
@@ -1100,6 +1262,32 @@ function cancel() {
 
 .nest-raw-mode {
   padding-top: 4px;
+}
+.nest-raw-warning {
+  margin-bottom: 10px;
+}
+.nest-raw-warning-title {
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+.nest-raw-warning-body {
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.nest-raw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.nest-raw-toolbar-hint {
+  color: var(--nest-text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  flex: 1;
 }
 .nest-raw-hint {
   display: flex;

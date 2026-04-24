@@ -101,13 +101,67 @@ watch(() => route.params.id, () => {
   chatListDrawerOpen.value = false
 })
 
-// Auto-scroll to bottom when new messages arrive or tokens stream in.
+// Auto-scroll to bottom — but only when the user is already near the
+// bottom. If they've scrolled up (e.g. to re-read earlier content
+// while a long response streams), we leave their viewport alone.
+// Once they scroll back to the bottom, auto-scroll re-engages
+// automatically.
+//
+// `autoStickBottom` is the latch. A "new messages below" chip shows
+// when autoStickBottom is false AND there's fresh content, so users
+// who wandered up have a one-tap escape back.
+const autoStickBottom = ref(true)
+const hasNewBelow = ref(false)
+// Pixels of slack for "near bottom". 160 covers small rounding errors
+// + a message's bottom padding. Lower = stricter (needs exact bottom);
+// higher = loose (re-engages even from a few cm up).
+const STICK_THRESHOLD = 160
+
+function isNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_THRESHOLD
+}
+
+function onScroll() {
+  const el = scroller.value
+  if (!el) return
+  if (isNearBottom(el)) {
+    autoStickBottom.value = true
+    hasNewBelow.value = false
+  } else {
+    autoStickBottom.value = false
+  }
+}
+
+// On new tokens / message counts: scroll to bottom if we're stuck
+// there, else surface a "new messages below" pill so the user knows
+// content is landing off-screen.
 watch([messages, streaming], () => {
   nextTick(() => {
     const el = scroller.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (autoStickBottom.value) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      hasNewBelow.value = true
+    }
   })
 }, { deep: true })
+
+// Explicit "jump to bottom" — used by the new-messages pill.
+function jumpToBottom() {
+  const el = scroller.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+  autoStickBottom.value = true
+  hasNewBelow.value = false
+}
+
+// Reset stick state when the chat itself changes — opening a new
+// chat should always land at the bottom.
+watch(() => route.params.id, () => {
+  autoStickBottom.value = true
+  hasNewBelow.value = false
+})
 
 async function maybeLoadFromRoute() {
   const id = route.params.id as string | undefined
@@ -347,8 +401,11 @@ const lastAssistantId = computed(() => {
              users target in custom CSS (e.g. `#chat { background: ... }`).
              Adding it as an alias makes ST themes Just Work™ for the chat
              surface. The React-equivalent conflict (one id per doc) is
-             fine: there's only ever one open chat at a time. -->
-        <div ref="scroller" class="nest-chat-scroll" id="chat">
+             fine: there's only ever one open chat at a time.
+             Passive scroll listener updates autoStickBottom so new
+             streaming tokens don't drag us back down when the user
+             scrolled up to re-read earlier content. -->
+        <div ref="scroller" class="nest-chat-scroll" id="chat" @scroll.passive="onScroll">
           <div class="nest-chat-messages">
             <div v-if="messagesLoading" class="nest-state">
               <v-progress-circular indeterminate size="24" />
@@ -387,6 +444,23 @@ const lastAssistantId = computed(() => {
             </v-alert>
           </div>
         </div>
+
+        <!-- Jump-to-bottom pill. Only shown when the user has scrolled
+             up AND new content has landed below — removes the "why
+             isn't it scrolling?!" panic without forcibly yanking the
+             viewport during a long stream the user is reading above. -->
+        <transition name="nest-fade">
+          <button
+            v-if="hasNewBelow && !autoStickBottom"
+            class="nest-jump-bottom"
+            type="button"
+            :title="t('chat.jumpToBottom')"
+            @click="jumpToBottom"
+          >
+            <v-icon size="16">mdi-arrow-down</v-icon>
+            <span>{{ t('chat.jumpToBottom') }}</span>
+          </button>
+        </transition>
 
         <!-- Input. ST-compat id `send_form` so ST CSS targeting the
              composer area (e.g. `#send_form { background: ... }`) hits. -->
@@ -478,6 +552,7 @@ const lastAssistantId = computed(() => {
 }
 
 .nest-chat-main {
+  position: relative;             // anchor for .nest-jump-bottom pill
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -626,6 +701,39 @@ const lastAssistantId = computed(() => {
   max-width: 820px;
   width: 100%;
   margin: 0 auto;
+}
+
+// Jump-to-bottom pill — floats above the input, only when the user
+// has scrolled up AND new content arrived below.
+.nest-jump-bottom {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 88px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 10px;
+  font-size: 12.5px;
+  line-height: 1;
+  color: var(--nest-text-on-accent, #fff);
+  background: var(--nest-accent);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  z-index: 5;
+  transition: transform var(--nest-transition-fast), box-shadow var(--nest-transition-fast);
+
+  &:hover { transform: translateX(-50%) translateY(-1px); }
+  &:active { transform: translateX(-50%) scale(0.97); }
+}
+.nest-fade-enter-active, .nest-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.nest-fade-enter-from, .nest-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
 }
 
 .nest-state { padding: 40px; display: grid; place-items: center; }

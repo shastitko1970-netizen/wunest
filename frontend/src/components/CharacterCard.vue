@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { storeToRefs } from 'pinia'
 import type { Character } from '@/api/characters'
+import { useChatsStore } from '@/stores/chats'
 
 const { t } = useI18n()
+
+const chats = useChatsStore()
+const { list: chatsList } = storeToRefs(chats)
 
 const props = defineProps<{
   character: Character
@@ -11,11 +16,23 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'open', c: Character): void
+  /** Primary action: if the character already has a chat, reopen the
+   *  newest one; otherwise create a new chat. */
   (e: 'chat', c: Character): void
+  /** Explicit "new chat" override from the dots menu — always creates. */
+  (e: 'new-chat', c: Character): void
   (e: 'favorite', c: Character): void
   (e: 'delete', c: Character): void
   (e: 'worlds', c: Character): void
 }>()
+
+// True iff this character already owns at least one chat in the loaded
+// list. When true, the primary button label changes to "Continue" and
+// the dots menu exposes an explicit "New chat" option so users can
+// still spin up a fresh thread when they want one.
+const hasExistingChat = computed(() =>
+  chatsList.value.some(c => c.character_id === props.character.id),
+)
 
 const initials = computed(() => {
   const name = props.character.name.trim()
@@ -86,10 +103,10 @@ const tagline = computed(() => {
           size="small"
           variant="flat"
           color="primary"
-          prepend-icon="mdi-forum-outline"
+          :prepend-icon="hasExistingChat ? 'mdi-forum' : 'mdi-forum-plus-outline'"
           @click="emit('chat', character)"
         >
-          {{ t('library.card.chat') }}
+          {{ hasExistingChat ? t('library.card.continue') : t('library.card.chat') }}
         </v-btn>
         <v-btn
           size="small"
@@ -100,6 +117,15 @@ const tagline = computed(() => {
           <v-icon>mdi-dots-horizontal</v-icon>
           <v-menu activator="parent">
             <v-list density="compact">
+              <!-- Explicit "new chat" — shown when the primary button
+                   would reopen the existing one. Users clicking here
+                   want a fresh conversation regardless. -->
+              <v-list-item
+                v-if="hasExistingChat"
+                prepend-icon="mdi-forum-plus-outline"
+                :title="t('library.card.newChat')"
+                @click="emit('new-chat', character)"
+              />
               <v-list-item
                 prepend-icon="mdi-pencil"
                 :title="t('common.edit')"

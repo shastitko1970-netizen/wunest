@@ -70,11 +70,28 @@ function onOpen(c: Character) {
 }
 
 async function onChat(c: Character) {
+  // Reopen the newest existing chat for this character if any — users
+  // reported piling up 10+ chats per character because "Chat" always
+  // created new. Explicit "new chat" lives behind the card's dots menu.
   try {
+    const existing = chats.existingForCharacter(c.id)
+    if (existing) {
+      router.push(`/chat/${existing.id}`)
+      return
+    }
     const chat = await chats.createForCharacter(c.id)
     router.push(`/chat/${chat.id}`)
   } catch (e) {
     console.error('create chat failed', e)
+  }
+}
+
+async function onNewChat(c: Character) {
+  try {
+    const chat = await chats.createForCharacter(c.id)
+    router.push(`/chat/${chat.id}`)
+  } catch (e) {
+    console.error('create new chat failed', e)
   }
 }
 
@@ -148,7 +165,10 @@ async function confirmDelete() {
 
     <v-divider />
 
-    <v-window v-model="activeTab" class="mt-4">
+    <!-- :touch="false" — tester reported that horizontal swipes inside
+         tab content (e.g. panning a carousel or just scrolling) were
+         flipping the whole tab on mobile. Tap-only now. -->
+    <v-window v-model="activeTab" class="mt-4" :touch="false">
       <v-window-item value="characters">
         <!-- Filter bar -->
         <div class="nest-filterbar">
@@ -227,6 +247,7 @@ async function confirmDelete() {
             :character="c"
             @open="onOpen"
             @chat="onChat"
+            @new-chat="onNewChat"
             @favorite="onFavorite"
             @delete="askDelete"
             @worlds="onAttachWorlds"

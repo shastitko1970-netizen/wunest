@@ -77,6 +77,17 @@ export const useChatsStore = defineStore('chats', () => {
     return chat
   }
 
+  // existingForCharacter returns the newest chat owned by the given
+  // character (or null if none). Used by Library's "Chat" button so
+  // clicking a card reopens the last conversation instead of piling up
+  // duplicate chats — users reported 10+ clones per character.
+  //
+  // `list` is sorted newest-first by fetchList, so the first hit is
+  // the most-recently-touched chat.
+  function existingForCharacter(characterID: string): Chat | null {
+    return list.value.find(c => c.character_id === characterID) ?? null
+  }
+
   async function remove(id: string) {
     await chatsApi.delete(id)
     list.value = list.value.filter(c => c.id !== id)
@@ -370,7 +381,7 @@ export const useChatsStore = defineStore('chats', () => {
     currentId, currentChat, messages, messagesLoading,
     streaming, streamError,
     currentCharacterId,
-    fetchList, open, createForCharacter, remove, rename,
+    fetchList, open, createForCharacter, existingForCharacter, remove, rename,
     send, regenerate, swipe, selectSwipe, stopStreaming,
     editMessage, deleteMessage,
     setSampler, setAuthorsNote,
