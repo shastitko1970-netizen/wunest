@@ -97,6 +97,9 @@ const contextTokens = computed(() =>
 onMounted(async () => {
   await chats.fetchList()
   await maybeLoadFromRoute()
+  // First-load model catalogue for the active chat's provider (wuapi or pinned
+  // BYOK). Without this the picker is empty until the user fiddles with it.
+  await models.setForChat(currentChat.value)
 })
 
 watch(() => route.params.id, () => {
@@ -105,6 +108,18 @@ watch(() => route.params.id, () => {
   // isn't occluded by a still-open list.
   chatListDrawerOpen.value = false
 })
+
+// Refresh models when the chat's active provider changes — that's either a
+// chat switch (different chat may have a different byok pin) or the BYOK
+// picker flipping byok_id on the current chat. Two triggers, one handler.
+watch(
+  () => [currentChat.value?.id, currentChat.value?.chat_metadata?.byok_id] as const,
+  (_next, [prevID, prevByok]) => {
+    // Skip the initial tick — onMounted already fired setForChat.
+    if (prevID === undefined && prevByok === undefined) return
+    void models.setForChat(currentChat.value)
+  },
+)
 
 // Auto-scroll to bottom — but only when the user is already near the
 // bottom. If they've scrolled up (e.g. to re-read earlier content

@@ -9,15 +9,20 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
 // Handler wires /api/byok endpoints onto an http.ServeMux.
+//
+// Redis is optional — model-list caching degrades gracefully to a pass-through
+// when it's nil (e.g. dev laptops without Redis running).
 type Handler struct {
 	Repo  *Repository
 	Users *users.Resolver
+	Redis *redis.Client
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
@@ -27,6 +32,10 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	// Exposed for the SPA's provider picker so the form dropdown doesn't
 	// drift from the server-side allow-list.
 	mux.Handle("GET /api/byok/providers", authRequired(http.HandlerFunc(h.providers)))
+	// Live-fetch the provider's model catalogue. Redis-cached for 10 min so
+	// picker open latency stays in single-digit ms after a warm-up call.
+	// `?refresh=1` bypasses the cache on demand.
+	mux.Handle("GET /api/byok/{id}/models", authRequired(http.HandlerFunc(h.models)))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +137,73 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+	// Drop any cached model list for the deleted key; stops a future key with
+	// the same UUID (vanishingly unlikely) from seeing stale data.
+	InvalidateModelsCache(r.Context(), h.Redis, id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// models live-fetches the catalogue of models offered by the provider behind
+// the given BYOK key. Cached in Redis (10 min TTL); pass `?refresh=1` to skip
+// the cache.
+//
+// Flow:
+//  1. Cache hit → return immediately.
+//  2. Reveal the key (decrypted only here, never sent back to the SPA).
+//  3. Call `{baseURL}/models` with provider-appropriate auth.
+//  4. Cache the result & return.
+//
+// Upstream failures surface as 502 with the provider's own error message
+// (truncated) so the user can tell whether it's a bad key vs. a dead URL.
+func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	refresh := r.URL.Query().Get("refresh") == "1"
+	if !refresh {
+		if cached, ok := GetCachedModels(r.Context(), h.Redis, id); ok {
+			writeJSON(w, http.StatusOK, cached)
+			return
+		}
+	}
+
+	// Need provider to know which auth header to set. One cheap lookup — this
+	// path isn't in the chat hot loop.
+	provider, err := h.Repo.GetProvider(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	revealed, err := h.Repo.Reveal(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	list, err := FetchModels(r.Context(), provider, revealed)
+	if err != nil {
+		// Upstream errors → 502 so the SPA can distinguish them from 4xx on
+		// our side. Include the provider's message so a bad key is obvious.
+		if errors.Is(err, ErrUpstream) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		slog.Error("byok fetch models", "err", err, "provider", provider)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+
+	SetCachedModels(r.Context(), h.Redis, id, list)
+	writeJSON(w, http.StatusOK, list)
 }
 
 // ProviderInfo is a single entry in the providers allow-list returned to

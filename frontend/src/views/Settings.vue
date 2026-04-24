@@ -14,7 +14,7 @@ const vTheme = useTheme()
 const models = useModelsStore()
 const prefs = usePreferencesStore()
 const { disableStreaming } = storeToRefs(prefs)
-const { options: modelOptions, loading: modelsLoading } = storeToRefs(models)
+const { items: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
 const currentTheme = computed({
   get: () => vTheme.global.name.value,
@@ -52,7 +52,9 @@ onMounted(async () => {
     const r = await apiFetch<{ default_model: string }>('/api/me/default-model')
     defaultModel.value = r.default_model ?? ''
   } catch { /* non-fatal */ }
-  if (!models.loaded) await models.fetchList()
+  // Settings page isn't chat-scoped, so just show the WuApi pool here.
+  // If the user wants to default to a BYOK-only model, they'd pin it per-chat.
+  await models.setActiveSource('wuapi')
 })
 
 // Options for the select: "— server default —" (empty string = clear the
@@ -61,7 +63,7 @@ onMounted(async () => {
 // keeps working at generation time — the server just passes it through.
 const defaultModelOptions = computed(() => [
   { id: '', title: t('settings.defaultModel.serverFallback') },
-  ...modelOptions.value.map(m => ({ id: m.id, title: m.id })),
+  ...modelOptions.value.map((m: { id: string }) => ({ id: m.id, title: m.id })),
 ])
 
 async function saveDefaultModel(v: string) {

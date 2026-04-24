@@ -174,8 +174,9 @@ const messages = {
         title: 'Ключ для этого чата',
         hint: 'Запросы пойдут через выбранный ключ напрямую к провайдеру. Счёт тарифицируется у провайдера, WuApi только пропускает трафик.',
         useDefault: 'Использовать ключ WuApi',
-        useDefaultHint: 'По умолчанию — счёт идёт в wu-gold по твоему тарифу.',
+        useDefaultHint: 'wu-gold по тарифу',
         emptyHint: 'Нет ни одного BYOK-ключа. Добавь в Настройках → BYOK.',
+        manageKeys: 'Управлять ключами…',
       },
     },
     appearance: {
@@ -1059,6 +1060,8 @@ const messages = {
         stop: 'Остановить',
         tokensShort: 'ток.',
         tokensTitle: 'Примерное количество токенов в черновике',
+        modelEmpty: 'нет моделей',
+        modelRefresh: 'Обновить список',
         attach: {
           button: 'Прикрепить изображение',
           uploading: 'Загрузка…',
@@ -1317,8 +1320,9 @@ const messages = {
         title: 'Key for this chat',
         hint: 'Requests will use the selected key directly against the provider. Billing happens on the provider side; WuApi just proxies.',
         useDefault: 'Use the WuApi key',
-        useDefaultHint: 'Default — billed in wu-gold on your plan.',
+        useDefaultHint: 'wu-gold on your plan',
         emptyHint: 'No BYOK keys yet. Add one in Settings → BYOK.',
+        manageKeys: 'Manage keys…',
       },
     },
     appearance: {
@@ -2185,6 +2189,8 @@ const messages = {
         stop: 'Stop',
         tokensShort: 'tok',
         tokensTitle: 'Approximate token count for the draft',
+        modelEmpty: 'no models',
+        modelRefresh: 'Refresh list',
         attach: {
           button: 'Attach image',
           uploading: 'Uploading…',

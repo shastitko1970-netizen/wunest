@@ -131,6 +131,7 @@ func New(deps Deps) *Server {
 		byok: &byok.Handler{
 			Repo:  byokRepo,
 			Users: resolver,
+			Redis: deps.Redis.Client,
 		},
 		byokRepo:     byokRepo,
 		uploads:      &uploads.Handler{Storage: storageClient},

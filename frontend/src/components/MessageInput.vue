@@ -4,9 +4,11 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useModelsStore } from '@/stores/models'
 import { useAuthStore } from '@/stores/auth'
+import { useChatsStore } from '@/stores/chats'
 import { countTokens } from '@/lib/tokens'  // sync; see lib/tokens.ts
 import { uploadAttachment } from '@/api/uploads'
 import { useQuickRepliesStore } from '@/stores/quickReplies'
+import { byokApi, type BYOKKey } from '@/api/byok'
 
 const { t } = useI18n()
 
@@ -67,11 +69,97 @@ function applyQuickReply(qr: { text: string; send_now: boolean }) {
 }
 
 const models = useModelsStore()
-const { options: modelOptions, selected: selectedModel } = storeToRefs(models)
+const { items: modelOptions, selected: selectedModel, loading: modelsLoading } = storeToRefs(models)
 
-// Lazy-load the model list on mount. The picker uses fallback models
-// (wu-tier list) until the API call resolves — feels instant.
-onMounted(() => { if (!models.loaded) void models.fetchList() })
+// Chats store provides the active chat — we need it so the provider picker
+// can pin a BYOK onto the right row, and so we know which pin (if any) is
+// currently active. The initial model-list fetch is owned by Chat.vue's
+// setForChat call; here we just render whatever's in the store.
+const chats = useChatsStore()
+const { currentChat } = storeToRefs(chats)
+
+// ─── Provider picker (M41) ───────────────────────────────────────────
+//
+// Replaces the deprecated model-only picker. Lists WuApi (default pool) +
+// every saved BYOK key grouped by provider. Clicking one:
+//   1. POST /api/chat/{id}/byok to pin the choice on the server
+//   2. Mirror the change on the cached chat so other surfaces see it
+//   3. Chat.vue's watcher picks up the chat_metadata change and refreshes
+//      the models store — the model chip list updates itself.
+// Dismisses the menu automatically on pick.
+
+const byokKeys = ref<BYOKKey[]>([])
+const byokLoading = ref(false)
+const providerBusy = ref(false)
+
+onMounted(async () => {
+  byokLoading.value = true
+  try {
+    const r = await byokApi.list()
+    byokKeys.value = r.items
+  } catch {
+    // Empty list is a fine fallback — user has no BYOK keys, only WuApi option.
+  } finally {
+    byokLoading.value = false
+  }
+})
+
+const byokKeysGrouped = computed<Record<string, BYOKKey[]>>(() => {
+  const out: Record<string, BYOKKey[]> = {}
+  for (const k of byokKeys.value) {
+    if (!out[k.provider]) out[k.provider] = []
+    out[k.provider].push(k)
+  }
+  return out
+})
+
+const activeByokID = computed<string | null>(() => {
+  const id = currentChat.value?.chat_metadata?.byok_id
+  return typeof id === 'string' && id.length > 0 ? id : null
+})
+
+const activeProviderLabel = computed(() => {
+  if (!activeByokID.value) return 'WuApi'
+  const k = byokKeys.value.find(x => x.id === activeByokID.value)
+  if (!k) return 'BYOK'
+  const p = k.provider.charAt(0).toUpperCase() + k.provider.slice(1)
+  return k.label ? `${p} · ${k.label}` : p
+})
+
+async function pickProvider(byokID: string | null) {
+  if (!currentChat.value || providerBusy.value) return
+  providerBusy.value = true
+  try {
+    await byokApi.setForChat(currentChat.value.id, byokID)
+    // Mirror the change in the cached chat — the watcher in Chat.vue will
+    // then trigger the models-store refresh. Keeping this in one place means
+    // the BYOKPickerDialog in the header doesn't need its own copy of the
+    // update logic; both paths go through the store's shared cache.
+    const cur = currentChat.value
+    if (cur) {
+      cur.chat_metadata = { ...(cur.chat_metadata ?? {}), byok_id: byokID }
+      const idx = chats.list.findIndex((c: { id: string }) => c.id === cur.id)
+      if (idx >= 0) {
+        chats.list[idx] = {
+          ...chats.list[idx],
+          chat_metadata: { ...(chats.list[idx].chat_metadata ?? {}), byok_id: byokID },
+        }
+      }
+    }
+  } catch (e) {
+    console.error('BYOK switch failed', e)
+  } finally {
+    providerBusy.value = false
+  }
+}
+
+function providerPrettyName(p: string): string {
+  return p.charAt(0).toUpperCase() + p.slice(1)
+}
+
+async function refreshModels() {
+  await models.refresh()
+}
 
 const canSend = computed(() =>
   !props.disabled
@@ -317,14 +405,96 @@ function insertMarkdownImage(alt: string, url: string) {
         @click="pickAttachment"
       />
 
-      <!-- Model picker: free-tier & paid aliases merged into one list.
-           Selected value is persisted in localStorage via the models store. -->
+      <!-- Provider picker (M41) + model picker, side by side.
+           The provider picker flips between the WuApi pool and the user's
+           saved BYOK keys; the model picker is scoped to whichever is active.
+           The list of models is live-fetched on provider change so what you
+           see is actually what the provider exposes right now (no hardcoded
+           wu-tier list, no stale openrouter catalogue). -->
+      <v-menu location="top start" offset="8">
+        <template #activator="{ props: menuProps }">
+          <button
+            class="nest-model-btn nest-provider-btn"
+            v-bind="menuProps"
+            type="button"
+            :disabled="providerBusy || !currentChat"
+            :title="t('byok.picker.title')"
+          >
+            <v-icon size="14" class="mr-1">
+              {{ activeByokID ? 'mdi-key-variant' : 'mdi-cloud-outline' }}
+            </v-icon>
+            <span>{{ activeProviderLabel }}</span>
+            <v-icon size="14" class="ml-1">mdi-chevron-up</v-icon>
+          </button>
+        </template>
+        <v-list density="compact" class="nest-model-list">
+          <v-list-item
+            :active="!activeByokID"
+            :disabled="providerBusy"
+            @click="pickProvider(null)"
+          >
+            <template #prepend>
+              <v-icon size="16">mdi-cloud-outline</v-icon>
+            </template>
+            <v-list-item-title>WuApi</v-list-item-title>
+            <v-list-item-subtitle class="nest-mini-hint">
+              {{ t('byok.picker.useDefaultHint') }}
+            </v-list-item-subtitle>
+          </v-list-item>
+          <template v-if="byokKeys.length">
+            <v-divider class="my-1" />
+            <template v-for="(keys, provider) in byokKeysGrouped" :key="provider">
+              <v-list-subheader class="nest-mono">
+                {{ providerPrettyName(provider) }}
+              </v-list-subheader>
+              <v-list-item
+                v-for="k in keys"
+                :key="k.id"
+                :active="activeByokID === k.id"
+                :disabled="providerBusy"
+                @click="pickProvider(k.id)"
+              >
+                <template #prepend>
+                  <v-icon size="16">mdi-key-variant</v-icon>
+                </template>
+                <v-list-item-title>
+                  {{ k.label || t('byok.unnamed') }}
+                </v-list-item-title>
+                <v-list-item-subtitle class="nest-mono nest-mini-hint">
+                  {{ k.masked }}
+                </v-list-item-subtitle>
+              </v-list-item>
+            </template>
+          </template>
+          <v-divider class="my-1" />
+          <v-list-item :href="'/settings'" density="compact">
+            <template #prepend>
+              <v-icon size="16">mdi-cog-outline</v-icon>
+            </template>
+            <v-list-item-title class="nest-mini-hint">
+              {{ t('byok.picker.manageKeys') }}
+            </v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
+
+      <!-- Model picker: now live-populated from whichever provider is
+           active. Empty list = provider rejected /models (bad key, or their
+           catalogue endpoint is temporarily down) — user still sees the
+           currently-selected id so they can send if it's actually valid. -->
       <v-menu location="top start" offset="8">
         <template #activator="{ props: menuProps }">
           <button class="nest-model-btn" v-bind="menuProps" type="button">
             <v-icon size="14" class="mr-1">mdi-brain</v-icon>
-            <span class="nest-mono">{{ selectedModel }}</span>
-            <v-icon size="14" class="ml-1">mdi-chevron-up</v-icon>
+            <span class="nest-mono">{{ selectedModel || t('chat.input.modelEmpty') }}</span>
+            <v-progress-circular
+              v-if="modelsLoading"
+              indeterminate
+              size="10"
+              width="1.5"
+              class="ml-1"
+            />
+            <v-icon v-else size="14" class="ml-1">mdi-chevron-up</v-icon>
           </button>
         </template>
         <v-list density="compact" class="nest-model-list">
@@ -335,6 +505,20 @@ function insertMarkdownImage(alt: string, url: string) {
             @click="models.select(m.id)"
           >
             <v-list-item-title class="nest-mono">{{ m.id }}</v-list-item-title>
+          </v-list-item>
+          <v-list-item v-if="!modelOptions.length && !modelsLoading" disabled>
+            <v-list-item-title class="nest-mini-hint">
+              {{ t('chat.input.modelEmpty') }}
+            </v-list-item-title>
+          </v-list-item>
+          <v-divider class="my-1" />
+          <v-list-item :disabled="modelsLoading" @click="refreshModels">
+            <template #prepend>
+              <v-icon size="16">mdi-refresh</v-icon>
+            </template>
+            <v-list-item-title class="nest-mini-hint">
+              {{ t('chat.input.modelRefresh') }}
+            </v-list-item-title>
           </v-list-item>
         </v-list>
       </v-menu>
@@ -532,7 +716,31 @@ function insertMarkdownImage(alt: string, url: string) {
   background: var(--nest-surface) !important;
   border: 1px solid var(--nest-border);
   max-height: 320px;
-  min-width: 200px;
+  min-width: 240px;
+}
+
+// Provider picker sits next to the model picker. When the chat has a BYOK
+// pin active, tint the border to make the switch visible at a glance.
+.nest-provider-btn {
+  max-width: 40vw;
+
+  & > span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+.nest-provider-btn:not(:disabled):has(.mdi-key-variant) {
+  border-color: var(--nest-accent);
+  color: var(--nest-text);
+}
+
+.nest-mini-hint {
+  font-size: 11px;
+  color: var(--nest-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nest-token-count {

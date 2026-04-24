@@ -108,6 +108,23 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Key, error) {
 	}, nil
 }
 
+// GetProvider returns just the provider string for an owned key id. Cheap
+// scan used by the model-catalogue handler to pick the right auth scheme
+// without paying the AES decrypt cost.
+func (r *Repository) GetProvider(ctx context.Context, userID, id uuid.UUID) (string, error) {
+	var provider string
+	err := r.pg.QueryRow(ctx,
+		`SELECT provider FROM nest_byok WHERE user_id = $1 AND id = $2`,
+		userID, id).Scan(&provider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("get provider: %w", err)
+	}
+	return provider, nil
+}
+
 // Reveal decrypts and returns the plaintext key plus the base URL to
 // route to. Scoped by user_id so a leaked key id can't pull another
 // user's secret. Called from the chat stream when a chat is pinned to a
