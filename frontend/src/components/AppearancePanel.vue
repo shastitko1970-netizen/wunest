@@ -731,14 +731,11 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           >
             {{ t('appearance.io.stWarning.howToWrite') }}
           </v-btn>
-          <v-btn
-            variant="text"
-            prepend-icon="mdi-palette-outline"
-            size="small"
-            :to="'/themes'"
-          >
-            {{ t('appearance.io.stWarning.gallery') }}
-          </v-btn>
+          <!-- «Галерея пресетов» (/themes) removed по просьбе тестера:
+               кнопка обещала функцию которой user ожидал но /themes
+               сейчас показывает только эстетический preview без
+               actionable фичи. Вернём когда галерея будет install-able
+               (M48 roadmap — theme marketplace). -->
         </div>
       </div>
 

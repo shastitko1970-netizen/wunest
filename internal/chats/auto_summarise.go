@@ -3,6 +3,7 @@ package chats
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -193,7 +194,8 @@ func (h *Handler) runSummarisePipeline(
 	// want to know where raw-history starts; we don't need it here — the
 	// SummariseChat result itself carries CoveredThroughMessageID set
 	// from the last folded message's id.
-	toFold, _ := PickSummariserBounds(history, existingCovered)
+	// Auto-trigger — honor keepRecentMessages window (short-term memory).
+	toFold, _ := PickSummariserBounds(history, existingCovered, false)
 	if len(toFold) == 0 {
 		// Threshold hit but nothing new to fold — the last keepRecent
 		// messages dominated tokens. No-op; next qualifying turn will
@@ -241,7 +243,49 @@ func (h *Handler) runSummarisePipeline(
 	); err != nil {
 		return err
 	}
+
+	// M48 — user-visible notification. Append a system-role message to
+	// the chat so the user sees что auto-summary fired без того чтобы
+	// им открывать Memory drawer. Content stays short + human-friendly.
+	// `extras.AutoSummariseMarker = true` позволит фронту потом точно
+	// идентифицировать это как system-event (сейчас frontend рендерит
+	// всё `role=system` одинаково — отдельный marker не обязателен,
+	// зато будущий «dismiss this notice» мог бы его использовать).
+	folded := len(toFold)
+	notice := fmt.Sprintf("📝 Автосаммари: сжато %d %s в сводку (модель %s)",
+		folded, pluralizeMessages(folded), res.Model)
+	if _, mErr := h.Repo.AppendMessage(ctx, chat.ID, RoleSystem, notice, &MessageExtras{
+		Model:              res.Model,
+		AutoSummariseEvent: true,
+	}); mErr != nil {
+		// Non-fatal — summary uже сохранён. Просто логируем что
+		// система-уведомление не получилось добавить.
+		slog.Warn("auto-summarise: append system notice failed",
+			"err", mErr, "chat_id", chat.ID)
+	}
 	return nil
+}
+
+// pluralizeMessages — простой ru-morphology helper для «1 сообщение /
+// 2-4 сообщения / 5+ сообщений». Не тянем libs, inline-решение.
+func pluralizeMessages(n int) string {
+	// Убираем знак.
+	if n < 0 {
+		n = -n
+	}
+	// 11-14 — всегда «сообщений».
+	mod100 := n % 100
+	if mod100 >= 11 && mod100 <= 14 {
+		return "сообщений"
+	}
+	switch n % 10 {
+	case 1:
+		return "сообщение"
+	case 2, 3, 4:
+		return "сообщения"
+	default:
+		return "сообщений"
+	}
 }
 
 // errAutoMissingAPIKey — cfg picked a BYOK that couldn't be revealed

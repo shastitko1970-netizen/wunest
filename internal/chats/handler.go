@@ -724,7 +724,9 @@ func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
 			prevCovered = *auto.CoveredThroughMessageID
 		}
 	}
-	toFold, _ := PickSummariserBounds(history, prevCovered)
+	// Manual «Summarise» button — force mode: сворачиваем всё, независимо
+	// от keepRecentMessages threshold. User явно попросил.
+	toFold, _ := PickSummariserBounds(history, prevCovered, true)
 	if len(toFold) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"summary":  nil,

@@ -1154,11 +1154,9 @@ const messages = {
         memory: {
           hint: 'Когда чат длинный, модель забывает начало. «Суммаризация» сворачивает старые сообщения в компактную сводку, которая подмешивается в system prompt. Закреплённые факты добавляются в каждый запрос.',
           summarize: 'Суммаризировать',
-          // M47 — friendlier copy when manual summarize fires on a chat
-          // that's still shorter than keepRecentMessages threshold
-          // (backend returns "nothing new to summarise"). Guided
-          // explanation + what the user can do instead.
-          tooShortToSummarize: 'Чат пока короткий — саммари ещё не нужно. Сжимать нечего: последние 20 сообщений всегда остаются в промпте как есть (короткая память), саммари появится автоматически когда сообщений станет больше. Пока можно вручную добавить важные факты во вкладке «Заметки» / «Закреплённые факты» ниже.',
+          // M47/M48 — friendlier copy when summarize fires on an empty
+          // chat or when previous summary already covers everything.
+          tooShortToSummarize: 'Сейчас нечего сжимать — либо чат ещё пустой, либо всё что было, уже в текущей сводке. Добавь хотя бы одно сообщение или ткни сводку вниз (в «Удалить») если хочешь перегенерить с нуля.',
           autoLabel: 'Текущая сводка',
           manual: 'Заметки',
           pinned: 'Закреплённые факты',
@@ -2438,7 +2436,7 @@ const messages = {
         memory: {
           hint: 'In long chats the model forgets the start. "Summarise" folds older messages into a compact summary that feeds into the system prompt. Pinned facts ride along every request.',
           summarize: 'Summarise',
-          tooShortToSummarize: "Chat is still short — no summary needed yet. There's nothing to compress: the last 20 messages always stay in the prompt as-is (short-term memory), and a summary will appear automatically once there's more history. For now you can jot important facts down in the Notes / Pinned facts sections below.",
+          tooShortToSummarize: "Nothing to compress right now — the chat is empty, or everything there's already covered by the current summary. Add at least one message, or delete the current summary below if you want to regenerate from scratch.",
           autoLabel: 'Rolling summary',
           manual: 'Notes',
           pinned: 'Pinned facts',

@@ -132,6 +132,11 @@ type MessageExtras struct {
 	LatencyMs   int            `json:"latency_ms,omitempty"`
 	FinishReason string        `json:"finish_reason,omitempty"`
 	Error       string         `json:"error,omitempty"`       // populated when generation failed
+	// M48 — flag for system messages injected by auto-summarise. Frontend
+	// renders regular system messages as a generic pill; we set this so
+	// future UX (e.g. «tap to view summary», dismiss, custom icon) can
+	// branch on autoSummariseEvent without keyword-matching content.
+	AutoSummariseEvent bool `json:"auto_summarise_event,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`
 }
 

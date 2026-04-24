@@ -1105,27 +1105,36 @@ async function requestReplyFromLastUser() {
               </div>
             </template>
             <template v-else>
-              <MessageBubble
-                v-for="(m, i) in messages"
-                :key="m.id"
-                :message="m"
-                :character-name="characterName"
-                :character-names="groupCharacterNames"
-                :user-name="userName"
-                :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
-                :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
-                @regenerate="regenerate"
-                @continue="continueMessage"
-                @toggle-hidden="onToggleHidden"
-                @swipe="onSwipe"
-                @select-swipe="onSelectSwipe"
-                @edit="onEditMessage"
-                @delete="onDeleteMessage"
-                @delete-after="onDeleteAfter"
-                @fork="onForkFromMessage"
-                @plate-draft="onPlateDraft"
-                @plate-toast="onPlateToast"
-              />
+              <template v-for="(m, i) in messages" :key="m.id">
+                <!-- System messages: minimal centered pill. Used by M48
+                     auto-summarise notifications; future use cases
+                     (model switch, persona switch, ...) can reuse this
+                     row without building new UI. -->
+                <div v-if="m.role === 'system'" class="nest-system-notice">
+                  <v-icon size="14" class="mr-1">mdi-refresh-auto</v-icon>
+                  <span>{{ m.content }}</span>
+                </div>
+                <MessageBubble
+                  v-else
+                  :message="m"
+                  :character-name="characterName"
+                  :character-names="groupCharacterNames"
+                  :user-name="userName"
+                  :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
+                  :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
+                  @regenerate="regenerate"
+                  @continue="continueMessage"
+                  @toggle-hidden="onToggleHidden"
+                  @swipe="onSwipe"
+                  @select-swipe="onSelectSwipe"
+                  @edit="onEditMessage"
+                  @delete="onDeleteMessage"
+                  @delete-after="onDeleteAfter"
+                  @fork="onForkFromMessage"
+                  @plate-draft="onPlateDraft"
+                  @plate-toast="onPlateToast"
+                />
+              </template>
             </template>
             <v-alert
               v-if="streamError"
@@ -1533,6 +1542,26 @@ async function requestReplyFromLastUser() {
 .nest-chat-firstturn {
   padding: 40px;
   text-align: center;
+}
+
+// M48 — system-notice row. Used for auto-summarise fires and any
+// future in-chat system events. Deliberately muted + centered so it
+// doesn't compete with character messages for attention.
+.nest-system-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 14px;
+  margin: 8px auto;
+  font-size: 11.5px;
+  font-family: var(--nest-font-mono);
+  letter-spacing: 0.02em;
+  color: var(--nest-text-muted);
+  background: var(--nest-bg-elevated);
+  border: 1px dashed var(--nest-border-subtle);
+  border-radius: 999px;
+  max-width: fit-content;
 }
 
 // M40.3 character sprite — fixed overlay at bottom-left of the chat

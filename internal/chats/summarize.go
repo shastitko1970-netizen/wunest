@@ -221,21 +221,36 @@ func (h *Handler) SummariseChat(ctx context.Context, in SummariseInput) (*Summar
 // PickSummariserBounds decides which messages to fold into the summary
 // given the current history + existing summary coverage.
 //
-// Rules:
-//   - Keep the last keepRecentMessages raw (they're short-term memory
-//     model always sees fresh).
-//   - Fold everything older than that which isn't already covered by
-//     the existing auto-summary.
+// Modes:
+//   - force=false (auto-trigger): keeps the last keepRecentMessages raw
+//     as short-term memory, folds everything older. If chat has fewer
+//     than keepRecent messages — nothing to fold, returns nil.
+//   - force=true (manual «Summarise now» button): folds EVERY message
+//     in history (except already-covered). Used когда юзер хочет
+//     compress всё прямо сейчас, даже на коротком чате. Тестер:
+//     «убери ограничение на кнопке самарайз, чтобы даже 2 сообщения
+//     можно было суммаризировать».
 //
 // Returns the slice of messages to summarise (can be empty if there's
 // nothing new to fold in) and the `keepFrom` index for the caller to
 // re-filter history if needed.
-func PickSummariserBounds(history []Message, existingCoveredThrough int64) (toSummarise []Message, keepFromIdx int) {
-	if len(history) <= keepRecentMessages {
+func PickSummariserBounds(history []Message, existingCoveredThrough int64, force bool) (toSummarise []Message, keepFromIdx int) {
+	if len(history) == 0 {
 		return nil, 0
 	}
-	// Everything before the last keepRecent is eligible.
-	cutoff := len(history) - keepRecentMessages
+	var cutoff int
+	if force {
+		// Force mode — summarise everything (including the last messages).
+		// keepFromIdx = len(history) signals «no raw history kept» so the
+		// next prompt sees only summary + new input.
+		cutoff = len(history)
+	} else {
+		// Auto mode — honor keep-recent window.
+		if len(history) <= keepRecentMessages {
+			return nil, 0
+		}
+		cutoff = len(history) - keepRecentMessages
+	}
 	keepFromIdx = cutoff
 	for i := 0; i < cutoff; i++ {
 		m := history[i]
