@@ -696,11 +696,54 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
       </details>
     </div>
 
-    <!-- Import / Export -->
+    <!-- ── Import & Export (renamed from "SillyTavern compatibility") ──
+         M46: re-shaped to stop implying «ST themes just work». Big
+         warning banner up front + explicit CTA к Конвертеру + ссылка
+         на doc-страничку для WuNest-нативных тем. Кнопки ниже без
+         промиса ST-compat в label'ах. -->
     <div class="nest-field nest-io">
       <label class="nest-field-label">{{ t('appearance.io.title') }}</label>
-      <p class="nest-subtitle">{{ t('appearance.io.hint') }}</p>
-      <div class="d-flex ga-2 flex-wrap mt-2">
+
+      <!-- ST WARNING — самое заметное что на странице -->
+      <div class="nest-st-warning">
+        <div class="nest-st-warning-headline">
+          <v-icon size="22" color="warning" class="mr-2">mdi-alert-octagram</v-icon>
+          <span>{{ t('appearance.io.stWarning.title') }}</span>
+        </div>
+        <p class="nest-st-warning-body">
+          {{ t('appearance.io.stWarning.body') }}
+        </p>
+        <div class="nest-st-warning-ctas">
+          <v-btn
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-auto-fix"
+            size="small"
+            :to="'/convert'"
+          >
+            {{ t('appearance.io.stWarning.convert') }}
+          </v-btn>
+          <v-btn
+            variant="outlined"
+            prepend-icon="mdi-book-open-variant"
+            size="small"
+            :to="'/docs/theming'"
+          >
+            {{ t('appearance.io.stWarning.howToWrite') }}
+          </v-btn>
+          <v-btn
+            variant="text"
+            prepend-icon="mdi-palette-outline"
+            size="small"
+            :to="'/themes'"
+          >
+            {{ t('appearance.io.stWarning.gallery') }}
+          </v-btn>
+        </div>
+      </div>
+
+      <p class="nest-subtitle mt-4">{{ t('appearance.io.hint') }}</p>
+      <div class="d-flex ga-2 flex-wrap mt-2 nest-io-buttons">
         <v-btn
           variant="outlined"
           prepend-icon="mdi-upload"
@@ -1118,6 +1161,47 @@ details[open] > .nest-theme-guide-summary { color: var(--nest-text); }
   border-top: 1px dashed var(--nest-border-subtle);
 }
 
+// M46 — ST-import warning banner. Prominent без быть пугающим —
+// сплошная yellow-amber заливка с левой полосой + CTA-кнопками.
+// Задача: тот кто открыл Import section и думает «сейчас залью свою
+// ST-тему» СРАЗУ видит что так не сработает и ему надо пойти в
+// Конвертер. Цвета через color-mix от accent → theme-aware.
+.nest-st-warning {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border-left: 4px solid rgb(var(--v-theme-warning));
+  border-radius: var(--nest-radius);
+  background: color-mix(in srgb, rgb(var(--v-theme-warning)) 12%, var(--nest-surface) 88%);
+}
+.nest-st-warning-headline {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--nest-text);
+  margin-bottom: 8px;
+}
+.nest-st-warning-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--nest-text-secondary);
+  margin: 0 0 12px;
+}
+.nest-st-warning-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.nest-io-buttons {
+  // Плотнее на mobile — чтобы 4 кнопки не становились колонкой.
+  @media (max-width: 520px) {
+    gap: 6px;
+  }
+}
+
 .nest-html-hint {
   font-size: 11.5px;
   margin: -6px 0 0;
@@ -1126,5 +1210,8 @@ details[open] > .nest-theme-guide-summary { color: var(--nest-text); }
 
 @media (max-width: 640px) {
   .nest-grid { grid-template-columns: 1fr; }
+  .nest-st-warning { padding: 14px; }
+  .nest-st-warning-headline { font-size: 15px; }
+  .nest-st-warning-ctas { flex-direction: column; align-items: stretch; }
 }
 </style>

@@ -189,13 +189,45 @@ const messages = {
     },
     settings: {
       title: 'Настройки',
+      // M46 — lead text под заголовком, объясняет что страница покрывает
+      // global preferences, а chat-specific/sampler/prompts живут в
+      // других местах.
+      lead: 'Общие настройки аккаунта, оформление интерфейса и свои API-ключи. Настройки конкретного чата — в drawer-иконке (📖) в шапке чата. Параметры генерации (sampler, sysprompt) — в /presets.',
+      // M46 — left-side TOC links + section heads.
+      nav: {
+        general: 'Общие',
+        appearance: 'Внешний вид',
+        byok: 'Свои ключи',
+      },
+      sections: {
+        general: 'Общие',
+        generalSub: 'Язык интерфейса, модель по умолчанию, стиль вывода ответа.',
+        appearance: 'Внешний вид',
+        appearanceSub: 'Тема, плотность, цвета, свой CSS. ST-темы — через Конвертер (см. баннер внизу секции).',
+        byok: 'Свои ключи провайдеров',
+        byokSub: 'Плати токенами своего OpenAI/Claude/OpenRouter, минуя WuApi-пул. Ключи шифруются AES-GCM на сервере.',
+      },
+      moved: {
+        title: 'Где это теперь?',
+        lead: 'После серии рефакторов (M42–M44) некоторые настройки переехали. Шпаргалка:',
+        sampler: 'Temperature, top-p, max_tokens',
+        samplerWhere: '→ в чате: иконка ⚙ (tune-variant) в шапке — «Параметры генерации».',
+        memory: 'Память / автосаммари',
+        memoryWhere: '→ в чате: иконка 📖 (book) в шапке → вкладка «Память».',
+        presets: 'Пресеты сэмплера',
+        presetsWhere: '→ /presets',
+        themes: 'Галерея встроенных тем',
+        themesWhere: '→ /themes',
+        convert: 'Конвертер ST → WuNest',
+        convertWhere: '→ /convert',
+      },
       language: 'Язык',
       appearanceTitle: 'Внешний вид',
       defaultModel: {
         title: 'Модель по умолчанию',
         tagline: 'Выбор, который применяется, когда чат или сообщение не задают модель явно.',
         serverFallback: '— серверный дефолт —',
-        saved: 'сохранено ✓',
+        saved: 'сохранено',
       },
       streaming: {
         title: 'Вывод ответа',
@@ -327,10 +359,22 @@ const messages = {
         document: 'Документ',
       },
       io: {
-        title: 'Совместимость с SillyTavern',
-        hint: 'Загружай темы в формате SillyTavern .json или сырой .css, или выгружай свою настройку, чтобы поделиться.',
-        import: 'Импорт темы ST (.json)',
-        importCss: 'Импорт .css файла',
+        // M46 — renamed из «Совместимость с SillyTavern» чтобы не
+        // имплицитно обещать full ST-compat. Импорт/экспорт — для
+        // WuNest-native тем; ST-темы требуют конвертации.
+        title: 'Импорт и экспорт темы',
+        // M46 — явный warning про ST-темы. Большой баннер в UI с
+        // кнопками «Конвертер» / «Как писать тему» / «Галерея».
+        stWarning: {
+          title: 'Тема из SillyTavern? Её надо сначала сконвертировать',
+          body: 'ST-темы использует селекторы и контейнеры которых в WuNest нет — прямая загрузка даст частично работающий результат, сломанные места и лишние «мёртвые» правила. Пропусти её через наш Конвертер (он перепишет селекторы под WuNest-контракт через LLM), или напиши тему сразу под WuNest — у нас есть гайд со всеми якорями и переменными.',
+          convert: 'Конвертер ST → WuNest',
+          howToWrite: 'Как писать тему',
+          gallery: 'Галерея пресетов',
+        },
+        hint: 'Импортируй/экспортируй WuNest-тему как .json (наш формат) или сырой .css. Для ST-тем — пройди Конвертер сверху.',
+        import: 'Импорт .json',
+        importCss: 'Импорт .css',
         export: 'Экспорт в .json',
         exportCss: 'Экспорт в .css',
       },
@@ -1450,13 +1494,42 @@ const messages = {
     },
     settings: {
       title: 'Settings',
+      // M46 — lead text below the page title. Explains page scope.
+      lead: "Account preferences, UI appearance and your own API keys. Per-chat settings live in the drawer (📖) in the chat header. Generation parameters (sampler, sysprompt) are under /presets.",
+      nav: {
+        general: 'General',
+        appearance: 'Appearance',
+        byok: 'BYOK keys',
+      },
+      sections: {
+        general: 'General',
+        generalSub: 'UI language, default model, response delivery style.',
+        appearance: 'Appearance',
+        appearanceSub: 'Theme, density, colours, custom CSS. ST themes — through the Converter (see banner inside).',
+        byok: 'Your provider keys',
+        byokSub: 'Pay with your own OpenAI/Claude/OpenRouter tokens, bypassing the WuApi pool. Keys are AES-GCM encrypted on the server.',
+      },
+      moved: {
+        title: 'Where did it go?',
+        lead: 'After the M42–M44 refactors, a few settings moved house. Quick reference:',
+        sampler: 'Temperature, top-p, max_tokens',
+        samplerWhere: '→ in-chat: ⚙ (tune-variant) icon in the header — "Generation parameters".',
+        memory: 'Memory / auto-summary',
+        memoryWhere: '→ in-chat: 📖 (book) icon in the header → "Memory" tab.',
+        presets: 'Sampler presets',
+        presetsWhere: '→ /presets',
+        themes: 'Built-in theme gallery',
+        themesWhere: '→ /themes',
+        convert: 'ST → WuNest Converter',
+        convertWhere: '→ /convert',
+      },
       language: 'Language',
       appearanceTitle: 'Appearance',
       defaultModel: {
         title: 'Default model',
         tagline: 'Used when a chat or request doesn\'t pick a model explicitly.',
         serverFallback: '— server default —',
-        saved: 'saved ✓',
+        saved: 'saved',
       },
       streaming: {
         title: 'Response delivery',
@@ -1583,10 +1656,20 @@ const messages = {
         document: 'Document',
       },
       io: {
-        title: 'SillyTavern compatibility',
-        hint: 'Import ST .json themes or raw .css files; export your tweaks to share.',
-        import: 'Import ST theme (.json)',
-        importCss: 'Import .css file',
+        // M46 — renamed from "SillyTavern compatibility" — we no
+        // longer promise direct ST import. ST themes need the
+        // Converter first; this section is for native WuNest themes.
+        title: 'Import & Export',
+        stWarning: {
+          title: "ST theme? You need to convert it first",
+          body: "SillyTavern themes use selectors and containers we don't have in WuNest — a direct import leaves you with a half-working result, broken spots, and a pile of dead rules. Run it through the Converter first (an LLM rewrites selectors against our contract), or write a theme against WuNest directly — we have a guide covering every anchor and variable.",
+          convert: 'ST → WuNest Converter',
+          howToWrite: 'How to write a theme',
+          gallery: 'Preset gallery',
+        },
+        hint: 'Import/export a WuNest theme as .json (our format) or raw .css. For ST themes, run them through the Converter above first.',
+        import: 'Import .json',
+        importCss: 'Import .css',
         export: 'Export as .json',
         exportCss: 'Export as .css',
       },
