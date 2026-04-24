@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
-import { chatsApi, type Chat, type ChatStats, type Summary } from '@/api/chats'
+import { chatsApi, type AutoSummariseConfig, type Chat, type ChatStats, type Summary } from '@/api/chats'
+import { useModelsStore } from '@/stores/models'
+import { byokApi, type BYOKKey } from '@/api/byok'
 
 // Per-chat settings drawer. Three tabs:
 //   - Tags    — user-authored organisation. Edit inline; filter in
@@ -214,6 +216,160 @@ async function promoteAutoToManual(s: Summary) {
   }
 }
 
+// ─── M44 Auto-summary ──────────────────────────────────────────────
+// Opt-in per-chat. Hydrates from chat.chat_metadata.auto_summarise.
+// Saves on each toggle/change via PUT /auto-summarise; backend stores
+// under jsonb_set to preserve sibling metadata. Debounced light because
+// slider drag + numeric input both mutate threshold_tokens.
+
+const AUTO_DEFAULT_THRESHOLD = 30_000
+const AUTO_THRESHOLD_MAX = 2_000_000
+
+// Local state — mirror of server config; watcher resyncs when chat swaps.
+const autoEnabled = ref(false)
+const autoThreshold = ref(AUTO_DEFAULT_THRESHOLD)
+const autoModel = ref<string>('')
+// Source picker: 'wuapi' OR 'byok:<uuid>'.
+const autoSource = ref<'wuapi' | string>('wuapi')
+
+const autoSaveError = ref<string | null>(null)
+const autoBYOKList = ref<BYOKKey[]>([])
+const autoBYOKLoading = ref(false)
+const models = useModelsStore()
+// Two snapshots of the model list — one for each source — so switching
+// source doesn't immediately blast the chat's main model picker. We use
+// a dedicated cache by fetching into a local copy.
+const autoModelItems = ref<{ id: string }[]>([])
+const autoModelsLoading = ref(false)
+
+function hydrateAutoFromChat(c: Chat | null) {
+  const cfg = c?.chat_metadata?.auto_summarise
+  if (cfg) {
+    autoEnabled.value = !!cfg.enabled
+    autoThreshold.value = typeof cfg.threshold_tokens === 'number' ? cfg.threshold_tokens : AUTO_DEFAULT_THRESHOLD
+    autoModel.value = cfg.model ?? ''
+    autoSource.value = cfg.byok_id ? `byok:${cfg.byok_id}` : 'wuapi'
+  } else {
+    autoEnabled.value = false
+    autoThreshold.value = AUTO_DEFAULT_THRESHOLD
+    autoModel.value = ''
+    autoSource.value = 'wuapi'
+  }
+}
+
+watch(() => props.chat?.id, () => hydrateAutoFromChat(props.chat), { immediate: true })
+watch(() => props.modelValue, (open) => {
+  if (open && props.chat) hydrateAutoFromChat(props.chat)
+})
+
+onMounted(async () => {
+  // BYOK list — needed for the source picker. Non-fatal if fails
+  // (feature still works with just WuApi).
+  try {
+    autoBYOKLoading.value = true
+    const res = await byokApi.list()
+    autoBYOKList.value = res.items
+  } catch { /* non-fatal */ }
+  finally { autoBYOKLoading.value = false }
+})
+
+// Fetch model catalogue for current source. Reuses the models store —
+// which caches per source — so switching back and forth is free.
+async function refreshAutoModels() {
+  if (!props.chat) return
+  autoModelsLoading.value = true
+  try {
+    const src = autoSource.value
+    if (src === 'wuapi') {
+      await models.setActiveSource('wuapi')
+    } else {
+      const id = src.slice(5)
+      await models.setActiveSource({ byokID: id })
+    }
+    // Snapshot items — Pinia auto-unwraps `items` computed ref, so no
+    // .value needed. Copy into local array so a later Chat-view source
+    // switch doesn't mutate what we display here.
+    autoModelItems.value = models.items.map(m => ({ id: m.id }))
+  } finally {
+    autoModelsLoading.value = false
+  }
+}
+
+// Trigger model fetch when the user expands Memory tab OR changes source.
+watch([() => props.modelValue, tab, autoSource], ([open, t]) => {
+  if (open && t === 'memory') refreshAutoModels()
+}, { immediate: false })
+
+// Debounced save — slider drag emits many changes; batch into one PUT.
+let autoSaveDebounce: ReturnType<typeof setTimeout> | null = null
+function scheduleAutoSave() {
+  if (autoSaveDebounce) clearTimeout(autoSaveDebounce)
+  autoSaveDebounce = setTimeout(saveAutoConfig, 300)
+}
+
+async function saveAutoConfig() {
+  if (!props.chat) return
+  autoSaveError.value = null
+  const cfg: AutoSummariseConfig = {
+    enabled: autoEnabled.value,
+    threshold_tokens: Math.max(0, Math.min(AUTO_THRESHOLD_MAX, Math.round(autoThreshold.value))),
+    model: autoModel.value || '',
+    byok_id: autoSource.value.startsWith('byok:') ? autoSource.value.slice(5) : null,
+  }
+  try {
+    await chatsApi.setAutoSummarise(props.chat.id, cfg)
+  } catch (e: any) {
+    autoSaveError.value = e?.message || String(e)
+  }
+}
+
+// Handler: toggle the enable switch. Saves immediately (not debounced —
+// it's a single binary event).
+function onAutoEnabledChange(v: boolean | null) {
+  autoEnabled.value = !!v
+  saveAutoConfig()
+}
+
+// Handler: source radio. Re-fetches models for the new source, then
+// saves config (model picker may auto-select first on re-fetch).
+async function onAutoSourceChange(v: string | null) {
+  if (!v) return
+  autoSource.value = v
+  await refreshAutoModels()
+  // Pick remembered/first model for this source. Pinia auto-unwraps
+  // `selected` so direct access gives the string id.
+  autoModel.value = models.selected || autoModelItems.value[0]?.id || ''
+  saveAutoConfig()
+}
+
+// Handler: model picker select.
+function onAutoModelChange(v: string | null) {
+  autoModel.value = v ?? ''
+  saveAutoConfig()
+}
+
+// Handler: threshold slider/input. Debounced because slider emits continuously.
+function onAutoThresholdChange(v: number) {
+  autoThreshold.value = v
+  scheduleAutoSave()
+}
+
+// Numeric input has string-or-number value — sanitise.
+function onAutoThresholdInput(v: string | number) {
+  const n = typeof v === 'number' ? v : parseInt(v, 10)
+  if (!Number.isFinite(n) || n < 0) return
+  onAutoThresholdChange(n)
+}
+
+// Pretty label for the current source, used as secondary text next to
+// the picker.
+const autoSourceLabel = computed(() => {
+  if (autoSource.value === 'wuapi') return 'WuApi pool'
+  const id = autoSource.value.slice(5)
+  const k = autoBYOKList.value.find(x => x.id === id)
+  return k ? `${k.label || k.provider} · ${k.masked}` : '—'
+})
+
 function close() { emit('update:modelValue', false) }
 </script>
 
@@ -351,6 +507,130 @@ function close() { emit('update:modelValue', false) }
             </v-btn>
           </div>
 
+          <!-- ── M44: Auto-summary config ─────────────────────── -->
+          <!-- Opt-in per-chat. Toggle is same v-switch style as the
+               app's other toggles (`inset`, `color="primary"`). When
+               enabled, user picks provider + model + threshold; backend
+               fires SummariseChat async after each assistant turn whose
+               prompt hits threshold. Users pay their own tokens. -->
+          <div class="nest-auto-summary mb-4">
+            <v-switch
+              :model-value="autoEnabled"
+              :label="t('chat.settings.memory.auto.toggle')"
+              color="primary"
+              inset
+              hide-details
+              density="compact"
+              @update:model-value="onAutoEnabledChange"
+            />
+            <p class="nest-hint nest-hint--sm mt-1">
+              {{ t('chat.settings.memory.auto.tagline') }}
+            </p>
+
+            <v-expand-transition>
+              <div v-if="autoEnabled" class="nest-auto-summary-body mt-3">
+                <!-- Provider source picker -->
+                <div class="nest-auto-label nest-eyebrow mb-1">
+                  {{ t('chat.settings.memory.auto.source') }}
+                </div>
+                <v-radio-group
+                  :model-value="autoSource"
+                  hide-details
+                  density="compact"
+                  @update:model-value="onAutoSourceChange"
+                >
+                  <v-radio value="wuapi">
+                    <template #label>
+                      <span class="nest-mono">wuapi</span>
+                      <span class="nest-auto-source-hint">
+                        · {{ t('chat.settings.memory.auto.wuapiHint') }}
+                      </span>
+                    </template>
+                  </v-radio>
+                  <v-radio
+                    v-for="k in autoBYOKList"
+                    :key="k.id"
+                    :value="'byok:' + k.id"
+                  >
+                    <template #label>
+                      <span class="nest-mono">byok</span>
+                      <span class="nest-auto-source-hint">
+                        · {{ k.label || k.provider }} · {{ k.masked }}
+                      </span>
+                    </template>
+                  </v-radio>
+                </v-radio-group>
+
+                <!-- Model picker — dependent on source -->
+                <v-select
+                  :model-value="autoModel"
+                  :items="autoModelItems.map(m => m.id)"
+                  :loading="autoModelsLoading"
+                  :label="t('chat.settings.memory.auto.model')"
+                  density="compact"
+                  hide-details
+                  class="mt-3 nest-auto-model"
+                  @update:model-value="onAutoModelChange"
+                />
+
+                <!-- Threshold: slider + numeric input (synced). Range
+                     0..2M input tokens. Triggers when prompt reaches
+                     this size — see system prompt for details. -->
+                <div class="mt-4">
+                  <div class="nest-auto-label nest-eyebrow mb-1">
+                    {{ t('chat.settings.memory.auto.threshold') }}
+                  </div>
+                  <p class="nest-hint nest-hint--sm mb-2">
+                    {{ t('chat.settings.memory.auto.thresholdHint') }}
+                  </p>
+                  <div class="d-flex align-center ga-3">
+                    <v-slider
+                      :model-value="autoThreshold"
+                      :min="0"
+                      :max="AUTO_THRESHOLD_MAX"
+                      :step="1000"
+                      hide-details
+                      color="primary"
+                      density="compact"
+                      class="flex-grow-1"
+                      @update:model-value="onAutoThresholdChange"
+                    />
+                    <v-text-field
+                      :model-value="autoThreshold"
+                      type="number"
+                      :min="0"
+                      :max="AUTO_THRESHOLD_MAX"
+                      :step="1000"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="nest-auto-threshold-input nest-mono"
+                      suffix="tok"
+                      @update:model-value="onAutoThresholdInput"
+                    />
+                  </div>
+                </div>
+
+                <!-- Current-cost reminder — same UX pattern as Converter -->
+                <p class="nest-hint nest-hint--sm mt-3 nest-auto-cost">
+                  {{ t('chat.settings.memory.auto.costHint', { source: autoSourceLabel }) }}
+                </p>
+
+                <v-alert
+                  v-if="autoSaveError"
+                  type="error"
+                  variant="tonal"
+                  density="compact"
+                  class="mt-2 nest-hint"
+                  closable
+                  @click:close="autoSaveError = null"
+                >
+                  {{ autoSaveError }}
+                </v-alert>
+              </div>
+            </v-expand-transition>
+          </div>
+
           <v-alert
             v-if="summarizeError"
             type="info"
@@ -371,7 +651,7 @@ function close() { emit('update:modelValue', false) }
             <div v-if="autoSummary" class="nest-summary nest-summary--auto">
               <div class="nest-summary-head">
                 <v-icon size="14" class="mr-1">mdi-refresh-auto</v-icon>
-                {{ t('chat.settings.memory.auto') }}
+                {{ t('chat.settings.memory.autoLabel') }}
                 <span class="nest-summary-model nest-mono ml-auto">
                   {{ autoSummary.model || '—' }}
                 </span>
@@ -561,5 +841,41 @@ function close() { emit('update:modelValue', false) }
   padding: 10px 12px;
   border: 1px dashed var(--nest-border-subtle);
   border-radius: var(--nest-radius);
+}
+
+// ── M44: Auto-summary config panel ──────────────────────────
+.nest-auto-summary {
+  padding: 12px;
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius);
+  background: var(--nest-bg-elevated);
+}
+.nest-hint--sm {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.nest-auto-label {
+  // Re-use .nest-eyebrow tone for the small section labels, but
+  // without the aggressive letter-spacing.
+  color: var(--nest-text-muted);
+  letter-spacing: 0.05em;
+}
+.nest-auto-source-hint {
+  color: var(--nest-text-secondary);
+  font-size: 13px;
+  margin-left: 6px;
+}
+.nest-auto-model {
+  max-width: 100%;
+}
+.nest-auto-threshold-input {
+  max-width: 120px;
+}
+.nest-auto-threshold-input :deep(input) {
+  text-align: right;
+}
+.nest-auto-cost {
+  color: var(--nest-text-secondary);
+  font-style: italic;
 }
 </style>

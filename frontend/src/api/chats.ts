@@ -25,6 +25,10 @@ export interface Chat {
     persona_id?: string | null
     byok_id?: string | null
     authors_note?: AuthorsNote | null
+    /** M44 per-chat auto-summary config. Absent → feature off (default).
+     *  Present with enabled=false → user had it on, turned off, we keep
+     *  the threshold/model for easy re-enable. */
+    auto_summarise?: AutoSummariseConfig
     /** Monotonic counter of provider tokens this chat has consumed over
      *  its whole lifetime — survives swipes, regenerates and message
      *  deletions. Written server-side after every successful stream. */
@@ -104,6 +108,26 @@ export interface AuthorsNote {
   content: string
   depth: number
   role?: 'system' | 'user' | 'assistant'
+}
+
+/** M44 per-chat auto-summary config — opt-in, OFF by default.
+ *
+ *  Lives under chat_metadata.auto_summarise. Read by backend after each
+ *  assistant turn's `done`-SSE: if Enabled && assistant_tokens_in
+ *  (prompt size) >= ThresholdTokens, backend fires a background
+ *  SummariseChat with the user's selected Model (and optional BYOKID
+ *  override). User pays own tokens per summarise call. */
+export interface AutoSummariseConfig {
+  enabled: boolean
+  /** Range 0..2_000_000 (UI-enforced slider + numeric input). Zero/
+   *  negative is accepted as "fire every turn" — edge case, respected. */
+  threshold_tokens: number
+  /** Empty string → server uses defaultSummariserModel (gemini-2.5-flash). */
+  model?: string
+  /** Null/undefined → use chat's upstream (BYOK pinned on chat, else
+   *  WuApi pool). Non-null UUID → a different BYOK key — user can pin
+   *  cheap Gemini Flash for summaries while chat runs on Claude Sonnet. */
+  byok_id?: string | null
 }
 
 /** Mirror of Go's internal/chats/types.go ChatSamplerMetadata. */
@@ -216,6 +240,19 @@ export const chatsApi = {
       `/api/chats/${chatID}/summarize`,
       { method: 'POST', body: JSON.stringify({ model: model ?? '' }) },
     ),
+
+  // ── M44 auto-summarise per-chat config ─────────────────────────
+  // Opt-in feature. When enabled, after each assistant turn on this
+  // chat, backend checks tokens_in >= threshold_tokens and fires
+  // SummariseChat in a background goroutine using the picked
+  // provider (wuapi or BYOK) + model. User pays their own tokens.
+  setAutoSummarise: (chatID: string, cfg: AutoSummariseConfig) =>
+    apiFetch<void>(`/api/chats/${chatID}/auto-summarise`, {
+      method: 'PUT',
+      body: JSON.stringify(cfg),
+    }),
+  clearAutoSummarise: (chatID: string) =>
+    apiFetch<void>(`/api/chats/${chatID}/auto-summarise`, { method: 'DELETE' }),
 
   // Silent message toggle (M38.2). Reuses the edit endpoint with just
   // `hidden` in the body.

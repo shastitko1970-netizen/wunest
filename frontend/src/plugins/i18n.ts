@@ -1110,13 +1110,24 @@ const messages = {
         memory: {
           hint: 'Когда чат длинный, модель забывает начало. «Суммаризация» сворачивает старые сообщения в компактную сводку, которая подмешивается в system prompt. Закреплённые факты добавляются в каждый запрос.',
           summarize: 'Суммаризировать',
-          auto: 'Текущая сводка',
+          autoLabel: 'Текущая сводка',
           manual: 'Заметки',
           pinned: 'Закреплённые факты',
           keepFromRegen: 'Не перезаписывать',
           addPlaceholder: 'Добавить факт / заметку / контекст…',
           pinThis: 'Закрепить (всегда в промпте)',
           add: 'Добавить',
+          // M44 — per-chat auto-summary config.
+          auto: {
+            toggle: 'Автосаммари',
+            tagline: 'Раз во сколько-то токенов инпута модель сама сожмёт историю в сводку. Сводка пишется поверх предыдущей, держится как закреплённая память — старые сообщения не выкидываются. Ты платишь токены за каждую авто-сводку так же, как за обычное сообщение.',
+            source: 'Провайдер',
+            wuapiHint: 'WuApi pool (с твоих gold-токенов)',
+            model: 'Модель для саммари',
+            threshold: 'Порог в токенах',
+            thresholdHint: 'Как только промпт модели достигнет этого размера (tokens_in после очередного assistant-ответа) — автоматически запускается саммари. Диапазон 0 — 2 000 000. Можно двигать ползунок или вписать цифру руками.',
+            costHint: 'Саммари пойдёт через: {source}',
+          },
         },
       },
       swipe: {
@@ -2339,13 +2350,24 @@ const messages = {
         memory: {
           hint: 'In long chats the model forgets the start. "Summarise" folds older messages into a compact summary that feeds into the system prompt. Pinned facts ride along every request.',
           summarize: 'Summarise',
-          auto: 'Rolling summary',
+          autoLabel: 'Rolling summary',
           manual: 'Notes',
           pinned: 'Pinned facts',
           keepFromRegen: 'Keep from regen',
           addPlaceholder: 'Add a fact / note / context…',
           pinThis: 'Pin (always in prompt)',
           add: 'Add',
+          // M44 — per-chat auto-summary config.
+          auto: {
+            toggle: 'Auto-summarise',
+            tagline: "Every so-many-input-tokens the model will auto-compress the history into a summary. The summary is written over the previous one and stays as pinned memory — old messages aren't discarded. You pay tokens for each auto-summary the same way you do for a regular message.",
+            source: 'Provider',
+            wuapiHint: 'WuApi pool (billed to your gold)',
+            model: 'Summariser model',
+            threshold: 'Token threshold',
+            thresholdHint: 'When the model prompt reaches this size (tokens_in after an assistant reply), an auto-summary fires. Range 0 — 2,000,000. Drag the slider or type the exact number.',
+            costHint: 'Summaries will go through: {source}',
+          },
         },
       },
       swipe: {
