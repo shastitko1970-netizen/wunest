@@ -394,12 +394,16 @@ function formatDate(iso: string): string {
   gap: 14px;
 }
 
+// Grid instead of flex+wrap — same reasoning as AppearancePanel: large
+// fontScale pushes the right-hand "Add key" button off to the container
+// edge when wrap fires with space-between. Grid with `auto` for the
+// button column keeps it pinned to the right edge of the text column,
+// regardless of how tall the title+tagline grow.
 .nest-byok-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
-  flex-wrap: wrap;
+  align-items: center;
 }
 
 .nest-byok-empty {
@@ -570,7 +574,11 @@ function formatDate(iso: string): string {
 // right without squeezing the meta. Add button in the head wraps below
 // the title rather than sitting beside it on a 375px screen.
 @media (max-width: 520px) {
+  // Collapse the head to one column on narrow viewports so "Add key"
+  // lands below the title with a full-width button, same pattern as
+  // AppearancePanel.
   .nest-byok-head {
+    grid-template-columns: 1fr;
     gap: 10px;
     .v-btn { width: 100%; }
   }

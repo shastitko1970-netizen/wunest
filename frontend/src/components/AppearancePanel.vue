@@ -620,17 +620,35 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 <style lang="scss" scoped>
 .nest-appearance { display: flex; flex-direction: column; gap: 24px; }
 
+// Grid instead of flex+wrap+space-between. The old layout broke when the
+// user cranked fontScale up: the left block grew taller and wider, `wrap`
+// pushed the right block onto a new line, and `space-between` then
+// parked it at the container's right edge — which on wide desktops is far
+// from the text column the user was reading. "Reset" button looked like
+// it had "teleported to Magadan".
+//
+// Grid pins the right block to the `auto` track regardless of left-block
+// height. On mobile we collapse to a single column so the reset button
+// still appears below the title instead of squeezing width.
 .nest-app-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
-  flex-wrap: wrap;
+  align-items: center;
 }
 .nest-app-head-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: end;
+}
+@media (max-width: 560px) {
+  .nest-app-head {
+    grid-template-columns: 1fr;
+  }
+  .nest-app-head-right {
+    justify-self: start;
+  }
 }
 
 .nest-saving {
