@@ -997,6 +997,8 @@ const messages = {
         deleteAfterDone: 'Удалено {n} сообщений',
         collapse: 'Свернуть',
         expand: 'Развернуть',
+        fork: 'Развилка — новый чат отсюда',
+        forkDone: 'Открыта ветка',
         deleteConfirm: {
           title: 'Удалить сообщение?',
           body: 'Действие нельзя откатить.',
@@ -2154,6 +2156,8 @@ const messages = {
         deleteAfterDone: 'Deleted {n} messages',
         collapse: 'Collapse',
         expand: 'Expand',
+        fork: 'Fork — new branch from here',
+        forkDone: 'Branch opened',
         deleteConfirm: {
           title: 'Delete this message?',
           body: 'This cannot be undone.',

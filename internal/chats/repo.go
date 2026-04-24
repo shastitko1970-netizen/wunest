@@ -878,6 +878,80 @@ func (r *Repository) DeleteMessagesAfter(ctx context.Context, chatID uuid.UUID, 
 	return tag.RowsAffected(), nil
 }
 
+// ForkChat creates a new chat that copies the source chat's character
+// wiring + metadata + every message up to and INCLUDING `uptoMessageID`.
+// The new chat lives beside the source — neither one is mutated. User
+// then continues from the fork point on the new chat, exploring a
+// different branch without losing the original timeline.
+//
+// Transactional: insert-new-chat + bulk-copy-messages happen atomically.
+// On error everything rolls back, so a partially-forked chat can never
+// leak into the user's list.
+func (r *Repository) ForkChat(ctx context.Context, userID, sourceChatID uuid.UUID, uptoMessageID int64) (*Chat, error) {
+	// Load source so we carry its character wiring + metadata. GetChat
+	// already scopes by user_id so ownership is verified in one shot.
+	src, err := r.GetChat(ctx, userID, sourceChatID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := r.pg.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	newID := uuid.New()
+	// Name: prefix with "Fork" so the list stays scannable. User renames
+	// later via the sidebar if they want.
+	forkName := "Fork: " + src.Name
+	if len(forkName) > 200 {
+		forkName = forkName[:200]
+	}
+
+	const insertChat = `
+		INSERT INTO nest_chats (id, user_id, character_id, character_ids, name, chat_metadata)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING created_at, updated_at
+	`
+	var createdAt, updatedAt time.Time
+	if err := tx.QueryRow(ctx, insertChat,
+		newID, userID, src.CharacterID, src.CharacterIDs, forkName, src.Metadata,
+	).Scan(&createdAt, &updatedAt); err != nil {
+		return nil, fmt.Errorf("fork: insert chat: %w", err)
+	}
+
+	// Bulk-copy messages. Column list mirrors AppendMessageForCharacter —
+	// keep roles, content, character_id, extras, swipes intact so the
+	// forked chat is indistinguishable from the source up to that point.
+	// `id` is regenerated (bigserial) so the new chat has its own numbering.
+	const copyMsgs = `
+		INSERT INTO nest_messages (chat_id, role, content, character_id, extras, swipes, swipe_id, swipe_character_ids, hidden, created_at)
+		SELECT $1, role, content, character_id, extras, swipes, swipe_id, swipe_character_ids, hidden, created_at
+		  FROM nest_messages
+		 WHERE chat_id = $2 AND id <= $3
+		 ORDER BY id ASC
+	`
+	if _, err := tx.Exec(ctx, copyMsgs, newID, sourceChatID, uptoMessageID); err != nil {
+		return nil, fmt.Errorf("fork: copy messages: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("fork: commit: %w", err)
+	}
+
+	return &Chat{
+		ID:           newID,
+		UserID:       userID,
+		CharacterID:  src.CharacterID,
+		CharacterIDs: src.CharacterIDs,
+		Name:         forkName,
+		Metadata:     src.Metadata,
+		CreatedAt:    createdAt,
+		UpdatedAt:    updatedAt,
+	}, nil
+}
+
 // EditMessageContent updates just the content field of a message, leaving
 // role, extras, swipes, timestamps untouched. Use for user-driven edits
 // from the UI; `UpdateMessageContent` is for stream-finalisation.

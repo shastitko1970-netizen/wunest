@@ -470,6 +470,17 @@ export const useChatsStore = defineStore('chats', () => {
     return res.deleted
   }
 
+  /** Fork — clone this chat's history up to `message` into a new sibling
+   *  chat and return the new chat's id so the caller can navigate to it.
+   *  The current chat is unchanged; the branch lives beside it. */
+  async function fork(message: Message): Promise<string | null> {
+    if (!currentId.value) return null
+    const newChat = await chatsApi.fork(currentId.value, message.id)
+    // Prepend into the sidebar list so user sees it top of "Today".
+    list.value = [newChat, ...list.value]
+    return newChat.id
+  }
+
   return {
     list, listLoading, listError,
     currentId, currentChat, messages, messagesLoading,
@@ -477,7 +488,7 @@ export const useChatsStore = defineStore('chats', () => {
     currentCharacterId,
     fetchList, open, createForCharacter, createGroupChat, existingForCharacter, remove, rename,
     send, regenerate, requestReplyFromLastUser, swipe, selectSwipe, continueAssistant, stopStreaming,
-    editMessage, deleteMessage, deleteMessagesAfter,
+    editMessage, deleteMessage, deleteMessagesAfter, fork,
     setSampler, setAuthorsNote,
   }
 })

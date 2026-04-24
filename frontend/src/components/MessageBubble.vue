@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'delete', m: Message): void
   (e: 'delete-after', m: Message): void
+  (e: 'fork', m: Message): void
   (e: 'regenerate', m: Message): void
   (e: 'continue', m: Message): void
   (e: 'toggle-hidden', m: Message): void
@@ -389,6 +390,17 @@ function onEditKeydown(e: KeyboardEvent) {
         <v-icon size="14">
           {{ collapsed ? 'mdi-arrow-expand-vertical' : 'mdi-arrow-collapse-vertical' }}
         </v-icon>
+      </button>
+      <!-- Fork — spawn a sibling chat starting from here. The branch
+           keeps every message through this point and lets the user
+           explore a different direction without losing the original
+           timeline. One click → new chat in sidebar + navigate to it. -->
+      <button
+        class="nest-action-btn"
+        :title="t('chat.actions.fork')"
+        @click="emit('fork', message)"
+      >
+        <v-icon size="14">mdi-source-branch</v-icon>
       </button>
       <button
         class="nest-action-btn"

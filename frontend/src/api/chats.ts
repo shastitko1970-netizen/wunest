@@ -293,6 +293,16 @@ export const chatsApi = {
       { method: 'POST' },
     ),
 
+  /** Fork the chat up to `messageID` into a sibling chat — the new chat
+   *  copies character wiring + metadata + every message through this
+   *  point, and the caller can continue from there without disturbing
+   *  the original timeline. Returns the fresh Chat object for nav. */
+  fork: (chatID: string, messageID: number) =>
+    apiFetch<Chat>(
+      `/api/chats/${chatID}/messages/${messageID}/fork`,
+      { method: 'POST' },
+    ),
+
   /** Navigate between stored swipes. Returns the updated message. */
   selectSwipe: (chatID: string, messageID: number, swipeID: number) =>
     apiFetch<Message>(`/api/chats/${chatID}/messages/${messageID}/swipe`, {

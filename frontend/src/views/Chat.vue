@@ -22,6 +22,7 @@ import { usePersonasStore } from '@/stores/personas'
 import { usePresetsStore } from '@/stores/presets'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
 import { chatsApi } from '@/api/chats'
+import { worldsApi } from '@/api/worlds'
 import { useDisplay } from 'vuetify'
 
 const { t } = useI18n()
@@ -235,6 +236,9 @@ async function maybeLoadFromRoute() {
     // hiccups. Only happens once — if user later clears the pin via
     // the picker we respect that choice (null is an explicit value).
     await autoPinDefaultPersona()
+    // Lorebook-based mention aliases for group chats. One-shot fetch so
+    // typing a lorebook-defined nickname routes to the right character.
+    void loadGroupLorebookKeys()
     // ?message=<id> comes from the chat-search dialog — jump to the hit
     // once messages are rendered. Wait 2 ticks so MessageBubble has
     // painted and DOM refs exist.
@@ -394,11 +398,14 @@ function detectMentionedSpeaker(text: string): string | null {
   for (const id of ids) {
     const c = charsStore.items.find(x => x.id === id)
     if (!c) continue
-    // Check every name the author has given this character: canonical
-    // name, V3 nickname, and any greeting-level aliases. Tester's
-    // complaint was that typing a character's nickname didn't pull
-    // them in — we were only matching the single `name` field.
-    const candidates = collectNameAliases(c)
+    // Combined alias pool: canonical name + V3 nickname (from the card)
+    // PLUS every key from every enabled entry in the character's attached
+    // lorebooks. This lets "Ali-chan" route to Alice when the author wired
+    // that alias up in the lorebook instead of the card itself.
+    const candidates = [
+      ...collectNameAliases(c),
+      ...(groupLorebookKeys.value[id] ?? []),
+    ]
     for (const name of candidates) {
       if (!name) continue
       // Word-boundary match without false positives on "Alice" in
@@ -432,6 +439,61 @@ function collectNameAliases(c: { name?: string; data?: { name?: string; nickname
   add(c.data?.name)
   add(c.data?.nickname)
   return [...out]
+}
+
+// ─── Lorebook-based mention aliases ───────────────────────────────
+//
+// Many users nickname their characters in the attached lorebooks ("Alice
+// == Ali, Ali-chan, my love"). These names aren't on the card itself
+// (card has canonical "Alice"), so the mention detector would otherwise
+// miss "Ali-chan" even though the author explicitly tied it to Alice via
+// a lorebook entry. Here we pre-fetch every attached lorebook on chat
+// open and build a `characterID → keys[]` map that `detectMentionedSpeaker`
+// consults alongside `collectNameAliases`.
+//
+// Cost: one HTTP call per character + one per distinct lorebook. Runs at
+// chat-open, not per keystroke. Empty map when the chat isn't a group —
+// nothing to disambiguate in a single-speaker chat.
+const groupLorebookKeys = ref<Record<string, string[]>>({})
+
+async function loadGroupLorebookKeys() {
+  if (!isGroupChat.value) { groupLorebookKeys.value = {}; return }
+  const ids = currentChat.value?.character_ids ?? []
+  if (ids.length === 0) { groupLorebookKeys.value = {}; return }
+
+  const next: Record<string, string[]> = {}
+  // Worlds can be shared across characters; cache by id so we fetch each
+  // lorebook at most once even if three characters share it.
+  const worldCache = new Map<string, Awaited<ReturnType<typeof worldsApi.get>>>()
+
+  for (const cid of ids) {
+    try {
+      const { world_ids } = await worldsApi.listForCharacter(cid)
+      const keys = new Set<string>()
+      for (const wid of world_ids) {
+        let w = worldCache.get(wid)
+        if (!w) {
+          w = await worldsApi.get(wid)
+          worldCache.set(wid, w)
+        }
+        for (const entry of w.entries ?? []) {
+          if (entry.enabled === false) continue
+          for (const k of entry.keys ?? []) {
+            const trimmed = typeof k === 'string' ? k.trim() : ''
+            // Skip ultra-short keys ("I"/"a"/…) — they false-positive
+            // against ordinary prose and we match case-insensitively.
+            if (trimmed.length >= 3) keys.add(trimmed)
+          }
+        }
+      }
+      next[cid] = [...keys]
+    } catch {
+      // Character has no attached lorebook, or the call blew up —
+      // either way, fall through to name-only matching for that char.
+      next[cid] = []
+    }
+  }
+  groupLorebookKeys.value = next
 }
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -708,6 +770,23 @@ async function confirmDelete() {
     } else {
       const deleted = await chats.deleteMessagesAfter(p.message)
       onPlateToast('success', t('chat.actions.deleteAfterDone', { n: deleted ?? 0 }))
+    }
+  } catch (e) {
+    onPlateToast('error', (e as Error).message)
+  }
+}
+
+// Fork this chat from the selected message into a sibling chat. Clones
+// every message up to this point, leaves the current chat alone, and
+// navigates to the new chat so user can continue the alternate branch
+// immediately. Sidebar gets the new row added client-side (store.fork
+// prepends) so it's visible without a list refetch.
+async function onForkFromMessage(m: Message) {
+  try {
+    const newID = await chats.fork(m)
+    if (newID) {
+      onPlateToast('success', t('chat.actions.forkDone'))
+      await router.push(`/chat/${newID}`)
     }
   } catch (e) {
     onPlateToast('error', (e as Error).message)
@@ -1043,6 +1122,7 @@ async function requestReplyFromLastUser() {
                 @edit="onEditMessage"
                 @delete="onDeleteMessage"
                 @delete-after="onDeleteAfter"
+                @fork="onForkFromMessage"
                 @plate-draft="onPlateDraft"
                 @plate-toast="onPlateToast"
               />

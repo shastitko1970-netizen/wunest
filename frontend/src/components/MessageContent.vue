@@ -45,12 +45,22 @@ const { appearance: app } = storeToRefs(appearance)
 // html: true lets raw <div>/<span> flow through markdown-it. We still route
 // every output through DOMPurify before injecting, so the model can't ship
 // <script> or event handlers. On by default — parity with SillyTavern.
-const md = computed(() => new MarkdownIt({
-  html: app.value.htmlRendering !== false,
-  breaks: true,
-  linkify: true,
-  typographer: false,
-}))
+const md = computed(() => {
+  const inst = new MarkdownIt({
+    html: app.value.htmlRendering !== false,
+    breaks: true,
+    linkify: true,
+    typographer: false,
+  })
+  // Kill indent-level code blocks (4-space / tab indent). ST character
+  // plates routinely indent their nested HTML for readability — markdown
+  // would otherwise see `    <div …>` and wrap the whole thing in
+  // <pre><code>, turning a coloured status card into escaped source on
+  // the screen. Users who actually want code still have fenced blocks
+  // (``` … ```).
+  inst.disable('code')
+  return inst
+})
 
 const parts = computed<Part[]>(() => splitContent(props.content ?? '', !!props.raw))
 
