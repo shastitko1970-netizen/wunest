@@ -338,6 +338,65 @@ func readSampler(raw json.RawMessage) ChatSamplerMetadata {
 	return envelope.Sampler
 }
 
+// SetAutoSummarise writes or clears chat_metadata.auto_summarise. Pass
+// nil (or a zero config with Enabled=false) to disable — we leave the
+// struct for audit ("user had it on, turned it off") rather than
+// deleting the key outright, so we can restore toggled-off settings
+// without losing threshold/model on next enable.
+func (r *Repository) SetAutoSummarise(ctx context.Context, userID, id uuid.UUID, cfg *AutoSummariseConfig) error {
+	if cfg == nil {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'auto_summarise',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear auto_summarise: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal auto_summarise: %w", err)
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{auto_summarise}', $3::jsonb, true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, string(cfgJSON))
+	if err != nil {
+		return fmt.Errorf("set auto_summarise: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// readAutoSummarise extracts chat_metadata.auto_summarise. Returns
+// nil when absent — caller treats that as "manual-trigger only", the
+// default behavior for chats that predate M44 or that the user hasn't
+// opted in on.
+func readAutoSummarise(raw json.RawMessage) *AutoSummariseConfig {
+	if len(raw) == 0 {
+		return nil
+	}
+	var envelope struct {
+		AutoSummarise *AutoSummariseConfig `json:"auto_summarise"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil
+	}
+	return envelope.AutoSummarise
+}
+
 // SetPersona sets or clears the per-chat persona override. Pass uuid.Nil to
 // clear. Sibling metadata (sampler etc.) is preserved.
 func (r *Repository) SetPersona(ctx context.Context, userID, id uuid.UUID, personaID uuid.UUID) error {

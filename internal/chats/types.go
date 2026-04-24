@@ -213,3 +213,27 @@ type ChatSamplerMetadata struct {
 	// edited after; we copy values at apply-time).
 	PresetID *uuid.UUID `json:"preset_id,omitempty"`
 }
+
+// AutoSummariseConfig — M44 per-chat auto-summary configuration.
+//
+// Stored under `chat_metadata.auto_summarise`. Opt-in: a chat without
+// this key behaves exactly as before (manual Summariser button only).
+// When Enabled is true, after each successful assistant turn we
+// compare the turn's prompt-size (tokens_in of the assistant message)
+// to ThresholdTokens; if the prompt is ≥ threshold, we fire a
+// background SummariseChat call. It uses Model (and optionally BYOKID
+// for routing) and bills the user's tokens like a regular generation.
+//
+// ByokID is a *uuid.UUID so "no pinned BYOK → WuApi pool" is
+// expressible as nil, separate from "zero value". Model likewise may
+// be "" meaning "fall back to defaultSummariserModel at call time".
+//
+// ThresholdTokens range UI-enforced 0..2_000_000. Zero or negative is
+// treated as "any turn triggers" — arguably silly, but we don't want
+// server-side logic to silently normalise and surprise the user.
+type AutoSummariseConfig struct {
+	Enabled         bool       `json:"enabled"`
+	ThresholdTokens int        `json:"threshold_tokens"`
+	Model           string     `json:"model,omitempty"`
+	BYOKID          *uuid.UUID `json:"byok_id,omitempty"`
+}

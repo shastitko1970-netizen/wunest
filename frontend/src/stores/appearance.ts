@@ -255,64 +255,69 @@ function applyAppearance(a: Appearance) {
   }
 
   // ── Admin guard layer ────────────────────────────────────────────
-  // Belt-and-suspenders protection for admin panels. Even with
-  // `@scope (body) to (.nest-admin)` some rules leak through on
-  // browsers that don't fully implement `to (...)` or when the user
-  // CSS has `all: initial` / `visibility: hidden` tricks that survive
-  // scope-exclusion via inheritance. This injects a tiny reset AFTER
-  // the user style so admin elements stay visible/usable regardless.
-  // Rules are narrow — we force properties we've seen break (display,
-  // visibility, opacity, pointer-events) to sane defaults with
-  // `!important` — not full `all: revert` so legitimate Vuetify
-  // styling stays.
+  // Belt-and-suspenders protection for admin panels. CRITICAL: this
+  // layer is only useful when the user has custom CSS that might
+  // break admin surfaces. Applying it universally (как было в первой
+  // версии M43.1) ломало Vuetify overlay transitions у юзеров БЕЗ
+  // custom CSS — !important visibility/opacity/pointer-events на
+  // `.v-overlay__content *` убивало Vuetify fade-in/fade-out анимации
+  // меню/диалогов/тултипов, кнопки "прыгали", весь UI выглядел как
+  // после взрыва. Тестер: «все кнопки сломались, визуал весь сломался».
+  //
+  // Fix — make the guard CONDITIONAL:
+  //   - Only inject when user actually has customCss set (the only
+  //     scenario it guards against).
+  //   - Keep the rules narrow: force visibility/opacity ONLY on
+  //     .nest-admin subtree (our own elements, safe to hard-force);
+  //     DON'T touch .v-overlay__content internals (Vuetify's own
+  //     transition property states, off-limits). Overlay isolation is
+  //     already handled by `globalGuardCSS` via @scope-exclusion.
   const GUARD_ID = 'nest-admin-guard'
   let guardEl = document.getElementById(GUARD_ID) as HTMLStyleElement | null
-  if (!guardEl) {
-    guardEl = document.createElement('style')
-    guardEl.id = GUARD_ID
-    document.head.appendChild(guardEl)
-  }
-  guardEl.textContent = `
-/* WuNest admin guard — keeps Settings/Account/Docs/Converter AND all
- * Vuetify dialogs usable even with aggressive user themes in
- * scope=global. Placed AFTER nest-user-css so these rules win on
- * specificity ties.
+  const hasUserCSS = a.customCss && a.customCss.trim() && !SAFE_MODE
+  if (!hasUserCSS) {
+    // Nothing to guard against — remove any prior guard style so we
+    // don't leave !important rules stuck on the page from a theme the
+    // user just cleared.
+    if (guardEl) guardEl.remove()
+  } else {
+    if (!guardEl) {
+      guardEl = document.createElement('style')
+      guardEl.id = GUARD_ID
+      document.head.appendChild(guardEl)
+    }
+    guardEl.textContent = `
+/* WuNest admin guard — keeps Settings/Account/Docs/Converter usable
+ * even with aggressive user themes in scope=global. Placed AFTER
+ * nest-user-css so these rules win on specificity ties.
  *
- * Dialogs (v-dialog, v-menu) are Teleported to body by Vuetify, so
- * they are not descendants of our .nest-admin containers even when
- * they contain admin UI (character editor with sprite upload, persona
- * picker, BYOK dialog, etc.). .v-overlay__content is the portal root
- * — treating it the same as .nest-admin covers all modals. */
+ * Narrow on purpose: force visibility/opacity ONLY on our own
+ * .nest-admin subtree. Modal isolation (.v-overlay__content) is
+ * handled by globalGuardCSS via @scope-exclusion — we must NOT touch
+ * Vuetify overlay internals here, or overlay fade transitions break
+ * for every user. */
 .nest-admin,
-.nest-admin *,
-.v-overlay__content,
-.v-overlay__content * {
+.nest-admin * {
   visibility: visible !important;
   opacity: initial !important;
   pointer-events: auto !important;
 }
-.nest-admin [hidden],
-.v-overlay__content [hidden] { display: none !important; }
-/* Preserve Vuetify field internals — user themes often zero-out
- * borders / backgrounds on inputs/textareas, which hides v-select
- * triggers, v-text-field frames, and the sprite-editor's emotion
- * name input inside character dialogs. */
+.nest-admin [hidden] { display: none !important; }
+/* Preserve Vuetify field internals inside .nest-admin — user themes
+ * often zero-out borders/backgrounds on inputs/textareas, which hides
+ * v-select triggers and v-text-field frames in Settings. Confined
+ * to .nest-admin so modal field styling remains Vuetify's job. */
 .nest-admin .v-field,
 .nest-admin .v-field__input,
 .nest-admin .v-field__outline,
 .nest-admin .v-selection-control,
 .nest-admin .v-input,
-.nest-admin .v-label,
-.v-overlay__content .v-field,
-.v-overlay__content .v-field__input,
-.v-overlay__content .v-field__outline,
-.v-overlay__content .v-selection-control,
-.v-overlay__content .v-input,
-.v-overlay__content .v-label {
+.nest-admin .v-label {
   color: inherit !important;
   background: initial;
 }
 `.trim()
+  }
 }
 
 /**

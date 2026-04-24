@@ -274,6 +274,9 @@ func (h *Handler) pipeStream(
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
 	})
+	// M44 — auto-summary async hook. No-op unless user opted in on this
+	// chat and tokens_in >= their configured threshold.
+	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn)
 }
 
 // bumpChatUsage folds the current call's usage into the chat's monotonic
@@ -572,6 +575,8 @@ func (h *Handler) streamChat(
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
 	})
+	// M44 — auto-summary async hook (swipe path).
+	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn)
 }
 
 // finalizeError writes a minimal error record to the assistant placeholder so
@@ -1074,6 +1079,8 @@ func (h *Handler) pipeStreamContinue(
 		"tokens_out":    tokensOut,
 		"usage_total":   usageTotal,
 	})
+	// M44 — auto-summary async hook (continue path).
+	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn)
 }
 
 // pipeStreamSwipe is the swipe-aware twin of pipeStream: on done it also
@@ -1217,6 +1224,8 @@ func (h *Handler) pipeStreamSwipe(
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
 	})
+	// M44 — auto-summary async hook (swipe-variant path).
+	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn)
 }
 
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating

@@ -80,6 +80,12 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("PUT /api/chats/{id}/persona", authRequired(http.HandlerFunc(h.setPersona)))
 	mux.Handle("PUT /api/chats/{id}/authors-note", authRequired(http.HandlerFunc(h.setAuthorsNote)))
 	mux.Handle("PUT /api/chats/{id}/byok", authRequired(http.HandlerFunc(h.setBYOK)))
+	// M44 — per-chat auto-summary config. PUT rewrites the whole
+	// `auto_summarise` block (enabled, threshold, model, byok_id); DELETE
+	// removes the key entirely (distinct from `{enabled:false}` which
+	// keeps the last-used threshold/model for re-enable).
+	mux.Handle("PUT /api/chats/{id}/auto-summarise", authRequired(http.HandlerFunc(h.setAutoSummarise)))
+	mux.Handle("DELETE /api/chats/{id}/auto-summarise", authRequired(http.HandlerFunc(h.clearAutoSummarise)))
 	mux.Handle("DELETE /api/chats/{id}", authRequired(http.HandlerFunc(h.delete)))
 	// Generation endpoints — gated. Regenerate + sendMessage + swipe all
 	// stream a new assistant turn from the upstream provider.
@@ -431,6 +437,60 @@ func (h *Handler) setBYOK(w http.ResponseWriter, r *http.Request) {
 		target = *req.BYOKID
 	}
 	if err := h.Repo.SetBYOK(r.Context(), user.ID, id, target); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setAutoSummarise writes chat_metadata.auto_summarise. Body is the
+// AutoSummariseConfig JSON: {enabled, threshold_tokens, model, byok_id?}.
+// Any byok_id must belong to the caller (enforced at SummariseChat time
+// via BYOK.Reveal; we don't re-verify here to keep the handler lean).
+//
+// Input is passed through as-is — we do NOT clamp threshold_tokens
+// server-side, since the UI already enforces 0..2_000_000. A user who
+// sends out-of-range values via curl gets the behavior they asked for.
+func (h *Handler) setAutoSummarise(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req AutoSummariseConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetAutoSummarise(r.Context(), user.ID, id, &req); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearAutoSummarise drops the whole auto_summarise block from
+// chat_metadata. Distinct from sending `{enabled:false}` via PUT —
+// that keeps the last-used threshold/model for easy re-enable; this
+// clears the slate entirely (useful if the user wants to reset the
+// config to server defaults on next enable).
+func (h *Handler) clearAutoSummarise(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetAutoSummarise(r.Context(), user.ID, id, nil); err != nil {
 		h.writeErr(w, err)
 		return
 	}
