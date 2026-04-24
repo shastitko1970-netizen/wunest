@@ -6,6 +6,7 @@ import { useModelsStore } from '@/stores/models'
 import { useAuthStore } from '@/stores/auth'
 import { countTokens } from '@/lib/tokens'  // sync; see lib/tokens.ts
 import { uploadAttachment } from '@/api/uploads'
+import { useQuickRepliesStore } from '@/stores/quickReplies'
 
 const { t } = useI18n()
 
@@ -30,6 +31,40 @@ const emit = defineEmits<{
 }>()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
+
+// Quick replies (M39.2) — render above the textarea as clickable chips.
+// Click inserts into draft; send_now=true auto-fires after insert.
+const quickReplies = useQuickRepliesStore()
+const { items: quickReplyItems } = storeToRefs(quickReplies)
+onMounted(() => { if (!quickReplies.loaded) void quickReplies.fetchAll() })
+
+function applyQuickReply(qr: { text: string; send_now: boolean }) {
+  // Insert at cursor position if textarea has focus, else append.
+  const ta = textarea.value
+  if (ta && document.activeElement === ta) {
+    const start = ta.selectionStart ?? ta.value.length
+    const end = ta.selectionEnd ?? ta.value.length
+    const before = ta.value.slice(0, start)
+    const after = ta.value.slice(end)
+    const next = before + qr.text + after
+    emit('update:modelValue', next)
+    // Restore focus + cursor after Vue repaints.
+    nextTick(() => {
+      ta.focus()
+      const pos = before.length + qr.text.length
+      ta.setSelectionRange(pos, pos)
+      autosize()
+    })
+  } else {
+    const trimmed = (props.modelValue || '').trim()
+    const next = trimmed ? trimmed + ' ' + qr.text : qr.text
+    emit('update:modelValue', next)
+    nextTick(() => autosize())
+  }
+  if (qr.send_now && canSend.value) {
+    nextTick(() => emit('send'))
+  }
+}
 
 const models = useModelsStore()
 const { options: modelOptions, selected: selectedModel } = storeToRefs(models)
@@ -205,6 +240,25 @@ function insertMarkdownImage(alt: string, url: string) {
 </script>
 
 <template>
+  <!-- Quick reply chips (M39.2) — horizontal scroll, click-to-insert.
+       Rendered only when the user has at least one quick reply; empty
+       state surfaces via Settings → Quick replies. -->
+  <div v-if="quickReplyItems.length" class="nest-qr-strip">
+    <button
+      v-for="qr in quickReplyItems"
+      :key="qr.id"
+      type="button"
+      class="nest-qr-chip"
+      :class="{ 'send-now': qr.send_now }"
+      :title="qr.text"
+      :disabled="disabled || streaming"
+      @click="applyQuickReply(qr)"
+    >
+      <v-icon v-if="qr.send_now" size="12">mdi-send</v-icon>
+      <span>{{ qr.label }}</span>
+    </button>
+  </div>
+
   <div
     class="nest-input-wrap"
     :class="{ 'nest-input-wrap--dragging': isDragging }"
@@ -331,6 +385,41 @@ function insertMarkdownImage(alt: string, url: string) {
 </template>
 
 <style lang="scss" scoped>
+.nest-qr-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 4px 8px;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar { height: 4px; }
+  &::-webkit-scrollbar-thumb { background: var(--nest-border); border-radius: 4px; }
+}
+.nest-qr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--nest-text-secondary);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-pill);
+  cursor: pointer;
+  transition: border-color var(--nest-transition-fast), color var(--nest-transition-fast);
+
+  &:hover:not(:disabled) {
+    border-color: var(--nest-accent);
+    color: var(--nest-text);
+  }
+  &.send-now {
+    // Paper-plane icon marks chips that auto-send on click.
+    .v-icon { color: var(--nest-accent); }
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
 .nest-input-wrap {
   position: relative;
   display: flex;

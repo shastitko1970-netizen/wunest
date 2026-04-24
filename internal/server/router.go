@@ -20,6 +20,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/library"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
+	"github.com/shastitko1970-netizen/wunest/internal/quickreplies"
 	"github.com/shastitko1970-netizen/wunest/internal/spa"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/uploads"
@@ -50,6 +51,7 @@ type Server struct {
 	byok       *byok.Handler
 	byokRepo   *byok.Repository // stream hot path calls Reveal directly
 	uploads    *uploads.Handler
+	quickReplies *quickreplies.Handler
 }
 
 func New(deps Deps) *Server {
@@ -105,6 +107,7 @@ func New(deps Deps) *Server {
 			Personas:   personasRepo,
 			BYOK:       byokRepo, // may be nil if init failed; resolveAPIKey handles that
 			WuApi:      deps.WuApi,
+			Storage:    storageClient, // M39.4 image-gen needs this for base64 rehost
 		},
 		presets: &presets.Handler{
 			Repo:  presetRepo,
@@ -129,8 +132,9 @@ func New(deps Deps) *Server {
 			Repo:  byokRepo,
 			Users: resolver,
 		},
-		byokRepo: byokRepo,
-		uploads:  &uploads.Handler{Storage: storageClient},
+		byokRepo:     byokRepo,
+		uploads:      &uploads.Handler{Storage: storageClient},
+		quickReplies: &quickreplies.Handler{Repo: quickreplies.NewRepository(deps.Postgres), Users: resolver},
 	}
 }
 
@@ -176,6 +180,7 @@ func (s *Server) Router() http.Handler {
 	// Uploads endpoints register unconditionally; when MinIO isn't
 	// configured the handler returns 503 with a machine-readable error.
 	s.uploads.Register(mux, authRequired)
+	s.quickReplies.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))

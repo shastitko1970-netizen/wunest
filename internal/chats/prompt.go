@@ -2,10 +2,12 @@ package chats
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
@@ -36,6 +38,23 @@ type PromptInput struct {
 	// filters History to drop anything already summarised so the model
 	// doesn't see the same content twice.
 	Summaries []Summary
+
+	// Variables is a per-chat key→value store used by the
+	// {{getvar::name}} / {{setvar::name::value}} macros. Snapshotted
+	// from chat_metadata.variables at handler time; SubstituteMacros
+	// may MUTATE this map (setvar is a side-effectful macro) — the
+	// handler persists the mutated map back to chat_metadata after
+	// the generation completes. Nil means "no variables support on
+	// this request" — macros still parse but getvar returns empty
+	// and setvar is a no-op.
+	Variables map[string]string
+
+	// Now is the wall-clock at prompt build time. Injected by the
+	// handler so {{time}} / {{date}} / {{weekday}} / {{idle_duration}}
+	// macros use a consistent point-in-time even if the build drags
+	// on for a few ms. Zero value ⇒ macros fall back to time.Now()
+	// at each call.
+	Now time.Time
 
 	// OtherCharacters are the non-speaking participants of a group chat.
 	// When non-empty:
@@ -416,19 +435,31 @@ func activateWorlds(in PromptInput) worldinfo.Activated {
 	})
 }
 
-// SubstituteMacros replaces the basic set of {{...}} macros.
+// SubstituteMacros replaces the {{...}} macro set.
 //
-// Supported in V1:
+// Pure replacements:
 //
 //	{{user}}            — PromptInput.UserName
-//	{{char}}            — Character.Name (or "character")
+//	{{char}}            — PromptInput.Character.Name (or "character")
 //	{{random::a,b,c}}   — uniformly random choice
 //	{{pick::a,b,c}}     — alias of random
 //	{{roll::NdM}}       — sum of N rolls of dM (e.g. {{roll::2d6}}); also {{roll::d20}}
+//	{{time}}            — HH:MM of PromptInput.Now (falls back to time.Now)
+//	{{date}}            — YYYY-MM-DD of PromptInput.Now
+//	{{weekday}}         — "Monday" / "Tuesday" / …
+//	{{idle_duration}}   — pretty gap since the last user message ("3 hours",
+//	                      "moments ago"); empty string if no prior user msg
+//	{{lastUserMessage}} — most recent user message content, empty if none
+//	{{lastCharMessage}} — most recent assistant message content, empty if none
+//	{{getvar::name}}    — per-chat variable value; "" when unset
 //
-// More macros ({{getvar}}, {{setvar}}, {{time}}, {{date}}) land in M4 together
-// with the variables scope plumbing. Unsupported macros are left as literals
-// so users see why they didn't expand.
+// Side-effectful:
+//
+//	{{setvar::name::value}} — writes to PromptInput.Variables (if non-nil)
+//	                          and expands to empty string. Handler persists
+//	                          the mutated map after generation.
+//
+// Unknown macros are left as literals so authors spot typos.
 func SubstituteMacros(s string, in PromptInput) string {
 	s = strings.ReplaceAll(s, "{{user}}", displayName(in.UserName, "User"))
 	s = strings.ReplaceAll(s, "{{User}}", displayName(in.UserName, "User"))
@@ -442,17 +473,133 @@ func SubstituteMacros(s string, in PromptInput) string {
 	s = strings.ReplaceAll(s, "{{Char}}", charName)
 	s = strings.ReplaceAll(s, "{{CHAR}}", strings.ToUpper(charName))
 
+	// Choice / dice macros.
 	s = macroRandom.ReplaceAllStringFunc(s, expandRandom)
 	s = macroPick.ReplaceAllStringFunc(s, expandRandom)
 	s = macroRoll.ReplaceAllStringFunc(s, expandRoll)
 
+	// Time macros — snap to PromptInput.Now for build-consistency; fall
+	// back to wall-clock when handler didn't set one.
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s = strings.ReplaceAll(s, "{{time}}", now.Format("15:04"))
+	s = strings.ReplaceAll(s, "{{date}}", now.Format("2006-01-02"))
+	s = strings.ReplaceAll(s, "{{weekday}}", now.Weekday().String())
+
+	// History-reference macros.
+	s = strings.ReplaceAll(s, "{{lastUserMessage}}", lastMessageContent(in.History, RoleUser))
+	s = strings.ReplaceAll(s, "{{lastCharMessage}}", lastMessageContent(in.History, RoleAssistant))
+	s = strings.ReplaceAll(s, "{{idle_duration}}", formatIdleDuration(in.History, now))
+
+	// Variable macros — getvar pure read, setvar writes to in.Variables
+	// then expands to the stored value.
+	s = macroGetVar.ReplaceAllStringFunc(s, func(m string) string {
+		groups := macroGetVar.FindStringSubmatch(m)
+		if len(groups) < 2 {
+			return m
+		}
+		name := strings.TrimSpace(groups[1])
+		if in.Variables == nil {
+			return ""
+		}
+		return in.Variables[name]
+	})
+	s = macroSetVar.ReplaceAllStringFunc(s, func(m string) string {
+		groups := macroSetVar.FindStringSubmatch(m)
+		if len(groups) < 3 {
+			return m
+		}
+		name := strings.TrimSpace(groups[1])
+		value := strings.TrimSpace(groups[2])
+		if name == "" {
+			return ""
+		}
+		// Mutate the map in place so the handler can detect + persist.
+		// Nil map ⇒ no-op (we can't lazy-allocate because the handler
+		// uses the `== nil` sentinel to skip persist).
+		if in.Variables != nil {
+			in.Variables[name] = value
+		}
+		// ST convention: setvar expands to empty string (not to the
+		// value) so users can use it as a pure side effect without
+		// polluting the sentence.
+		return ""
+	})
+
 	return s
+}
+
+// lastMessageContent finds the most recent message in history with the
+// given role and returns its content (empty when none exist).
+func lastMessageContent(history []Message, role Role) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == role {
+			return history[i].Content
+		}
+	}
+	return ""
+}
+
+// formatIdleDuration renders the gap between now and the last user
+// message in human-friendly prose. Returns "" when there's no prior
+// user message (fresh chat). Buckets chosen to read naturally in both
+// English and Russian narrative.
+func formatIdleDuration(history []Message, now time.Time) string {
+	var lastUser *Message
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == RoleUser {
+			m := history[i]
+			lastUser = &m
+			break
+		}
+	}
+	if lastUser == nil {
+		return ""
+	}
+	gap := now.Sub(lastUser.CreatedAt)
+	switch {
+	case gap < 60*time.Second:
+		return "moments ago"
+	case gap < 5*time.Minute:
+		return "a few minutes ago"
+	case gap < time.Hour:
+		mins := int(gap.Minutes())
+		return fmt.Sprintf("%d minutes ago", mins)
+	case gap < 24*time.Hour:
+		hrs := int(gap.Hours())
+		if hrs == 1 {
+			return "an hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hrs)
+	case gap < 48*time.Hour:
+		return "yesterday"
+	case gap < 7*24*time.Hour:
+		days := int(gap.Hours() / 24)
+		return fmt.Sprintf("%d days ago", days)
+	default:
+		weeks := int(gap.Hours() / (24 * 7))
+		if weeks == 1 {
+			return "a week ago"
+		}
+		if weeks < 8 {
+			return fmt.Sprintf("%d weeks ago", weeks)
+		}
+		return "a long time ago"
+	}
 }
 
 var (
 	macroRandom = regexp.MustCompile(`\{\{random::([^}]*)\}\}`)
 	macroPick   = regexp.MustCompile(`\{\{pick::([^}]*)\}\}`)
 	macroRoll   = regexp.MustCompile(`\{\{roll::([^}]*)\}\}`)
+	// getvar/setvar use `::` separators matching ST convention.
+	// Name is [A-Za-z0-9_-]+ (validated loosely — we don't want to
+	// over-restrict international users); value in setvar is the
+	// rest of the payload up to `}}`.
+	macroGetVar = regexp.MustCompile(`\{\{getvar::([^}]+)\}\}`)
+	macroSetVar = regexp.MustCompile(`\{\{setvar::([^:}]+)::([^}]*)\}\}`)
 
 	// thinkBlock matches OpenAI o1 / Claude thinking / DeepSeek-R1 style
 	// reasoning blocks. Dotall-ish via (?s). Captures are greedy within

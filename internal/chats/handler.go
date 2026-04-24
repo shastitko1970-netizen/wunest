@@ -18,6 +18,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
+	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 	"github.com/shastitko1970-netizen/wunest/internal/worldinfo"
 	"github.com/shastitko1970-netizen/wunest/internal/wuapi"
@@ -34,6 +35,10 @@ type Handler struct {
 	Personas   *personas.Repository
 	BYOK       *byok.Repository
 	WuApi      *wuapi.Client
+	// Storage is optional — only needed for image rehosting (M39.4)
+	// and attachment write paths. nil is OK; image gen returns 503
+	// with a clear message when missing.
+	Storage *storage.Client
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
@@ -59,6 +64,9 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	// Summarise runs the LLM to (re)generate the rolling auto-summary.
 	// Gated behind beta access because it spends tokens (even if cheap).
 	mux.Handle("POST /api/chats/{id}/summarize", betaGated(http.HandlerFunc(h.summarize)))
+	// Image generation via OpenRouter BYOK (M39.4). Gated — image-gen
+	// is paid out-of-pocket, not WuApi tier.
+	mux.Handle("POST /api/images/generate", betaGated(http.HandlerFunc(h.GenerateImage)))
 	mux.Handle("POST /api/chats", authRequired(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))

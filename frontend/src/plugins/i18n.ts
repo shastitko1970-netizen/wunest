@@ -906,6 +906,19 @@ const messages = {
       pageNext: 'Дальше',
       pageN: 'Стр. {n}',
     },
+    quickReplies: {
+      title: 'Быстрые ответы',
+      hint: 'Короткие шаблоны-чипы над инпутом. Клик — вставить в черновик. Переключи «Отправить сразу», если шаблон надо отправлять без редактирования.',
+      empty: 'Пока нет шаблонов. Добавь ниже.',
+      labelLabel: 'Ярлык на чипе',
+      labelPlaceholder: 'Напр. «Продолжай»',
+      textLabel: 'Что вставить / отправить',
+      textPlaceholder: 'Напр. *осматривается* или /continue',
+      sendNow: 'Отправить сразу',
+      addTitle: 'Новый шаблон',
+      add: 'Добавить',
+      confirmDelete: 'Удалить шаблон «{label}»?',
+    },
     groupChat: {
       setup: {
         title: 'Групповой чат',
@@ -963,6 +976,13 @@ const messages = {
         hide: 'Скрыть из интерфейса (модель всё равно увидит)',
         unhide: 'Показать',
         delete: 'Удалить',
+      },
+      slash: {
+        getvarHint: '/getvar показывает значение переменной в toast\'е (не вставляет в текст)',
+      },
+      imagine: {
+        generating: 'Генерирую изображение...',
+        ready: 'Готово — картинка добавлена в черновик',
       },
       settings: {
         title: 'Настройки чата',
@@ -2004,6 +2024,19 @@ const messages = {
       pageNext: 'Next',
       pageN: 'Page {n}',
     },
+    quickReplies: {
+      title: 'Quick replies',
+      hint: 'Short template chips above the composer. Click to insert into draft. Toggle "Send immediately" for templates that should fire without editing.',
+      empty: 'No templates yet. Add one below.',
+      labelLabel: 'Chip label',
+      labelPlaceholder: 'e.g. "Continue"',
+      textLabel: 'Text to insert / send',
+      textPlaceholder: 'e.g. *looks around* or /continue',
+      sendNow: 'Send immediately',
+      addTitle: 'New template',
+      add: 'Add',
+      confirmDelete: 'Delete template "{label}"?',
+    },
     groupChat: {
       setup: {
         title: 'Group chat',
@@ -2061,6 +2094,13 @@ const messages = {
         hide: 'Hide from UI (model still sees it)',
         unhide: 'Show',
         delete: 'Delete',
+      },
+      slash: {
+        getvarHint: '/getvar shows the variable in a toast (does not insert into text)',
+      },
+      imagine: {
+        generating: 'Generating image...',
+        ready: 'Done — image added to draft',
       },
       settings: {
         title: 'Chat settings',

@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useModelsStore } from '@/stores/models'
 import { useCharactersStore } from '@/stores/characters'
 import { usePreferencesStore } from '@/stores/preferences'
+import { tryDispatch } from '@/lib/slashCommands'
 import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
@@ -338,7 +339,27 @@ watch(streaming, async (now, prev) => {
 })
 
 async function send() {
-  const text = draft.value.trim()
+  let text = draft.value.trim()
+
+  // M39.3: slash commands run here BEFORE we send to the model.
+  // If the input starts with `/`, dispatch — command may suppress the
+  // send entirely, or replace the draft with expanded text.
+  if (text.startsWith('/')) {
+    const result = await tryDispatch(text, {
+      draft,
+      runAction: runSlashAction,
+      toast: (level, txt) => onPlateToast(level, txt),
+    })
+    if (result?.suppressSend) {
+      draft.value = ''
+      return
+    }
+    if (result?.replaceDraft !== undefined) {
+      text = result.replaceDraft.trim()
+      draft.value = text
+    }
+  }
+
   // Group chat: empty draft = "continue as current speaker"
   // (typically triggered by the "Continue" button below the composer).
   if (!text && !isGroupChat.value) return
@@ -355,6 +376,95 @@ async function send() {
     model: selectedModel.value,
     speaker_id: isGroupChat.value ? (groupSpeaker.value ?? undefined) : undefined,
   })
+}
+
+// runSlashAction dispatches a named slash-command action to the
+// corresponding store method or Chat.vue-local handler.
+async function runSlashAction(name: string, payload?: any) {
+  const last = messages.value[messages.value.length - 1]
+  switch (name) {
+    case 'continue':
+      if (last) await chats.continueAssistant(last, { model: selectedModel.value })
+      break
+    case 'regenerate':
+      if (last) await chats.regenerate({ model: selectedModel.value })
+      break
+    case 'swipe-next':
+      if (last) await chats.swipe(last, { model: selectedModel.value })
+      break
+    case 'swipe-prev':
+      if (last && last.swipes && last.swipes.length) {
+        const prev = Math.max(0, (last.swipe_id ?? 0) - 1)
+        await chats.selectSwipe(last, prev)
+      }
+      break
+    case 'hide-last':
+      if (last) await onToggleHidden(last)
+      break
+    case 'show-last':
+      if (last && last.hidden) await onToggleHidden(last)
+      break
+    case 'delete-last':
+      if (last) await chats.deleteMessage(last)
+      break
+    case 'summarize':
+      if (!currentChat.value) return
+      try {
+        await chatsApi.summarize(currentChat.value.id)
+        onPlateToast('success', t('chat.settings.memory.summarize') + ' ✓')
+      } catch (e: any) {
+        onPlateToast('error', e?.message || 'Summarize failed')
+      }
+      break
+    case 'imagine':
+      if (!currentChat.value) return
+      await generateImage(payload?.prompt ?? '')
+      break
+    case 'setvar': {
+      // We can't mutate chat_metadata.variables directly from here
+      // without a dedicated endpoint; easiest path is to inject
+      // `{{setvar::name::value}}` into the next user message as a
+      // side-effect macro. Which means this slash is a sugar over
+      // "send `{{setvar::X::Y}}` as the next message".
+      const { name: n, value } = payload ?? {}
+      if (!n) return
+      draft.value = `{{setvar::${n}::${value ?? ''}}}${draft.value}`
+      onPlateToast('info', `Next send will set ${n}`)
+      break
+    }
+    case 'getvar':
+      onPlateToast('info', t('chat.slash.getvarHint'))
+      break
+    case 'clear-draft':
+      draft.value = ''
+      break
+  }
+}
+
+// generateImage triggers /api/images/generate and inserts the
+// resulting attachment URL as a Markdown image in the draft. Async
+// so the UI can keep responding; shows a toast while waiting.
+async function generateImage(prompt: string) {
+  if (!prompt) return
+  onPlateToast('info', t('chat.imagine.generating'))
+  try {
+    const res = await fetch('/api/images/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, chat_id: currentChat.value?.id }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(body || res.statusText)
+    }
+    const json = await res.json() as { url: string; model: string }
+    // Insert at end of draft so the user can add a caption before send.
+    const snippet = `![${prompt}](${json.url})`
+    draft.value = (draft.value + '\n' + snippet).trimStart()
+    onPlateToast('success', t('chat.imagine.ready'))
+  } catch (e: any) {
+    onPlateToast('error', e?.message || 'Image generation failed')
+  }
 }
 
 // continueAs fires an empty-content "continue" turn for the current

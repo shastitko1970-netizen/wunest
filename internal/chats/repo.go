@@ -431,6 +431,53 @@ func readAuthorsNote(raw json.RawMessage) *AuthorsNote {
 	return envelope.AuthorsNote
 }
 
+// readVariables extracts chat_metadata.variables as a flat string map.
+// Returns an empty map when missing — so the macro engine can mutate
+// via {{setvar}} without a nil check.
+func readVariables(raw json.RawMessage) map[string]string {
+	out := map[string]string{}
+	if len(raw) == 0 {
+		return out
+	}
+	var envelope struct {
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return out
+	}
+	for k, v := range envelope.Variables {
+		out[k] = v
+	}
+	return out
+}
+
+// SaveVariables upserts chat_metadata.variables with the given map.
+// Used after generation to persist {{setvar}} side-effects. Other
+// metadata keys (sampler, persona, authors_note, …) are preserved.
+func (r *Repository) SaveVariables(ctx context.Context, chatID uuid.UUID, vars map[string]string) error {
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	payload, err := json.Marshal(vars)
+	if err != nil {
+		return fmt.Errorf("marshal variables: %w", err)
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(
+		           COALESCE(chat_metadata, '{}'::jsonb),
+		           '{variables}',
+		           $2::jsonb,
+		           true),
+		       updated_at = NOW()
+		 WHERE id = $1
+	`
+	if _, err := r.pg.Exec(ctx, q, chatID, string(payload)); err != nil {
+		return fmt.Errorf("save variables: %w", err)
+	}
+	return nil
+}
+
 // SetBYOK writes or clears chat_metadata.byok_id. uuid.Nil clears the key;
 // otherwise the chat's stream path will use the corresponding BYOK key
 // instead of the user's WuApi key. Ownership check stays with the handler.

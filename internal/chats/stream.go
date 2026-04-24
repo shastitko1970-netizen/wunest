@@ -87,6 +87,13 @@ func (h *Handler) streamChatRegen(
 	// generation — model falls back to raw history only.
 	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
 
+	// Load chat variables for {{getvar}}/{{setvar}} macros. The map
+	// is passed BY REFERENCE so setvar mutations during macro
+	// expansion accumulate; we snapshot `before` to detect changes
+	// and persist after the stream completes.
+	vars := h.loadChatVariables(ctx, userID, chatID)
+	varsBefore := cloneStringMap(vars)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -97,8 +104,21 @@ func (h *Handler) streamChatRegen(
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
 		Summaries:            summaries,
+		Variables:            vars,
+		Now:                  time.Now(),
 		Bundle:               in.Bundle,
 	})
+	// If {{setvar}} mutated the map during substitution, persist.
+	// Best-effort: DB failure is logged but doesn't block the stream.
+	if !stringMapsEqual(varsBefore, vars) {
+		go func(v map[string]string) {
+			saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := h.Repo.SaveVariables(saveCtx, chatID, v); err != nil {
+				slog.Warn("save variables", "err", err, "chat_id", chatID)
+			}
+		}(cloneStringMap(vars))
+	}
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
@@ -345,6 +365,13 @@ func (h *Handler) streamChat(
 	// generation — model falls back to raw history only.
 	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
 
+	// Load chat variables for {{getvar}}/{{setvar}} macros. The map
+	// is passed BY REFERENCE so setvar mutations during macro
+	// expansion accumulate; we snapshot `before` to detect changes
+	// and persist after the stream completes.
+	vars := h.loadChatVariables(ctx, userID, chatID)
+	varsBefore := cloneStringMap(vars)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -355,8 +382,21 @@ func (h *Handler) streamChat(
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
 		Summaries:            summaries,
+		Variables:            vars,
+		Now:                  time.Now(),
 		Bundle:               in.Bundle,
 	})
+	// If {{setvar}} mutated the map during substitution, persist.
+	// Best-effort: DB failure is logged but doesn't block the stream.
+	if !stringMapsEqual(varsBefore, vars) {
+		go func(v map[string]string) {
+			saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := h.Repo.SaveVariables(saveCtx, chatID, v); err != nil {
+				slog.Warn("save variables", "err", err, "chat_id", chatID)
+			}
+		}(cloneStringMap(vars))
+	}
 
 	// Convert to the loose map[string]any that wuapi expects.
 	up := make([]map[string]any, 0, len(promptMsgs))
@@ -669,6 +709,13 @@ func (h *Handler) streamChatSwipe(
 	// generation — model falls back to raw history only.
 	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
 
+	// Load chat variables for {{getvar}}/{{setvar}} macros. The map
+	// is passed BY REFERENCE so setvar mutations during macro
+	// expansion accumulate; we snapshot `before` to detect changes
+	// and persist after the stream completes.
+	vars := h.loadChatVariables(ctx, userID, chatID)
+	varsBefore := cloneStringMap(vars)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -679,8 +726,21 @@ func (h *Handler) streamChatSwipe(
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
 		Summaries:            summaries,
+		Variables:            vars,
+		Now:                  time.Now(),
 		Bundle:               in.Bundle,
 	})
+	// If {{setvar}} mutated the map during substitution, persist.
+	// Best-effort: DB failure is logged but doesn't block the stream.
+	if !stringMapsEqual(varsBefore, vars) {
+		go func(v map[string]string) {
+			saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := h.Repo.SaveVariables(saveCtx, chatID, v); err != nil {
+				slog.Warn("save variables", "err", err, "chat_id", chatID)
+			}
+		}(cloneStringMap(vars))
+	}
 	up := make([]map[string]any, 0, len(promptMsgs))
 	for _, m := range promptMsgs {
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
@@ -782,6 +842,13 @@ func (h *Handler) streamChatContinue(
 	// generation — model falls back to raw history only.
 	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
 
+	// Load chat variables for {{getvar}}/{{setvar}} macros. The map
+	// is passed BY REFERENCE so setvar mutations during macro
+	// expansion accumulate; we snapshot `before` to detect changes
+	// and persist after the stream completes.
+	vars := h.loadChatVariables(ctx, userID, chatID)
+	varsBefore := cloneStringMap(vars)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -792,8 +859,21 @@ func (h *Handler) streamChatContinue(
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
 		Summaries:            summaries,
+		Variables:            vars,
+		Now:                  time.Now(),
 		Bundle:               in.Bundle,
 	})
+	// If {{setvar}} mutated the map during substitution, persist.
+	// Best-effort: DB failure is logged but doesn't block the stream.
+	if !stringMapsEqual(varsBefore, vars) {
+		go func(v map[string]string) {
+			saveCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := h.Repo.SaveVariables(saveCtx, chatID, v); err != nil {
+				slog.Warn("save variables", "err", err, "chat_id", chatID)
+			}
+		}(cloneStringMap(vars))
+	}
 	up := make([]map[string]any, 0, len(promptMsgs)+1)
 	for _, m := range promptMsgs {
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
@@ -1116,6 +1196,39 @@ func (h *Handler) pipeStreamSwipe(
 }
 
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating
+// loadChatVariables fetches chat_metadata.variables for macro support.
+// Returns empty map on any error — macros gracefully no-op when the
+// variables store is unavailable.
+func (h *Handler) loadChatVariables(ctx context.Context, userID, chatID uuid.UUID) map[string]string {
+	chat, err := h.Repo.GetChat(ctx, userID, chatID)
+	if err != nil {
+		return map[string]string{}
+	}
+	return readVariables(chat.Metadata)
+}
+
+// cloneStringMap / stringMapsEqual — small helpers used by the
+// setvar-persist path to detect whether the macro engine mutated the
+// variables map during substitution.
+func cloneStringMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+func stringMapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // loadOtherCharacters resolves the "other participants in this group"
 // from their IDs into full Character objects, skipping any that are
 // missing/deleted. Returns nil (not empty slice) when otherCharIDs is
