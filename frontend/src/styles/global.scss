@@ -189,6 +189,24 @@ html, body, #app {
   font-feature-settings: 'tnum' 1;
 }
 
+// ── Hint text utility ────────────────────────────────
+// Small secondary-coloured block used for form-field tips, guide
+// subtitles, saved-confirmation messages, etc. Baseline 11.5px —
+// matches the old inline `style="font-size: 11.5px"` we'd sprinkled
+// over the codebase; now one class carries the semantics.
+//
+// `.nest-hint--xs` bumps it down to 10.5px for very tight contexts
+// (tag metadata, inline CSS-selector-audit previews).
+.nest-hint {
+  font-size: 11.5px;
+  color: var(--nest-text-secondary);
+  line-height: 1.4;
+
+  &--xs { font-size: 10.5px; }
+  &--sm { font-size: 12px; }
+  &--md { font-size: 12.5px; }
+}
+
 // ── Appearance-driven overrides ──────────────────────
 // The Appearance panel writes CSS custom properties onto :root; the rules
 // below wire those tokens into Vuetify primitives so slider changes take

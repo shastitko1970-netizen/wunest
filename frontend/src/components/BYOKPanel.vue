@@ -344,8 +344,7 @@ function formatDate(iso: string): string {
             type="warning"
             variant="tonal"
             density="compact"
-            class="mt-3"
-            style="font-size: 11.5px"
+            class="mt-3 nest-hint"
           >
             {{ t('byok.form.compatNote') }}
           </v-alert>

@@ -530,7 +530,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
             {{ t('appearance.cssScope.global') }}
           </v-btn>
         </v-btn-toggle>
-        <p class="nest-subtitle mt-2" style="font-size: 12px">
+        <p class="nest-hint nest-hint--sm mt-2">
           {{ customCssScope === 'chat'
             ? t('appearance.cssScope.chatHint')
             : t('appearance.cssScope.globalHint') }}
@@ -543,13 +543,12 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           type="warning"
           variant="tonal"
           density="compact"
-          class="mt-2"
-          style="font-size: 11.5px"
+          class="mt-2 nest-hint"
         >
           <div>
             {{ t('appearance.cssScope.globalWarning') }}
           </div>
-          <div class="mt-1 nest-mono" style="font-size: 10.5px; opacity: 0.85">
+          <div class="mt-1 nest-mono nest-hint--xs nest-audit-selectors">
             {{ dangerousAudit.slice(0, 6).map(a => a.selector).join(', ') }}{{ dangerousAudit.length > 6 ? '…' : '' }}
           </div>
         </v-alert>
@@ -562,8 +561,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           type="info"
           variant="tonal"
           density="compact"
-          class="mt-2"
-          style="font-size: 11.5px"
+          class="mt-2 nest-hint"
         >
           {{ t('appearance.cssScope.scopeFallback') }}
         </v-alert>
@@ -581,7 +579,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           <p class="nest-subtitle">{{ t('appearance.guide.intro') }}</p>
 
           <h4 class="nest-h4 mt-3">{{ t('appearance.guide.varsTitle') }}</h4>
-          <p class="nest-subtitle" style="font-size: 12.5px">{{ t('appearance.guide.varsIntro') }}</p>
+          <p class="nest-hint nest-hint--md">{{ t('appearance.guide.varsIntro') }}</p>
           <pre class="nest-guide-snippet">:root {
   --SmartThemeBodyColor: #f0f0f0;
   --SmartThemeBorderColor: #3c1e50;
@@ -592,7 +590,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 }</pre>
 
           <h4 class="nest-h4 mt-3">{{ t('appearance.guide.classesTitle') }}</h4>
-          <p class="nest-subtitle" style="font-size: 12.5px">{{ t('appearance.guide.classesIntro') }}</p>
+          <p class="nest-hint nest-hint--md">{{ t('appearance.guide.classesIntro') }}</p>
           <ul class="nest-guide-list nest-mono">
             <li><code>.nest-msg</code> / <code>.mes</code> — <span>{{ t('appearance.guide.selMsg') }}</span></li>
             <li><code>.nest-msg-body</code> / <code>.mes_block</code> — <span>{{ t('appearance.guide.selMsgBody') }}</span></li>
@@ -604,7 +602,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           </ul>
 
           <h4 class="nest-h4 mt-3">{{ t('appearance.guide.exampleTitle') }}</h4>
-          <p class="nest-subtitle" style="font-size: 12.5px">{{ t('appearance.guide.exampleIntro') }}</p>
+          <p class="nest-hint nest-hint--md">{{ t('appearance.guide.exampleIntro') }}</p>
           <pre class="nest-guide-snippet">/* Message bubble with soft glow */
 .mes {
   background: rgba(30, 15, 45, 0.65);
@@ -619,7 +617,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 /* Your typed message input */
 #send_textarea { color: #f1d1ff; }</pre>
 
-          <p class="nest-subtitle mt-3" style="font-size: 11.5px">
+          <p class="nest-hint mt-3">
             {{ t('appearance.guide.stImportNote') }}
           </p>
         </div>
@@ -679,6 +677,12 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
 
 <style lang="scss" scoped>
 .nest-appearance { display: flex; flex-direction: column; gap: 24px; }
+
+// Audit-selector preview inside the css-scope warning card — was
+// inline style="font-size: 10.5px; opacity: 0.85". Lifted into class
+// so the muted look is consistent with the .nest-hint--xs utility
+// plus its own opacity override.
+.nest-audit-selectors { opacity: 0.85; }
 
 // ─── Theme preset picker (M42.2) ───────────────────────────────────
 // Grid of theme cards with live mini-previews. Each card is a button;

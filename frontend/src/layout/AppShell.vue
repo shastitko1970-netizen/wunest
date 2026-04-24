@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -146,9 +146,7 @@ function isNavActive(to: string): boolean {
 // Unified through the M42.1 theme store. The sun/moon button flips
 // between the user's last light preset and last dark preset — if
 // they picked "Cyber neon" (dark) and hit the sun, they get
-// "Nest — light" (the current default light). We also sync Vuetify's
-// `v-theme--nest*` class so any remaining component that reads the
-// semantic palette via Vuetify's theme name still gets the right one.
+// "Nest — light" (the current default light).
 const themeStore = useThemeStore()
 const { current: currentPreset } = storeToRefs(themeStore)
 const isDark = computed(() => currentPreset.value.kind === 'dark')
@@ -156,11 +154,32 @@ const isDark = computed(() => currentPreset.value.kind === 'dark')
 async function toggleTheme() {
   const next = isDark.value ? 'nest-default-light' : 'nest-default-dark'
   await themeStore.apply(next)
-  // Mirror into Vuetify theme name so `.v-theme--nest*` classes in
-  // global.scss pick up correctly. Keeping this sync means hand-rolled
-  // rules tied to the Vuetify name still apply.
-  vTheme.global.name.value = isDark.value ? 'nestLight' : 'nestDark'
+  // Vuetify sync is handled by the watcher below — no need to dup it here.
 }
+
+// Keep Vuetify theme name mirrored to the preset's kind.
+//
+// Background: two palette systems run side-by-side.
+//   - Our DS tokens live in :root and `.v-theme--nest{Dark,Light}` blocks
+//     in global.scss. They set --nest-* via --SmartTheme* fallbacks.
+//   - Vuetify builds its own --v-theme-* variables from `theme.name`
+//     and feeds them into v-card / v-btn / etc.
+//
+// Before this watcher, picking a "Cyber neon" (dark) preset from the
+// picker would swap the <style id="nest-theme"> CSS (our tokens) but
+// leave Vuetify on whatever theme.name was last — so the background
+// went cyber-dark, but v-card-colour shades stayed "light", producing
+// hybrid-ugly bubbles. Syncing on every preset change closes that gap.
+//
+// Writes `nest:theme` back to localStorage so the bootstrap step in
+// main.ts continues to resolve the right theme on next reload.
+watch(() => currentPreset.value.kind, (kind) => {
+  const wanted = kind === 'dark' ? 'nestDark' : 'nestLight'
+  if (vTheme.global.name.value !== wanted) {
+    vTheme.global.name.value = wanted
+    localStorage.setItem('nest:theme', wanted)
+  }
+}, { immediate: true })
 
 // ─── Locale picker ──────────────────────────────────────────
 function setLocale(code: string) {

@@ -24,7 +24,7 @@ const loginUrl = computed(() => `/auth/start?return_to=${returnTo.value}`)
       <div class="d-flex flex-column align-center ga-6">
         <div class="nest-logo-xl">▲</div>
         <h1 class="nest-h1 text-center">{{ t('login.headline') }}</h1>
-        <p class="nest-subtitle text-center" style="max-width: 480px">
+        <p class="nest-subtitle text-center nest-login-tagline">
           {{ t('login.tagline') }}
         </p>
 
@@ -43,9 +43,17 @@ const loginUrl = computed(() => `/auth/start?return_to=${returnTo.value}`)
 
 <style lang="scss" scoped>
 .nest-login {
-  min-height: 80vh;
+  // 100dvh so the hero centres reliably on mobile URL-bar toggles.
+  // 80 allows some shell breathing room.
+  min-height: 80dvh;
   display: grid;
   place-items: center;
+}
+
+// Tagline under the hero — was inline max-width. In class so the
+// measure can be overridden by mod CSS.
+.nest-login-tagline {
+  max-width: 480px;
 }
 
 .nest-logo-xl {

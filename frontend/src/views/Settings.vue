@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import AppearancePanel from '@/components/AppearancePanel.vue'
 import BYOKPanel from '@/components/BYOKPanel.vue'
@@ -9,20 +8,21 @@ import { useModelsStore } from '@/stores/models'
 import { usePreferencesStore } from '@/stores/preferences'
 import { apiFetch } from '@/api/client'
 
+// useTheme import removed along with the radio-group — Vuetify theme
+// state lives entirely in the AppShell / theme store pair now.
 const { t, locale, availableLocales } = useI18n()
-const vTheme = useTheme()
 const models = useModelsStore()
 const prefs = usePreferencesStore()
 const { disableStreaming } = storeToRefs(prefs)
 const { items: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
-const currentTheme = computed({
-  get: () => vTheme.global.name.value,
-  set: (v: string) => {
-    vTheme.global.name.value = v
-    localStorage.setItem('nest:theme', v)
-  },
-})
+// Vuetify theme name + nest:theme localStorage are managed by:
+//   - AppShell sun/moon button (quick light/dark flip)
+//   - AppearancePanel theme picker (5-preset grid)
+//   - AppShell watcher that syncs Vuetify on preset change
+// The old Settings radio-group (nestDark/nestLight) was removed in
+// the M42 audit — a third entry point risked state drift against
+// the preset store. Language picker stays here; it has no overlap.
 
 const currentLocale = computed({
   get: () => locale.value,
@@ -87,13 +87,10 @@ async function saveDefaultModel(v: string) {
     <div class="nest-eyebrow">{{ t('nav.settings') }}</div>
     <h1 class="nest-h1 mt-1">{{ t('settings.title') }}</h1>
 
-    <section class="nest-section">
-      <h2 class="nest-h2">{{ t('settings.theme') }}</h2>
-      <v-radio-group v-model="currentTheme" hide-details>
-        <v-radio label="WuNest Dark" value="nestDark" />
-        <v-radio label="WuNest Light" value="nestLight" />
-      </v-radio-group>
-    </section>
+    <!-- Theme moved to /settings → Appearance → Theme (M42.2 picker).
+         AppShell exposes a sun/moon quick-toggle in the topbar. No
+         competing radio-group here any more — one source of truth for
+         palette state. -->
 
     <section class="nest-section">
       <h2 class="nest-h2">{{ t('settings.language') }}</h2>
@@ -118,10 +115,10 @@ async function saveDefaultModel(v: string) {
         :loading="modelsLoading || defaultModelSaving"
         density="compact"
         hide-details
-        style="max-width: 360px"
+        class="nest-settings-select"
         @update:model-value="saveDefaultModel"
       />
-      <div v-if="defaultModelSaved" class="nest-mono text-success mt-2" style="font-size: 11px">
+      <div v-if="defaultModelSaved" class="nest-mono text-success mt-2 nest-hint--xs">
         {{ t('settings.defaultModel.saved') }}
       </div>
     </section>
@@ -137,7 +134,7 @@ async function saveDefaultModel(v: string) {
         hide-details
         density="compact"
       />
-      <p class="nest-subtitle mt-2" style="font-size: 11.5px">
+      <p class="nest-hint mt-2">
         {{ t('settings.streaming.disableHint') }}
       </p>
     </section>
@@ -166,5 +163,11 @@ async function saveDefaultModel(v: string) {
   border-top: none;
   padding-top: 0;
   margin-top: 24px;
+}
+
+// Default-model select gets a fixed cap so it doesn't sprawl across
+// the 720px column — was inline style="max-width: 360px".
+.nest-settings-select {
+  max-width: 360px;
 }
 </style>

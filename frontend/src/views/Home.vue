@@ -12,7 +12,9 @@ const goldDisplay = (nano: number) => (nano / 1_000_000_000).toFixed(2)
 
 <template>
   <v-main>
-    <v-container class="py-16" style="max-width: 820px">
+    <!-- 820px matches --nest-content-max from global.scss; wrapping the
+         container width in a class keeps layout tokens consistent. -->
+    <v-container class="py-16 nest-home-container">
       <div v-if="loading" class="text-center text-medium-emphasis">
         {{ t('app.loading') }}
       </div>
@@ -69,3 +71,12 @@ const goldDisplay = (nano: number) => (nano / 1_000_000_000).toFixed(2)
     </v-container>
   </v-main>
 </template>
+
+<style lang="scss" scoped>
+.nest-home-container {
+  // 820px matches --nest-content-max; keeping the constraint in CSS
+  // (not inline) lets mod authors override via:
+  //   .nest-home-container { max-width: var(--nest-content-max) }
+  max-width: var(--nest-content-max);
+}
+</style>
