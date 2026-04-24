@@ -51,7 +51,20 @@ const GROUP_KEYS = {
 } as const
 type GroupKey = keyof typeof GROUP_KEYS
 
-const grouped = computed(() => groupByDay(list.value))
+// Simple tag filter — single-tag toggle, click a chip to activate,
+// click again to clear. Power users can filter by multiple tags via
+// the search dialog (M37) with syntax like `tag:RP tag:dragon`.
+const activeTagFilter = ref<string>('')
+function toggleTagFilter(tag: string) {
+  activeTagFilter.value = activeTagFilter.value === tag ? '' : tag
+}
+
+const filteredList = computed(() => {
+  if (!activeTagFilter.value) return list.value
+  return list.value.filter(c => (c.tags ?? []).includes(activeTagFilter.value))
+})
+
+const grouped = computed(() => groupByDay(filteredList.value))
 
 function select(c: Chat) {
   router.push(`/chat/${c.id}`)
@@ -147,6 +160,20 @@ async function del(c: Chat, ev: Event) {
           <div class="nest-chatitem-meta nest-mono">
             <span v-if="c.character_name" class="nest-chatitem-char">{{ c.character_name }}</span>
           </div>
+          <!-- Tag chips inline — clipped to 3 for density, rest in a
+               "+N" pill. Click any tag → activate filter. -->
+          <div v-if="(c.tags ?? []).length" class="nest-chatitem-tags">
+            <span
+              v-for="tag in (c.tags ?? []).slice(0, 3)"
+              :key="tag"
+              class="nest-chatitem-tag"
+              :class="{ active: tag === activeTagFilter }"
+              @click.stop="toggleTagFilter(tag)"
+            >{{ tag }}</span>
+            <span v-if="(c.tags ?? []).length > 3" class="nest-chatitem-tag muted">
+              +{{ (c.tags ?? []).length - 3 }}
+            </span>
+          </div>
           <button
             class="nest-chatitem-del"
             :aria-label="`Delete chat ${c.name}`"
@@ -191,6 +218,34 @@ function groupByDay(chats: Chat[]): Record<'today' | 'yesterday' | 'week' | 'old
   padding: 12px 8px;
   overflow-y: auto;
 }
+.nest-chatitem-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.nest-chatitem-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: var(--nest-bg-elevated);
+  color: var(--nest-text-secondary);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-pill);
+  cursor: pointer;
+  transition: border-color var(--nest-transition-fast);
+
+  &:hover:not(.muted) { border-color: var(--nest-accent); }
+  &.active {
+    color: var(--nest-text-on-accent, #fff);
+    background: var(--nest-accent);
+    border-color: var(--nest-accent);
+  }
+  &.muted { opacity: 0.7; cursor: default; }
+}
+
 .nest-chatlist-header {
   display: flex;
   align-items: center;

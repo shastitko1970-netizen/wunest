@@ -30,6 +30,13 @@ type PromptInput struct {
 	Worlds               []*worldinfo.World    // lorebooks attached to this chat/character
 	AuthorsNote          *AuthorsNote          // optional mid-history injection
 
+	// Summaries are rolling/manual/pinned memory blocks injected into
+	// the system prompt before character description. Auto summaries
+	// cover messages up to their CoveredThroughMessageID — the handler
+	// filters History to drop anything already summarised so the model
+	// doesn't see the same content twice.
+	Summaries []Summary
+
 	// OtherCharacters are the non-speaking participants of a group chat.
 	// When non-empty:
 	//   - A "scene manifest" block is injected into the system prompt
@@ -235,6 +242,15 @@ func buildSystem(in PromptInput) string {
 		b.WriteString("\n\n")
 	}
 
+	// Memory block — rolling auto summary first, then manual notes,
+	// then pinned facts. The handler has already filtered `History`
+	// to exclude messages covered by the auto summary, so there's no
+	// content duplication.
+	if memBlock := buildMemoryBlock(in); memBlock != "" {
+		b.WriteString(memBlock)
+		b.WriteString("\n\n")
+	}
+
 	if ud := strings.TrimSpace(in.UserDesc); ud != "" {
 		b.WriteString("About the user: ")
 		b.WriteString(ud)
@@ -246,6 +262,73 @@ func buildSystem(in PromptInput) string {
 		b.WriteString("\n\n")
 	}
 
+	return strings.TrimSpace(b.String())
+}
+
+// buildMemoryBlock emits the "[Memory]" system block for a chat that
+// has summaries attached. No-op when no summaries exist.
+//
+// Layout:
+//
+//	[Memory]
+//	## Rolling summary (through turn N)
+//	<auto summary content>
+//
+//	## Notes
+//	- <manual 1>
+//	- <manual 2>
+//
+//	## Key facts (pinned)
+//	- <pinned 1>
+//
+// Roles are stable in that order (rolling → manual → pinned). Macros
+// expand inside each — so users can parameterise summaries with
+// {{user}} / {{char}} / variables.
+func buildMemoryBlock(in PromptInput) string {
+	if len(in.Summaries) == 0 {
+		return ""
+	}
+	var auto *Summary
+	var manual []Summary
+	var pinned []Summary
+	for i := range in.Summaries {
+		s := &in.Summaries[i]
+		switch s.Role {
+		case "auto":
+			auto = s
+		case "manual":
+			manual = append(manual, *s)
+		case "pinned":
+			pinned = append(pinned, *s)
+		}
+	}
+	if auto == nil && len(manual) == 0 && len(pinned) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[Memory]\n")
+	if auto != nil && strings.TrimSpace(auto.Content) != "" {
+		b.WriteString("## Rolling summary of earlier events\n")
+		b.WriteString(SubstituteMacros(auto.Content, in))
+		b.WriteString("\n\n")
+	}
+	if len(manual) > 0 {
+		b.WriteString("## Notes\n")
+		for _, m := range manual {
+			b.WriteString("- ")
+			b.WriteString(SubstituteMacros(m.Content, in))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(pinned) > 0 {
+		b.WriteString("## Key facts (always-on)\n")
+		for _, p := range pinned {
+			b.WriteString("- ")
+			b.WriteString(SubstituteMacros(p.Content, in))
+			b.WriteString("\n")
+		}
+	}
 	return strings.TrimSpace(b.String())
 }
 

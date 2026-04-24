@@ -30,6 +30,7 @@ type Chat struct {
 	CharacterIDs  []uuid.UUID     `json:"character_ids,omitempty"`  // all participants (group chats)
 	IsGroupChat   bool            `json:"is_group_chat,omitempty"`  // derived: len(CharacterIDs) > 1
 	Name          string          `json:"name"`
+	Tags          []string        `json:"tags"` // free-form user-authored; dedup on read
 	Metadata      json.RawMessage `json:"chat_metadata,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
@@ -71,6 +72,34 @@ type Message struct {
 	// assistant messages.
 	SwipeCharacterIDs []uuid.UUID `json:"swipe_character_ids,omitempty"`
 	CreatedAt         time.Time   `json:"created_at"`
+}
+
+// Summary is one row from nest_chat_summaries. Three kinds live here:
+//
+//   - role="auto"   — the rolling chat summary maintained by the memory
+//                      engine. There's at most one per chat; regen
+//                      replaces in place.
+//   - role="manual" — free-form user-authored notes ("Act 1 recap",
+//                      "things Alice knows but Bob doesn't"). Persist
+//                      until the user deletes them. Never auto-replaced.
+//   - role="pinned" — critical facts the user wants to always inject
+//                      regardless of context budget (e.g. world rules).
+//                      Same lifecycle as manual but different UI slot.
+//
+// CoveredThroughMessageID is the message_id of the LATEST message the
+// summary covers. Messages with id > this in history are still played
+// fresh to the model. For manual/pinned summaries it's typically nil.
+type Summary struct {
+	ID                      uuid.UUID  `json:"id"`
+	ChatID                  uuid.UUID  `json:"chat_id"`
+	Content                 string     `json:"content"`
+	Role                    string     `json:"role"` // auto | manual | pinned
+	CoveredThroughMessageID *int64     `json:"covered_through_message_id,omitempty"`
+	TokenCount              int        `json:"token_count"`
+	Model                   string     `json:"model,omitempty"`
+	Position                int        `json:"position"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 // ChatGroupMetadata captures per-chat group-chat preferences, stored

@@ -18,6 +18,8 @@ export interface Chat {
   /** Derived: true iff character_ids.length > 1. */
   is_group_chat?: boolean
   name: string
+  /** Free-form user-authored tags for organising chats (M38.1). */
+  tags?: string[]
   chat_metadata?: {
     sampler?: ChatSamplerMetadata
     persona_id?: string | null
@@ -28,6 +30,40 @@ export interface Chat {
   created_at: string
   updated_at: string
   last_message_at?: string
+}
+
+/** Aggregate stats for a single chat (M38.3). */
+export interface ChatStats {
+  chat_id: string
+  messages_total: number
+  messages_user: number
+  messages_assistant: number
+  messages_system: number
+  messages_hidden: number
+  tokens_in_total: number
+  tokens_out_total: number
+  swipes_total: number
+  first_message_at?: string
+  last_message_at?: string
+  unique_models_used: number
+}
+
+/** One summary row (M38.4). Three roles:
+ *    auto    — rolling narrative maintained by the memory engine
+ *    manual  — user-authored notes (free-form)
+ *    pinned  — always-on key facts
+ */
+export interface Summary {
+  id: string
+  chat_id: string
+  content: string
+  role: 'auto' | 'manual' | 'pinned'
+  covered_through_message_id?: number | null
+  token_count: number
+  model?: string
+  position: number
+  created_at: string
+  updated_at: string
 }
 
 /** One hit from GET /api/chats/search. Server returns snippets wrapped
@@ -87,6 +123,8 @@ export interface Message {
   swipes?: string[]
   swipe_id: number
   extras?: MessageExtras
+  /** Silent flag — when true, message is greyed-out in the UI but
+   *  still feeds into the model prompt (M38.2). */
   hidden?: boolean
   /** Speaker attribution in a group chat. Nil for user/system and for
    *  single-character assistant messages (fall back to chat.character_id). */
@@ -134,6 +172,49 @@ export const chatsApi = {
     apiFetch<void>(`/api/chats/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
+    }),
+
+  setTags: (id: string, tags: string[]) =>
+    apiFetch<void>(`/api/chats/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ tags }),
+    }),
+
+  listTags: () =>
+    apiFetch<{ items: string[] }>('/api/chats/tags'),
+
+  stats: (id: string) =>
+    apiFetch<ChatStats>(`/api/chats/${id}/stats`),
+
+  // ── Memory / summaries (M38.4) ─────────────────────────────────
+  listSummaries: (chatID: string) =>
+    apiFetch<{ items: Summary[] }>(`/api/chats/${chatID}/summaries`),
+  createSummary: (chatID: string, content: string, pinned: boolean) =>
+    apiFetch<Summary>(`/api/chats/${chatID}/summaries`, {
+      method: 'POST',
+      body: JSON.stringify({ content, pinned }),
+    }),
+  updateSummary: (chatID: string, sid: string, body: { content?: string; role?: string }) =>
+    apiFetch<void>(`/api/chats/${chatID}/summaries/${sid}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteSummary: (chatID: string, sid: string) =>
+    apiFetch<void>(`/api/chats/${chatID}/summaries/${sid}`, {
+      method: 'DELETE',
+    }),
+  summarize: (chatID: string, model?: string) =>
+    apiFetch<{ summary: Summary | null; folded: number; message?: string }>(
+      `/api/chats/${chatID}/summarize`,
+      { method: 'POST', body: JSON.stringify({ model: model ?? '' }) },
+    ),
+
+  // Silent message toggle (M38.2). Reuses the edit endpoint with just
+  // `hidden` in the body.
+  setMessageHidden: (chatID: string, mid: number, hidden: boolean) =>
+    apiFetch<void>(`/api/chats/${chatID}/messages/${mid}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ hidden }),
     }),
 
   setSampler: (id: string, sampler: ChatSamplerMetadata) =>

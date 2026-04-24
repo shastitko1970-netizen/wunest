@@ -117,7 +117,7 @@ func (r *Repository) ListChats(ctx context.Context, userID uuid.UUID) ([]Chat, e
 		SELECT
 		    c.id, c.user_id, c.character_id, COALESCE(ch.name, '') AS character_name,
 		    c.character_ids,
-		    c.name, c.chat_metadata, c.created_at, c.updated_at,
+		    c.name, c.tags, c.chat_metadata, c.created_at, c.updated_at,
 		    COALESCE((SELECT MAX(m.created_at) FROM nest_messages m WHERE m.chat_id = c.id), c.updated_at) AS last_message_at
 		  FROM nest_chats c
 		  LEFT JOIN nest_characters ch ON ch.id = c.character_id
@@ -137,7 +137,7 @@ func (r *Repository) ListChats(ctx context.Context, userID uuid.UUID) ([]Chat, e
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.CharacterID, &c.CharacterName,
 			&c.CharacterIDs,
-			&c.Name, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
+			&c.Name, &c.Tags, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan chat: %w", err)
 		}
@@ -154,7 +154,7 @@ func (r *Repository) GetChat(ctx context.Context, userID, id uuid.UUID) (*Chat, 
 		SELECT
 		    c.id, c.user_id, c.character_id, COALESCE(ch.name, '') AS character_name,
 		    c.character_ids,
-		    c.name, c.chat_metadata, c.created_at, c.updated_at,
+		    c.name, c.tags, c.chat_metadata, c.created_at, c.updated_at,
 		    COALESCE((SELECT MAX(m.created_at) FROM nest_messages m WHERE m.chat_id = c.id), c.updated_at)
 		  FROM nest_chats c
 		  LEFT JOIN nest_characters ch ON ch.id = c.character_id
@@ -165,7 +165,7 @@ func (r *Repository) GetChat(ctx context.Context, userID, id uuid.UUID) (*Chat, 
 	err := r.pg.QueryRow(ctx, q, userID, id).Scan(
 		&c.ID, &c.UserID, &c.CharacterID, &c.CharacterName,
 		&c.CharacterIDs,
-		&c.Name, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
+		&c.Name, &c.Tags, &meta, &c.CreatedAt, &c.UpdatedAt, &c.LastMessageAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -224,6 +224,66 @@ func (r *Repository) CreateChat(ctx context.Context, in CreateChatInput) (*Chat,
 		UpdatedAt:     updAt,
 		LastMessageAt: updAt,
 	}, nil
+}
+
+// SetTags overwrites the tag list for a chat. Empty slice clears tags.
+// Tags are stored verbatim — caller handles dedup/normalisation (the
+// frontend does case-folded dedup before submit).
+func (r *Repository) SetTags(ctx context.Context, userID, id uuid.UUID, tags []string) error {
+	if tags == nil {
+		tags = []string{}
+	}
+	// Trim whitespace + drop empties + dedupe (case-insensitive) server-
+	// side as a belt-and-suspenders guard. Order is preserved from input.
+	seen := make(map[string]struct{}, len(tags))
+	clean := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		key := strings.ToLower(t)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		clean = append(clean, t)
+	}
+	const q = `UPDATE nest_chats SET tags = $3, updated_at = NOW() WHERE user_id = $1 AND id = $2`
+	tag, err := r.pg.Exec(ctx, q, userID, id, clean)
+	if err != nil {
+		return fmt.Errorf("set tags: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DistinctTags returns all tags the user has ever used, alphabetically
+// sorted. Used for autocomplete + filter UI. Cheap query thanks to the
+// GIN index.
+func (r *Repository) DistinctTags(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	const q = `
+		SELECT DISTINCT unnest(tags) AS t
+		  FROM nest_chats
+		 WHERE user_id = $1
+		 ORDER BY t ASC
+	`
+	rows, err := r.pg.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("distinct tags: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0, 20)
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 func (r *Repository) RenameChat(ctx context.Context, userID, id uuid.UUID, name string) error {
@@ -713,6 +773,252 @@ func (r *Repository) EditMessageContent(ctx context.Context, chatID uuid.UUID, m
 	tag, err := r.pg.Exec(ctx, q, chatID, messageID, content)
 	if err != nil {
 		return fmt.Errorf("edit message: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ── Summaries (M38.4 memory) ─────────────────────────────────────
+
+// ListSummaries returns every summary row for the chat, position-asc.
+// All three roles (auto, manual, pinned) interleave in the result; UI
+// sorts by role + position.
+func (r *Repository) ListSummaries(ctx context.Context, chatID uuid.UUID) ([]Summary, error) {
+	const q = `
+		SELECT id, chat_id, content, role, covered_through_message_id,
+		       token_count, model, position, created_at, updated_at
+		  FROM nest_chat_summaries
+		 WHERE chat_id = $1
+		 ORDER BY role DESC, position ASC, created_at ASC
+	`
+	rows, err := r.pg.Query(ctx, q, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("list summaries: %w", err)
+	}
+	defer rows.Close()
+	out := make([]Summary, 0, 4)
+	for rows.Next() {
+		var s Summary
+		if err := rows.Scan(
+			&s.ID, &s.ChatID, &s.Content, &s.Role, &s.CoveredThroughMessageID,
+			&s.TokenCount, &s.Model, &s.Position, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan summary: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// GetAutoSummary returns the chat's single auto-summary row (nil + no
+// error when missing). Used by the memory-injection path to decide
+// whether to prepend a summary block.
+func (r *Repository) GetAutoSummary(ctx context.Context, chatID uuid.UUID) (*Summary, error) {
+	const q = `
+		SELECT id, chat_id, content, role, covered_through_message_id,
+		       token_count, model, position, created_at, updated_at
+		  FROM nest_chat_summaries
+		 WHERE chat_id = $1 AND role = 'auto'
+		 LIMIT 1
+	`
+	var s Summary
+	err := r.pg.QueryRow(ctx, q, chatID).Scan(
+		&s.ID, &s.ChatID, &s.Content, &s.Role, &s.CoveredThroughMessageID,
+		&s.TokenCount, &s.Model, &s.Position, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get auto summary: %w", err)
+	}
+	return &s, nil
+}
+
+// UpsertAutoSummary replaces-or-inserts the single auto-summary row.
+// Returns the persisted Summary so the caller can emit it to the UI.
+func (r *Repository) UpsertAutoSummary(
+	ctx context.Context,
+	chatID uuid.UUID,
+	content string,
+	coveredThroughMessageID int64,
+	tokenCount int,
+	model string,
+) (*Summary, error) {
+	// Delete existing auto row then insert fresh — cleaner than a
+	// conditional UPSERT given we want a fresh updated_at either way.
+	if _, err := r.pg.Exec(ctx,
+		`DELETE FROM nest_chat_summaries WHERE chat_id = $1 AND role = 'auto'`,
+		chatID,
+	); err != nil {
+		return nil, fmt.Errorf("drop old auto summary: %w", err)
+	}
+	id := uuid.New()
+	const q = `
+		INSERT INTO nest_chat_summaries
+		    (id, chat_id, content, role, covered_through_message_id, token_count, model, position)
+		VALUES ($1, $2, $3, 'auto', $4, $5, $6, 0)
+		RETURNING created_at, updated_at
+	`
+	s := &Summary{
+		ID:                      id,
+		ChatID:                  chatID,
+		Content:                 content,
+		Role:                    "auto",
+		CoveredThroughMessageID: &coveredThroughMessageID,
+		TokenCount:              tokenCount,
+		Model:                   model,
+	}
+	if err := r.pg.QueryRow(ctx, q,
+		id, chatID, content, coveredThroughMessageID, tokenCount, model,
+	).Scan(&s.CreatedAt, &s.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("insert auto summary: %w", err)
+	}
+	return s, nil
+}
+
+// CreateManualSummary inserts a user-authored summary row (role=manual
+// or role=pinned). Position defaults to the next available slot.
+func (r *Repository) CreateManualSummary(
+	ctx context.Context,
+	chatID uuid.UUID,
+	content string,
+	pinned bool,
+) (*Summary, error) {
+	role := "manual"
+	if pinned {
+		role = "pinned"
+	}
+	id := uuid.New()
+	s := &Summary{
+		ID:      id,
+		ChatID:  chatID,
+		Content: content,
+		Role:    role,
+	}
+	const q = `
+		INSERT INTO nest_chat_summaries (id, chat_id, content, role, position)
+		VALUES ($1, $2, $3, $4,
+		    COALESCE((SELECT MAX(position)+1 FROM nest_chat_summaries WHERE chat_id = $2 AND role = $4), 0))
+		RETURNING position, created_at, updated_at
+	`
+	if err := r.pg.QueryRow(ctx, q, id, chatID, content, role).
+		Scan(&s.Position, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("insert manual summary: %w", err)
+	}
+	return s, nil
+}
+
+// UpdateSummary edits an existing summary's content + role. Used for
+// user edits in the memory drawer (including promoting auto→manual
+// to prevent regen from overwriting user tweaks).
+func (r *Repository) UpdateSummary(ctx context.Context, id uuid.UUID, content string, role string) error {
+	if role == "" {
+		role = "manual"
+	}
+	const q = `
+		UPDATE nest_chat_summaries
+		   SET content = $2, role = $3, updated_at = NOW()
+		 WHERE id = $1
+	`
+	tag, err := r.pg.Exec(ctx, q, id, content, role)
+	if err != nil {
+		return fmt.Errorf("update summary: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteSummary removes a summary by id (owner verified at handler via
+// JOIN to chat ownership).
+func (r *Repository) DeleteSummary(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.pg.Exec(ctx, `DELETE FROM nest_chat_summaries WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete summary: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ChatStats is an aggregate snapshot of a chat's activity. All counts
+// include hidden messages (which still exist in DB); tokens are based
+// on what the model actually saw at the time (extras.tokens_*).
+type ChatStats struct {
+	ChatID               uuid.UUID `json:"chat_id"`
+	MessagesTotal        int       `json:"messages_total"`
+	MessagesUser         int       `json:"messages_user"`
+	MessagesAssistant    int       `json:"messages_assistant"`
+	MessagesSystem       int       `json:"messages_system"`
+	MessagesHidden       int       `json:"messages_hidden"`
+	TokensInTotal        int       `json:"tokens_in_total"`
+	TokensOutTotal       int       `json:"tokens_out_total"`
+	SwipesTotal          int       `json:"swipes_total"`          // cumulative regenerations
+	FirstMessageAt       *time.Time `json:"first_message_at,omitempty"`
+	LastMessageAt        *time.Time `json:"last_message_at,omitempty"`
+	UniqueModelsUsed     int        `json:"unique_models_used"`    // DISTINCT extras.model
+}
+
+// GetChatStats runs one query per metric in parallel-ish (actually
+// serial but cheap — all hit the same indexed (chat_id, id) path).
+// Returns zero values for an empty chat rather than ErrNotFound — a
+// chat with no messages is valid.
+func (r *Repository) GetChatStats(ctx context.Context, chatID uuid.UUID) (*ChatStats, error) {
+	s := &ChatStats{ChatID: chatID}
+	// One combined query pulls counts + aggregates in a single round-trip.
+	// JSONB extras.tokens_in / .tokens_out are optional; COALESCE to 0.
+	const q = `
+		SELECT
+		    COUNT(*) AS total,
+		    COUNT(*) FILTER (WHERE role = 'user') AS n_user,
+		    COUNT(*) FILTER (WHERE role = 'assistant') AS n_asst,
+		    COUNT(*) FILTER (WHERE role = 'system') AS n_sys,
+		    COUNT(*) FILTER (WHERE hidden = TRUE) AS n_hidden,
+		    COALESCE(SUM((extras->>'tokens_in')::int), 0) AS toks_in,
+		    COALESCE(SUM((extras->>'tokens_out')::int), 0) AS toks_out,
+		    COALESCE(SUM(jsonb_array_length(COALESCE(swipes, '[]'::jsonb))), 0) AS swipes_total,
+		    MIN(created_at) AS first_at,
+		    MAX(created_at) AS last_at,
+		    COUNT(DISTINCT extras->>'model') FILTER (WHERE extras->>'model' IS NOT NULL AND extras->>'model' != '' AND extras->>'model' != 'greeting') AS models_used
+		  FROM nest_messages
+		 WHERE chat_id = $1
+	`
+	var firstAt, lastAt *time.Time
+	err := r.pg.QueryRow(ctx, q, chatID).Scan(
+		&s.MessagesTotal,
+		&s.MessagesUser,
+		&s.MessagesAssistant,
+		&s.MessagesSystem,
+		&s.MessagesHidden,
+		&s.TokensInTotal,
+		&s.TokensOutTotal,
+		&s.SwipesTotal,
+		&firstAt,
+		&lastAt,
+		&s.UniqueModelsUsed,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("chat stats: %w", err)
+	}
+	s.FirstMessageAt = firstAt
+	s.LastMessageAt = lastAt
+	return s, nil
+}
+
+// SetMessageHidden toggles the silent-message flag. Hidden messages
+// still feed into the prompt (preserves context) but the UI greys
+// them out. Use case: metadata notes, OOC commentary, scene direction
+// the user doesn't want cluttering the visible chat.
+func (r *Repository) SetMessageHidden(ctx context.Context, chatID uuid.UUID, messageID int64, hidden bool) error {
+	const q = `UPDATE nest_messages SET hidden = $3 WHERE chat_id = $1 AND id = $2`
+	tag, err := r.pg.Exec(ctx, q, chatID, messageID, hidden)
+	if err != nil {
+		return fmt.Errorf("set hidden: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

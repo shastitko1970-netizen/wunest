@@ -15,6 +15,7 @@ import MessageInput from '@/components/MessageInput.vue'
 import GenerationSettings from '@/components/GenerationSettings.vue'
 import PersonaPickerDialog from '@/components/PersonaPickerDialog.vue'
 import BYOKPickerDialog from '@/components/BYOKPickerDialog.vue'
+import ChatSettingsDrawer from '@/components/ChatSettingsDrawer.vue'
 import { usePersonasStore } from '@/stores/personas'
 import { usePresetsStore } from '@/stores/presets'
 import { countTokensMany } from '@/lib/tokens'  // sync approximation
@@ -383,6 +384,28 @@ async function continueMessage(m: Message) {
   })
 }
 
+// Silent-message toggle. Hidden messages stay in model prompt (memory
+// preserved) but grey out in the UI — useful for OOC notes or scene
+// direction that shouldn't clutter the visible chat.
+async function onToggleHidden(m: Message) {
+  const next = !m.hidden
+  try {
+    await chatsApi.setMessageHidden(currentChat.value!.id, m.id, next)
+    // Optimistic local update — match server state.
+    m.hidden = next
+  } catch (e) {
+    console.error('toggle hidden failed', e)
+  }
+}
+
+// Chat settings drawer — tags, stats, memory/summaries.
+const settingsDrawerOpen = ref(false)
+function onTagsChanged(tags: string[]) {
+  // Reflect the update in currentChat so ChatList chips refresh
+  // immediately without refetching the whole list.
+  if (currentChat.value) currentChat.value.tags = tags
+}
+
 async function onSwipe(m: Message) {
   await chats.swipe(m, { model: selectedModel.value })
 }
@@ -591,6 +614,13 @@ const lastAssistantId = computed(() => {
               icon="mdi-tune-variant"
               @click="settingsOpen = true"
             />
+            <v-btn
+              variant="text"
+              size="small"
+              :title="t('chat.settings.title')"
+              icon="mdi-book-open-page-variant-outline"
+              @click="settingsDrawerOpen = true"
+            />
           </div>
         </header>
 
@@ -625,6 +655,7 @@ const lastAssistantId = computed(() => {
                 :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
                 @regenerate="regenerate"
                 @continue="continueMessage"
+                @toggle-hidden="onToggleHidden"
                 @swipe="onSwipe"
                 @select-swipe="onSelectSwipe"
                 @edit="onEditMessage"
@@ -782,6 +813,13 @@ const lastAssistantId = computed(() => {
     <BYOKPickerDialog
       v-model="byokPickerOpen"
       :chat="currentChat ?? null"
+    />
+
+    <!-- Chat settings (tags + stats + memory). One drawer, three tabs. -->
+    <ChatSettingsDrawer
+      v-model="settingsDrawerOpen"
+      :chat="currentChat ?? null"
+      @tags-changed="onTagsChanged"
     />
 
     <!-- Mobile-only chat list drawer. Triggered by the header hamburger.

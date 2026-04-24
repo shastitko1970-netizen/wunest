@@ -55,7 +55,18 @@ func (h *Handler) streamChatRegen(
 	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
 
 	// Load history (already without the deleted assistant message).
-	history, err := h.Repo.ListMessages(ctx, chatID, false)
+	// Include hidden messages in the prompt — M38 silent-message
+	// semantics: "hidden from UI, still in model context". Actual
+	// deletion uses DeleteMessage, not hidden=true.
+	history, err := h.Repo.ListMessages(ctx, chatID, true)
+	if err == nil {
+		// M38.4 memory — drop messages already covered by the rolling
+		// auto-summary so the model doesn't see them twice. Summaries
+		// are loaded just below and injected via PromptInput.Summaries.
+		if auto, _ := h.Repo.GetAutoSummary(ctx, chatID); auto != nil {
+			history = FilterHistoryForPrompt(history, auto)
+		}
+	}
 	if err != nil {
 		writeSSEError(w, flusher, "load_history", err)
 		return
@@ -71,6 +82,11 @@ func (h *Handler) streamChatRegen(
 	}
 
 	// Inline the pipeline: prompt → placeholder → upstream → pipe.
+	// Load summaries (auto + manual + pinned) for memory injection.
+	// Best-effort: on DB error we skip memory rather than fail the
+	// generation — model falls back to raw history only.
+	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -80,6 +96,7 @@ func (h *Handler) streamChatRegen(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Summaries:            summaries,
 		Bundle:               in.Bundle,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
@@ -302,7 +319,18 @@ func (h *Handler) streamChat(
 	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
 
 	// 3. Load history (visible only).
-	history, err := h.Repo.ListMessages(ctx, chatID, false)
+	// Include hidden messages in the prompt — M38 silent-message
+	// semantics: "hidden from UI, still in model context". Actual
+	// deletion uses DeleteMessage, not hidden=true.
+	history, err := h.Repo.ListMessages(ctx, chatID, true)
+	if err == nil {
+		// M38.4 memory — drop messages already covered by the rolling
+		// auto-summary so the model doesn't see them twice. Summaries
+		// are loaded just below and injected via PromptInput.Summaries.
+		if auto, _ := h.Repo.GetAutoSummary(ctx, chatID); auto != nil {
+			history = FilterHistoryForPrompt(history, auto)
+		}
+	}
 	if err != nil {
 		writeSSEError(w, flusher, "load_history", err)
 		return
@@ -312,6 +340,11 @@ func (h *Handler) streamChat(
 	worlds := loadAttachedWorlds(ctx, h, userID, charID)
 
 	// 4. Build prompt.
+	// Load summaries (auto + manual + pinned) for memory injection.
+	// Best-effort: on DB error we skip memory rather than fail the
+	// generation — model falls back to raw history only.
+	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -321,6 +354,7 @@ func (h *Handler) streamChat(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Summaries:            summaries,
 		Bundle:               in.Bundle,
 	})
 
@@ -609,7 +643,8 @@ func (h *Handler) streamChatSwipe(
 	// Load history UP TO but NOT INCLUDING the target message. The swipe
 	// replaces that message's content, so it must regenerate against the
 	// same context it had originally.
-	all, err := h.Repo.ListMessages(ctx, chatID, false)
+	// Include hidden messages in prompt — silent-message semantics.
+	all, err := h.Repo.ListMessages(ctx, chatID, true)
 	if err != nil {
 		writeSSEError(w, flusher, "load_history", err)
 		return
@@ -629,6 +664,11 @@ func (h *Handler) streamChatSwipe(
 		model = defaultModel
 	}
 
+	// Load summaries (auto + manual + pinned) for memory injection.
+	// Best-effort: on DB error we skip memory rather than fail the
+	// generation — model falls back to raw history only.
+	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -638,6 +678,7 @@ func (h *Handler) streamChatSwipe(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Summaries:            summaries,
 		Bundle:               in.Bundle,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs))
@@ -715,7 +756,8 @@ func (h *Handler) streamChatContinue(
 	// History UP TO but NOT INCLUDING the target — we'll inject the
 	// target's content ourselves as a prefill, so including it in
 	// history would duplicate it.
-	all, err := h.Repo.ListMessages(ctx, chatID, false)
+	// Include hidden messages in prompt — silent-message semantics.
+	all, err := h.Repo.ListMessages(ctx, chatID, true)
 	if err != nil {
 		writeSSEError(w, flusher, "load_history", err)
 		return
@@ -735,6 +777,11 @@ func (h *Handler) streamChatContinue(
 		model = defaultModel
 	}
 
+	// Load summaries (auto + manual + pinned) for memory injection.
+	// Best-effort: on DB error we skip memory rather than fail the
+	// generation — model falls back to raw history only.
+	summaries, _ := h.Repo.ListSummaries(ctx, chatID)
+
 	promptMsgs := Build(PromptInput{
 		Character:            ch,
 		OtherCharacters:      others,
@@ -744,6 +791,7 @@ func (h *Handler) streamChatContinue(
 		SystemPromptOverride: in.SystemPromptOverride,
 		Worlds:               worlds,
 		AuthorsNote:          in.AuthorsNote,
+		Summaries:            summaries,
 		Bundle:               in.Bundle,
 	})
 	up := make([]map[string]any, 0, len(promptMsgs)+1)

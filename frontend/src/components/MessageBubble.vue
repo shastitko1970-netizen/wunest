@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: 'delete', m: Message): void
   (e: 'regenerate', m: Message): void
   (e: 'continue', m: Message): void
+  (e: 'toggle-hidden', m: Message): void
   (e: 'swipe', m: Message): void
   (e: 'select-swipe', m: Message, swipeID: number): void
   (e: 'edit', m: Message, newContent: string): void
@@ -200,6 +201,7 @@ function onEditKeydown(e: KeyboardEvent) {
     :class="{
       'is-user': isUser,
       'is-streaming': streaming,
+      'is-hidden': !!message.hidden,
       'mes_user': isUser,
       'mes_char': !isUser,
     }"
@@ -346,6 +348,13 @@ function onEditKeydown(e: KeyboardEvent) {
         <v-icon size="14">mdi-pencil-outline</v-icon>
       </button>
       <button
+        class="nest-action-btn"
+        :title="message.hidden ? t('chat.actions.unhide') : t('chat.actions.hide')"
+        @click="emit('toggle-hidden', message)"
+      >
+        <v-icon size="14">{{ message.hidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline' }}</v-icon>
+      </button>
+      <button
         class="nest-action-btn nest-action-btn--danger"
         :title="t('chat.actions.delete')"
         @click="emit('delete', message)"
@@ -373,6 +382,15 @@ function onEditKeydown(e: KeyboardEvent) {
   // We intentionally DON'T use !important so users can still override
   // this consciously (e.g. compact density themes).
   min-width: min(100%, 240px);
+
+  // Silent / hidden message — feeds into prompt but greyed out in UI.
+  // Makes it unmistakable that the row is "model sees this, you don't
+  // need to". Still interactive (edit, unhide, delete) — just visually
+  // de-emphasised.
+  &.is-hidden {
+    opacity: 0.5;
+    border-style: dashed;
+  }
 
   &.is-user {
     background: var(--nest-bg-elevated);

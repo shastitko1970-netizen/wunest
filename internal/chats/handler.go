@@ -49,6 +49,16 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 
 	mux.Handle("GET /api/chats", authRequired(http.HandlerFunc(h.list)))
 	mux.Handle("GET /api/chats/search", authRequired(http.HandlerFunc(h.search)))
+	mux.Handle("GET /api/chats/tags", authRequired(http.HandlerFunc(h.tagsList)))
+	mux.Handle("GET /api/chats/{id}/stats", authRequired(http.HandlerFunc(h.stats)))
+	// Memory / summarisation (M38.4).
+	mux.Handle("GET /api/chats/{id}/summaries", authRequired(http.HandlerFunc(h.listSummaries)))
+	mux.Handle("POST /api/chats/{id}/summaries", authRequired(http.HandlerFunc(h.createSummary)))
+	mux.Handle("PATCH /api/chats/{id}/summaries/{sid}", authRequired(http.HandlerFunc(h.updateSummary)))
+	mux.Handle("DELETE /api/chats/{id}/summaries/{sid}", authRequired(http.HandlerFunc(h.deleteSummary)))
+	// Summarise runs the LLM to (re)generate the rolling auto-summary.
+	// Gated behind beta access because it spends tokens (even if cheap).
+	mux.Handle("POST /api/chats/{id}/summarize", betaGated(http.HandlerFunc(h.summarize)))
 	mux.Handle("POST /api/chats", authRequired(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
@@ -257,8 +267,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, chat)
 }
 
-type renameRequest struct {
-	Name string `json:"name"`
+// patchRequest is the body of PATCH /api/chats/:id. Pointer fields so the
+// client can send just the field it wants to change — nil = leave alone.
+type patchRequest struct {
+	Name *string   `json:"name,omitempty"`
+	Tags *[]string `json:"tags,omitempty"`
 }
 
 // setSampler overwrites chat_metadata.sampler. Body is ChatSamplerMetadata
@@ -402,6 +415,10 @@ func (h *Handler) setBYOK(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// rename is the PATCH /api/chats/:id handler. Despite the name it's a
+// general partial-update now — body is `patchRequest` with optional
+// `name` + `tags`. Original endpoint was rename-only; kept the name
+// for route consistency.
 func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
@@ -413,16 +430,321 @@ func (h *Handler) rename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
-	var req renameRequest
+	var req patchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.Repo.RenameChat(r.Context(), user.ID, id, req.Name); err != nil {
+	if req.Name != nil {
+		if err := h.Repo.RenameChat(r.Context(), user.ID, id, *req.Name); err != nil {
+			h.writeErr(w, err)
+			return
+		}
+	}
+	if req.Tags != nil {
+		if err := h.Repo.SetTags(r.Context(), user.ID, id, *req.Tags); err != nil {
+			h.writeErr(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Memory / summaries (M38.4) ──────────────────────────────────
+
+// listSummaries returns every summary row for the chat, all roles
+// interleaved (UI slots them by role).
+func (h *Handler) listSummaries(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, id); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	summaries, err := h.Repo.ListSummaries(r.Context(), id)
+	if err != nil {
+		slog.Error("list summaries", "err", err, "chat_id", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": summaries})
+}
+
+// createSummary inserts a manual or pinned summary row.
+// Body: { content: "...", pinned: bool }
+func (h *Handler) createSummary(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, id); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+		Pinned  bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		http.Error(w, "content required", http.StatusBadRequest)
+		return
+	}
+	s, err := h.Repo.CreateManualSummary(r.Context(), id, req.Content, req.Pinned)
+	if err != nil {
+		slog.Error("create summary", "err", err, "chat_id", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, s)
+}
+
+// updateSummary edits an existing summary's content and optionally
+// promotes it to a different role (e.g. auto → manual to stop
+// auto-regen from overwriting user tweaks).
+// Body: { content: "...", role: "auto"|"manual"|"pinned" }
+func (h *Handler) updateSummary(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, chatID); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	sid, err := uuid.Parse(r.PathValue("sid"))
+	if err != nil {
+		http.Error(w, "invalid summary id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+		Role    string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// Validate role if provided.
+	if req.Role != "" && req.Role != "auto" && req.Role != "manual" && req.Role != "pinned" {
+		http.Error(w, "invalid role", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.UpdateSummary(r.Context(), sid, req.Content, req.Role); err != nil {
 		h.writeErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSummary removes a summary row. Ownership enforced via chat
+// lookup (deleting summaries of other people's chats is impossible
+// because sid is UUID-random + chat ownership is verified first).
+func (h *Handler) deleteSummary(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, chatID); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	sid, err := uuid.Parse(r.PathValue("sid"))
+	if err != nil {
+		http.Error(w, "invalid summary id", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.DeleteSummary(r.Context(), sid); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// summarize triggers (re)generation of the rolling auto-summary for
+// the chat. Calls the summariser LLM, folds in any new messages,
+// upserts the summary row.
+//
+// Body (all optional):
+//
+//	model: string   — summariser model to use (default Gemini 2.5 Flash)
+//
+// Never touches auto-generated-previously summaries with role≠auto, so
+// a user who promoted a summary to role=manual will keep their edits.
+func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.Users.Resolve(r.Context(), session.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.Repo.GetChat(r.Context(), user.ID, chatID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	var req struct {
+		Model string `json:"model,omitempty"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	// Load current history (include hidden) + existing auto summary.
+	history, err := h.Repo.ListMessages(r.Context(), chatID, true)
+	if err != nil {
+		http.Error(w, "load history: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var prevContent string
+	var prevCovered int64
+	if auto, _ := h.Repo.GetAutoSummary(r.Context(), chatID); auto != nil {
+		prevContent = auto.Content
+		if auto.CoveredThroughMessageID != nil {
+			prevCovered = *auto.CoveredThroughMessageID
+		}
+	}
+	toFold, _ := PickSummariserBounds(history, prevCovered)
+	if len(toFold) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"summary":  nil,
+			"message":  "nothing new to summarise",
+			"folded":   0,
+		})
+		return
+	}
+
+	// Upstream resolution: same rules as send — BYOK if pinned, else
+	// WuApi via the session's API key.
+	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	if up.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+
+	// Speaker-name map for group-chat "assistant (Alice):" prefixing.
+	speakerNames := map[string]string{}
+	if chat.IsGroupChat && h.Characters != nil {
+		for _, cid := range chat.CharacterIDs {
+			if c, err := h.Characters.Get(r.Context(), user.ID, cid); err == nil {
+				speakerNames[cid.String()] = c.Name
+			}
+		}
+	}
+
+	res, err := h.SummariseChat(r.Context(), SummariseInput{
+		ChatID:                  chatID.String(),
+		Model:                   req.Model,
+		PreviousSummary:         prevContent,
+		Messages:                toFold,
+		PromptAPIKey:            up.APIKey,
+		PromptBaseURL:           up.BaseURL,
+		SpeakerNameByCharacterID: speakerNames,
+	})
+	if err != nil {
+		slog.Warn("summarise failed", "err", err, "chat_id", chatID)
+		http.Error(w, "summarise failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	saved, err := h.Repo.UpsertAutoSummary(
+		r.Context(), chatID,
+		res.Content, res.CoveredThroughMessageID,
+		res.TokenCount, res.Model,
+	)
+	if err != nil {
+		slog.Error("save summary", "err", err, "chat_id", chatID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"summary": saved,
+		"folded":  len(toFold),
+	})
+}
+
+// stats returns aggregate metrics for one chat (message counts by
+// role, total tokens in/out, swipes, first/last message time, unique
+// models used). Ownership is verified by GetChat which also scopes on
+// user_id — we don't leak stats of other users' chats even with a
+// valid chat id guess.
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, id); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	stats, err := h.Repo.GetChatStats(r.Context(), id)
+	if err != nil {
+		slog.Error("chat stats", "err", err, "chat_id", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// tagsList returns all distinct tags the user has ever applied to any
+// of their chats. Used for autocomplete + filter dropdown.
+func (h *Handler) tagsList(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	tags, err := h.Repo.DistinctTags(r.Context(), user.ID)
+	if err != nil {
+		slog.Error("distinct tags", "err", err, "user_id", user.ID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": tags})
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
@@ -855,10 +1177,15 @@ func (h *Handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// editMessageRequest is the JSON body for PATCH /messages/:mid.
+// editMessageRequest is the JSON body for PATCH /messages/:mid. Both
+// fields optional; send whichever you want to change. `hidden` is the
+// silent-message toggle — when true, the message still feeds into the
+// prompt (so model context stays intact) but the UI greys it out.
 type editMessageRequest struct {
-	Content string `json:"content"`
+	Content *string `json:"content,omitempty"`
+	Hidden  *bool   `json:"hidden,omitempty"`
 }
+
 
 // editMessage patches the content of a user OR assistant message in place.
 // Does NOT touch swipes or extras; use for typo corrections / manual rewrites.
@@ -889,9 +1216,17 @@ func (h *Handler) editMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if err := h.Repo.EditMessageContent(r.Context(), chatID, mid, req.Content); err != nil {
-		h.writeErr(w, err)
-		return
+	if req.Content != nil {
+		if err := h.Repo.EditMessageContent(r.Context(), chatID, mid, *req.Content); err != nil {
+			h.writeErr(w, err)
+			return
+		}
+	}
+	if req.Hidden != nil {
+		if err := h.Repo.SetMessageHidden(r.Context(), chatID, mid, *req.Hidden); err != nil {
+			h.writeErr(w, err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
