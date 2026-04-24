@@ -2,7 +2,7 @@ import { apiFetch } from '@/api/client'
 
 // ─── Types ────────────────────────────────────────────────────────────
 
-export type AvatarStyle = 'round' | 'square'
+export type AvatarStyle = 'round' | 'square' | 'portrait'
 export type ChatDisplay = 'flat' | 'bubbles' | 'document'
 
 /**
@@ -24,7 +24,7 @@ export interface Appearance {
   // Density & size.
   fontScale?: number         // 0.85–1.3 (multiplier on base 14px)
   chatWidth?: number         // 50–100 (percent of chat main column)
-  avatarStyle?: AvatarStyle  // round | square
+  avatarStyle?: AvatarStyle  // round | square | portrait (3:4 aspect)
   chatDisplay?: ChatDisplay  // bubbles | flat | document
 
   // Visual flourish.

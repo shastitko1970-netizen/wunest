@@ -327,15 +327,13 @@ async function save() {
                  URL directly if they prefer. -->
             <div class="nest-create-field-wide nest-avatar-block">
               <div class="nest-avatar-row">
-                <v-avatar
-                  :size="64"
-                  rounded="lg"
-                  :color="form.avatar_url ? undefined : 'surface-variant'"
-                  class="nest-avatar-preview"
-                >
+                <!-- Editor preview — portrait 3:4 box with object-fit: contain
+                     so the user always sees the WHOLE image they uploaded,
+                     independent of the global avatarStyle setting. -->
+                <div class="nest-avatar-preview" :class="{ empty: !form.avatar_url }">
                   <img v-if="form.avatar_url" :src="form.avatar_url" :alt="form.name" />
-                  <v-icon v-else>mdi-account-circle</v-icon>
-                </v-avatar>
+                  <v-icon v-else size="32">mdi-account-circle</v-icon>
+                </div>
                 <div class="nest-avatar-actions">
                   <input
                     ref="avatarFileInput"
@@ -703,10 +701,29 @@ async function save() {
   align-items: center;
   gap: 16px;
 }
-.nest-avatar-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+// Portrait 3:4 preview that shows the actual uploaded art in full —
+// contain (not cover) so the user sees every pixel of what they picked.
+// Subtle bg for letterboxing + rounded corners so small-aspect images
+// don't float awkwardly on raw panel color.
+.nest-avatar-preview {
+  flex-shrink: 0;
+  width: 88px;
+  aspect-ratio: 3 / 4;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--nest-surface-variant, var(--nest-bg-elevated));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &.empty {
+    color: var(--nest-text-muted);
+  }
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 }
 .nest-avatar-actions {
   display: flex;

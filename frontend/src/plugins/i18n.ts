@@ -235,6 +235,8 @@ const messages = {
       avatar: {
         round: 'Круглые',
         square: 'Квадратные',
+        portrait: 'Вертикальные',
+        hint: 'Вертикальные — 3:4, показывают реальный арт карточки целиком',
       },
       display: {
         bubbles: 'Пузыри',
@@ -1276,6 +1278,8 @@ const messages = {
       avatar: {
         round: 'Round',
         square: 'Square',
+        portrait: 'Portrait',
+        hint: 'Portrait — 3:4, shows the whole character art instead of a cropped circle',
       },
       display: {
         bubbles: 'Bubbles',

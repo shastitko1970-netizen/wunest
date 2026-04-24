@@ -288,20 +288,25 @@ watch(items, () => {
       <template v-else>
         <div class="nest-editor-head">
           <div class="nest-editor-head-left">
-            <!-- Click-to-upload: the head avatar is the primary target for
-                 "change photo". Same file picker the Upload button uses,
-                 so power users can do either. Accepts only images. -->
+            <!-- Click-to-upload: portrait-aspect preview (3:4) with
+                 object-fit: contain so the user sees the WHOLE uploaded
+                 image — no face-cropping into a circle. Same file picker
+                 the Upload button uses, so power users can do either. -->
             <button
               type="button"
               class="nest-persona-avatar-btn"
+              :class="{ empty: !draftAvatar }"
               :title="t('library.create.avatarUpload')"
               :disabled="avatarUploading"
               @click="pickAvatarFile"
             >
-              <v-avatar :size="56" :color="draftAvatar ? undefined : 'surface-variant'">
-                <img v-if="draftAvatar" :src="draftAvatar" :alt="draftName" referrerpolicy="no-referrer" />
-                <span v-else class="text-body-1">{{ draftInitials }}</span>
-              </v-avatar>
+              <img
+                v-if="draftAvatar"
+                :src="draftAvatar"
+                :alt="draftName"
+                referrerpolicy="no-referrer"
+              />
+              <span v-else class="text-body-1">{{ draftInitials }}</span>
               <v-icon class="nest-persona-avatar-edit" size="14">mdi-camera</v-icon>
               <v-progress-circular
                 v-if="avatarUploading"
@@ -558,17 +563,34 @@ watch(items, () => {
   gap: 6px;
 }
 
-// Click-to-upload avatar button. The overlay camera badge + hover lift
-// cue that the avatar itself is interactive — users who miss the
-// separate Upload button can still discover it.
+// Click-to-upload avatar button. Portrait 3:4 box with object-fit:
+// contain so the whole character art is visible while editing — cards
+// (which use the global avatarStyle setting) can still crop for
+// density. Overlay camera badge + hover lift cue interactivity.
 .nest-persona-avatar-btn {
   position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  aspect-ratio: 3 / 4;
   padding: 0;
   border: 0;
-  background: transparent;
+  background: var(--nest-surface-variant, var(--nest-bg-elevated));
+  overflow: hidden;
   cursor: pointer;
-  border-radius: 50%;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: transform var(--nest-transition-fast), box-shadow var(--nest-transition-fast);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  span {
+    color: var(--nest-text-muted);
+  }
 
   &:hover {
     transform: scale(1.03);

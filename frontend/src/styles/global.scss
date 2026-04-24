@@ -179,6 +179,30 @@ html, body, #app {
   border-radius: var(--nest-avatar-radius, 50%) !important;
 }
 
+// When the user picks `portrait` avatar style, stretch every v-avatar
+// into 3:4 by overriding Vuetify's hardcoded square size (size= prop
+// becomes the WIDTH; height auto-computes from aspect-ratio). Inner
+// <img> fills with object-fit: cover so the face stays visible.
+//
+// Small identity markers (message bubbles, pickers) opt out with the
+// `.nest-avatar--forced-round` class to stay compact & recognisable.
+:root[data-nest-avatar-style='portrait'] .v-avatar:not(.nest-avatar--forced-round) {
+  height: auto !important;
+  aspect-ratio: 3 / 4;
+
+  .v-avatar__image,
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+.nest-avatar--forced-round {
+  aspect-ratio: 1 / 1 !important;
+  height: revert !important;
+  border-radius: 50% !important;
+}
+
 // chat_display semantics (matches ST's chat_display field):
 //   bubbles  — default: rounded pill backgrounds on each message
 //   flat     — no background, no shadow (maximum text density)

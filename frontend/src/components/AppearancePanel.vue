@@ -276,7 +276,9 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         >
           <v-btn value="round">{{ t('appearance.avatar.round') }}</v-btn>
           <v-btn value="square">{{ t('appearance.avatar.square') }}</v-btn>
+          <v-btn value="portrait">{{ t('appearance.avatar.portrait') }}</v-btn>
         </v-btn-toggle>
+        <div class="nest-hint">{{ t('appearance.avatar.hint') }}</div>
       </div>
       <div class="nest-field">
         <label class="nest-field-label">{{ t('appearance.chatDisplay') }}</label>
@@ -661,6 +663,12 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   font-size: 12.5px;
   color: var(--nest-text-secondary);
   font-weight: 500;
+}
+.nest-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--nest-text-muted);
+  margin-top: 4px;
 }
 
 .nest-color-swatch {

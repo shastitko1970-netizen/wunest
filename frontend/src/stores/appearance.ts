@@ -136,13 +136,29 @@ function applyAppearance(a: Appearance) {
     root.style.removeProperty('--nest-chat-width')
   }
 
-  // Avatar corner radius.
+  // Avatar shape — two axes: corner radius and aspect ratio.
+  //
+  //   round    → circle (default) — small identity markers
+  //   square   → rounded rect, 1:1
+  //   portrait → rounded rect, 3:4 — matches SillyTavern card art
+  //              (avatars "look like the character" instead of
+  //              center-cropping the face into a circle)
+  //
+  // The aspect var is consumed by `.v-avatar` via the override in
+  // global.scss so every Vuetify avatar in the app participates. Tiny
+  // message-bubble avatars can opt out with `.nest-avatar--forced-round`.
   if (a.avatarStyle === 'square') {
     root.style.setProperty('--nest-avatar-radius', '4px')
+    root.setAttribute('data-nest-avatar-style', 'square')
   } else if (a.avatarStyle === 'round') {
     root.style.setProperty('--nest-avatar-radius', '50%')
+    root.setAttribute('data-nest-avatar-style', 'round')
+  } else if (a.avatarStyle === 'portrait') {
+    root.style.setProperty('--nest-avatar-radius', '12px')
+    root.setAttribute('data-nest-avatar-style', 'portrait')
   } else {
     root.style.removeProperty('--nest-avatar-radius')
+    root.removeAttribute('data-nest-avatar-style')
   }
 
   // Chat display mode (consumed by MessageBubble).
