@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"github.com/shastitko1970-netizen/wunest/internal/outboundproxy"
 )
 
 // ModelList mirrors OpenAI's GET /v1/models shape. Any provider worth
@@ -37,6 +38,16 @@ type ModelCatalog struct {
 // human-readable "invalid API key" or "no access to this model family").
 var ErrUpstream = errors.New("provider rejected the request")
 
+// ErrGeoBlocked is returned when the provider's 403 is specifically a
+// geographic restriction (Cloudflare-style "your country/region is not
+// supported"). This fires for OpenAI/Anthropic calls made from jurisdictions
+// those providers block — Russia, China, Iran, a handful of others.
+//
+// The SPA treats this differently from ErrUpstream: it surfaces an "use
+// OpenRouter instead" hint rather than "check your API key", since no key
+// will ever work from a blocked IP.
+var ErrGeoBlocked = errors.New("provider blocks requests from this server's region")
+
 // FetchModels calls `{baseURL}/models` with the user's key and returns the
 // decoded list. Per-provider quirks:
 //
@@ -48,9 +59,13 @@ var ErrUpstream = errors.New("provider rejected the request")
 //   - everyone else (openai/openrouter/deepseek/mistral/custom): standard
 //     Bearer + /models.
 //
+// If `pool` is non-nil the request routes through one of the pool's HTTP
+// proxies (needed for OpenAI/Anthropic from geo-blocked server IPs). A nil
+// pool goes direct — fine for OpenRouter/DeepSeek/Mistral/Google.
+//
 // Timeout is 20s — OpenRouter's list is ~400 rows and has been known to take
 // 10s+ on cold caches.
-func FetchModels(ctx context.Context, provider string, revealed Revealed) (*ModelList, error) {
+func FetchModels(ctx context.Context, provider string, revealed Revealed, pool *outboundproxy.Pool) (*ModelList, error) {
 	base := strings.TrimRight(revealed.BaseURL, "/")
 	if base == "" {
 		return nil, fmt.Errorf("byok models: empty base URL")
@@ -72,7 +87,7 @@ func FetchModels(ctx context.Context, provider string, revealed Revealed) (*Mode
 	}
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Transport: pool.Transport()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("do: %w", err)
@@ -87,6 +102,15 @@ func FetchModels(ctx context.Context, provider string, revealed Revealed) (*Mode
 		msg := strings.TrimSpace(string(body))
 		if len(msg) > 300 {
 			msg = msg[:300] + "…"
+		}
+		// Geo-block detection: Cloudflare-style 403 with country-blocked
+		// markers in the body. Seen from Russia, Iran, China IPs against
+		// OpenAI ("unsupported_country_region_territory") and Anthropic
+		// ("Request not allowed"). This is never fixable by the user's
+		// key — the SPA should surface "use OpenRouter" instead of "check
+		// your key" when we see this.
+		if resp.StatusCode == http.StatusForbidden && isGeoBlockedMessage(msg) {
+			return nil, fmt.Errorf("%w: %s", ErrGeoBlocked, msg)
 		}
 		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrUpstream, resp.StatusCode, msg)
 	}
@@ -121,6 +145,30 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// isGeoBlockedMessage looks for the well-known phrases providers return in
+// their 403 bodies when the request IP is in a blocked jurisdiction. We
+// check the raw body (case-insensitive) rather than trying to parse per-
+// provider JSON — the markers are provider-stable and any regex would just
+// re-encode the same substring checks.
+func isGeoBlockedMessage(body string) bool {
+	low := strings.ToLower(body)
+	markers := []string{
+		"unsupported_country_region_territory", // OpenAI
+		"country, region, or territory not supported",
+		"request not allowed", // Anthropic
+		"access denied from your region",
+		"your region is not supported",
+		"geo restricted",
+		"geo-restricted",
+	}
+	for _, m := range markers {
+		if strings.Contains(low, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // ─── Redis cache ─────────────────────────────────────────────────────

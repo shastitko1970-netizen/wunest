@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/outboundproxy"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
@@ -19,10 +20,16 @@ import (
 //
 // Redis is optional — model-list caching degrades gracefully to a pass-through
 // when it's nil (e.g. dev laptops without Redis running).
+//
+// ProxyPool is optional — when configured, /models fetches route through
+// the pool so geo-blocked providers (OpenAI / Anthropic from Russian IPs)
+// actually reach their endpoints. nil pool = direct connection (fine for
+// OpenRouter, DeepSeek, Mistral, Google).
 type Handler struct {
-	Repo  *Repository
-	Users *users.Resolver
-	Redis *redis.Client
+	Repo      *Repository
+	Users     *users.Resolver
+	Redis     *redis.Client
+	ProxyPool *outboundproxy.Pool
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
@@ -193,7 +200,7 @@ func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := FetchModels(r.Context(), provider, revealed)
+	list, err := FetchModels(r.Context(), provider, revealed, h.ProxyPool)
 	if err != nil {
 		// Log the full error server-side (with base URL, provider, message)
 		// so we can diagnose when a user reports "list is empty". User-
@@ -204,6 +211,15 @@ func (h *Handler) models(w http.ResponseWriter, r *http.Request) {
 			"base_url", revealed.BaseURL,
 			"byok_id", id,
 		)
+		// Geo-block: with the outbound proxy pool configured this should be
+		// rare (the proxy pops us to a non-blocked region). If it still
+		// fires, every proxy in the pool is either dead or itself in a
+		// blocked region — 502 is accurate; the SPA falls back to the
+		// generic upstream-error hint.
+		if errors.Is(err, ErrGeoBlocked) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
 		if errors.Is(err, ErrUpstream) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -246,7 +262,7 @@ func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
-	list, err := FetchModels(r.Context(), provider, revealed)
+	list, err := FetchModels(r.Context(), provider, revealed, h.ProxyPool)
 	if err != nil {
 		slog.Warn("byok test failed",
 			"err", err,
@@ -257,8 +273,9 @@ func (h *Handler) test(w http.ResponseWriter, r *http.Request) {
 		// shapes that differ by provider. The SPA renders `error` inline
 		// under the key card.
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":    false,
-			"error": err.Error(),
+			"ok":          false,
+			"error":       err.Error(),
+			"geo_blocked": errors.Is(err, ErrGeoBlocked),
 		})
 		return
 	}

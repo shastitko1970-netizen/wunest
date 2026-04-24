@@ -18,6 +18,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/db"
 	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/library"
+	"github.com/shastitko1970-netizen/wunest/internal/outboundproxy"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/quickreplies"
@@ -68,6 +69,17 @@ func New(deps Deps) *Server {
 		deps.Logger.Error("byok: failed to init repo; keys will be unavailable", "err", err)
 		byokRepo = nil
 	}
+	// Outbound proxy pool for BYOK direct-provider calls. Our server IP is
+	// geo-blocked by OpenAI / Anthropic; without a proxy every BYOK request
+	// to those providers 403s. A nil pool is legal — calls go direct (good
+	// enough for OpenRouter, DeepSeek, Mistral, Google from this server).
+	proxyPool, err := outboundproxy.Parse(deps.Config.OutboundProxies)
+	if err != nil {
+		deps.Logger.Error("outbound proxy: parse failed; BYOK calls will go direct", "err", err)
+		proxyPool = nil
+	} else if proxyPool != nil {
+		deps.Logger.Info("outbound proxy: enabled", "count", proxyPool.Size())
+	}
 	// Object storage (MinIO). nil storage is valid — Put* returns
 	// ErrDisabled on dev laptops without MinIO running. Character import
 	// and avatar flows fall back to "no thumbnail" in that case.
@@ -108,6 +120,7 @@ func New(deps Deps) *Server {
 			BYOK:       byokRepo, // may be nil if init failed; resolveAPIKey handles that
 			WuApi:      deps.WuApi,
 			Storage:    storageClient, // M39.4 image-gen needs this for base64 rehost
+			ProxyPool:  proxyPool,     // routes BYOK-direct calls around the geo-block
 		},
 		presets: &presets.Handler{
 			Repo:  presetRepo,
@@ -129,9 +142,10 @@ func New(deps Deps) *Server {
 			Users: resolver,
 		},
 		byok: &byok.Handler{
-			Repo:  byokRepo,
-			Users: resolver,
-			Redis: deps.Redis.Client,
+			Repo:       byokRepo,
+			Users:      resolver,
+			Redis:      deps.Redis.Client,
+			ProxyPool:  proxyPool,
 		},
 		byokRepo:     byokRepo,
 		uploads:      &uploads.Handler{Storage: storageClient},

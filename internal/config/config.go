@@ -42,6 +42,12 @@ type Config struct {
 	MinIOSecretKey     string
 	MinIOUseSSL        bool
 	MinIOPublicBaseURL string // origin where /images/* is served
+
+	// OutboundProxies is a comma- or newline-separated list of HTTP proxies
+	// used for direct BYOK calls to OpenAI / Anthropic (which geo-block our
+	// Selectel IP). Format: `host:port:user:pass` per entry, or a fully
+	// qualified URL (http://user:pass@host:port). Empty → no proxy.
+	OutboundProxies string
 }
 
 // Load reads env vars (falling back to .env if present) and returns the config.
@@ -71,6 +77,8 @@ func Load() (*Config, error) {
 		MinIOSecretKey:     os.Getenv("MINIO_SECRET_KEY"),
 		MinIOUseSSL:        strings.EqualFold(os.Getenv("MINIO_USE_SSL"), "true"),
 		MinIOPublicBaseURL: envOr("MINIO_PUBLIC_BASE_URL", ""),
+
+		OutboundProxies: os.Getenv("NEST_OUTBOUND_PROXIES"),
 	}
 
 	// Default MinIOPublicBaseURL to PublicBaseURL so the common same-

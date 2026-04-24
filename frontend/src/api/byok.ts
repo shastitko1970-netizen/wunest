@@ -58,6 +58,9 @@ export const byokApi = {
 export interface BYOKTestResult {
   ok: boolean
   error?: string
+  /** True when the provider returned a country-blocked 403. The SPA shows
+   *  a dedicated "use OpenRouter" hint instead of the generic error. */
+  geo_blocked?: boolean
   model_count?: number
   sample?: string[]
 }

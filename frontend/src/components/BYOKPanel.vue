@@ -248,6 +248,16 @@ function formatDate(iso: string): string {
                   {{ testResults[k.id]!.result!.sample!.join(', ') }}…
                 </span>
               </div>
+              <div v-else-if="testResults[k.id]!.result!.geo_blocked" class="nest-byok-test-fail">
+                <v-icon size="14" color="warning">mdi-earth-off</v-icon>
+                <div class="nest-byok-test-geo">
+                  <div>{{ t('byok.test.geoBlockedTitle') }}</div>
+                  <div class="nest-byok-test-hint">
+                    {{ t('byok.test.geoBlockedHint') }}
+                  </div>
+                  <div class="nest-byok-test-raw nest-mono">{{ testResults[k.id]!.result!.error }}</div>
+                </div>
+              </div>
               <div v-else class="nest-byok-test-fail">
                 <v-icon size="14" color="error">mdi-alert-circle</v-icon>
                 <span class="nest-mono">{{ testResults[k.id]!.result!.error }}</span>
@@ -461,6 +471,22 @@ function formatDate(iso: string): string {
   font-size: 10.5px;
   opacity: 0.75;
   word-break: break-all;
+}
+.nest-byok-test-geo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nest-byok-test-hint {
+  font-size: 10.5px;
+  color: var(--nest-text-secondary);
+  line-height: 1.4;
+  opacity: 0.9;
+}
+.nest-byok-test-raw {
+  font-size: 9.5px;
+  color: var(--nest-text-muted);
+  margin-top: 2px;
 }
 
 .nest-byok-row {

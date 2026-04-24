@@ -160,6 +160,7 @@ const messages = {
         baseUrlHint: 'дефолт подставится, можно переопределить',
         baseUrlRequired: 'обязательно для custom',
         compatNote: 'Нативные API Anthropic/Google отличаются от OpenAI. Дефолт указывает на их OpenAI-совместимые endpoint\'ы — могут понадобиться дополнительные заголовки или прокси через OpenRouter.',
+        geoBlockNote: 'OpenAI и Anthropic блокируют запросы с IP нашего сервера (РФ, Selectel). Ключ сохранится, но любой запрос к ним будет отклонён провайдером. Рекомендуем OpenRouter — через него доступны те же модели без гео-блока.',
         save: 'Сохранить ключ',
       },
       errors: {
@@ -182,6 +183,8 @@ const messages = {
         button: 'Проверить',
         success: 'Работает — {n} моделей',
         sampleLabel: 'Первые:',
+        geoBlockedTitle: 'Провайдер блокирует запросы с этого сервера',
+        geoBlockedHint: 'WuNest размещён в РФ (Selectel). OpenAI и Anthropic по гео недоступны напрямую. Используй OpenRouter — он работает прокси и принимает любые OpenAI/Anthropic/Google модели через единый ключ.',
       },
     },
     appearance: {
@@ -1333,6 +1336,8 @@ const messages = {
         button: 'Test',
         success: 'Works — {n} models',
         sampleLabel: 'First:',
+        geoBlockedTitle: 'Provider blocks requests from this server',
+        geoBlockedHint: 'WuNest is hosted in Russia (Selectel). OpenAI and Anthropic refuse direct requests from this region. Use OpenRouter — it proxies OpenAI / Anthropic / Google models through a single reachable key.',
       },
     },
     appearance: {

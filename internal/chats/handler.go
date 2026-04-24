@@ -16,6 +16,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/byok"
+	"github.com/shastitko1970-netizen/wunest/internal/outboundproxy"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
 	"github.com/shastitko1970-netizen/wunest/internal/presets"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
@@ -39,6 +40,11 @@ type Handler struct {
 	// and attachment write paths. nil is OK; image gen returns 503
 	// with a clear message when missing.
 	Storage *storage.Client
+	// ProxyPool routes BYOK direct-provider calls through an HTTP proxy
+	// so geo-blocked providers (OpenAI / Anthropic from RU IPs) actually
+	// reach their endpoints. nil → direct connection (ok for OpenRouter /
+	// DeepSeek / Mistral / Google from this server).
+	ProxyPool *outboundproxy.Pool
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
