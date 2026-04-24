@@ -98,10 +98,25 @@ export function fromST(st: STTheme): Appearance {
   // closest functional match for focus rings, so we reuse it as accent if
   // the user hasn't picked one explicitly.
   if (st.border_color && !out.accent) out.accent = st.border_color
+  // ST's `blur_tint_color` = the main background tint (== our primary
+  // --SmartThemeBlurTintColor). We don't have a dedicated Appearance
+  // field for it, but fromST is the ENTRY POINT for ST imports — the
+  // `custom_css` we emit below carries the `:root { --SmartTheme…}`
+  // rules, so the variable propagates via CSS. Here we additionally
+  // surface it as the top-level accent-less backdrop by NOT nulling
+  // out any existing bgImageUrl (the converter can keep both). This
+  // mapping was previously missing → themes imported via converter
+  // lost their background tint after "Apply to me".
   if (typeof st.font_scale === 'number') out.fontScale = clamp(st.font_scale, 0.7, 1.5)
   if (typeof st.chat_width === 'number') out.chatWidth = clamp(st.chat_width, 40, 100)
+  // Avatar style values follow ST's historic numeric encoding:
+  //   0 = round, 1 = square, 2 = portrait (3:4 aspect). The third option
+  //   was added in SillyTavern 1.12 — our previous mapping silently
+  //   dropped it, leaving imported Lilac-Witch-like themes stuck on
+  //   the default round-avatar shape.
   if (st.avatar_style === 0) out.avatarStyle = 'round'
   if (st.avatar_style === 1) out.avatarStyle = 'square'
+  if (st.avatar_style === 2) out.avatarStyle = 'portrait'
   if (st.chat_display === 0) out.chatDisplay = 'flat'
   if (st.chat_display === 1) out.chatDisplay = 'bubbles'
   if (st.chat_display === 2) out.chatDisplay = 'document'

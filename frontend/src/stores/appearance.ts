@@ -253,6 +253,49 @@ function applyAppearance(a: Appearance) {
   } else if (styleEl) {
     styleEl.remove()
   }
+
+  // ── Admin guard layer ────────────────────────────────────────────
+  // Belt-and-suspenders protection for admin panels. Even with
+  // `@scope (body) to (.nest-admin)` some rules leak through on
+  // browsers that don't fully implement `to (...)` or when the user
+  // CSS has `all: initial` / `visibility: hidden` tricks that survive
+  // scope-exclusion via inheritance. This injects a tiny reset AFTER
+  // the user style so admin elements stay visible/usable regardless.
+  // Rules are narrow — we force properties we've seen break (display,
+  // visibility, opacity, pointer-events) to sane defaults with
+  // `!important` — not full `all: revert` so legitimate Vuetify
+  // styling stays.
+  const GUARD_ID = 'nest-admin-guard'
+  let guardEl = document.getElementById(GUARD_ID) as HTMLStyleElement | null
+  if (!guardEl) {
+    guardEl = document.createElement('style')
+    guardEl.id = GUARD_ID
+    document.head.appendChild(guardEl)
+  }
+  guardEl.textContent = `
+/* WuNest admin guard — keeps Settings/Account/Docs/Converter usable
+ * even with aggressive user themes in scope=global. Placed AFTER
+ * nest-user-css so these rules win on specificity ties. */
+.nest-admin,
+.nest-admin * {
+  visibility: visible !important;
+  opacity: initial !important;
+  pointer-events: auto !important;
+}
+.nest-admin [hidden] { display: none !important; }
+/* Preserve Vuetify field internals — user themes often zero-out
+ * borders on inputs/textareas, which hides v-select triggers and
+ * v-text-field frames inside Settings. */
+.nest-admin .v-field,
+.nest-admin .v-field__input,
+.nest-admin .v-field__outline,
+.nest-admin .v-selection-control,
+.nest-admin .v-input,
+.nest-admin .v-label {
+  color: inherit !important;
+  background: initial;
+}
+`.trim()
 }
 
 /**

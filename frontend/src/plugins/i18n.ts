@@ -284,11 +284,14 @@ const messages = {
       cssScope: {
         label: 'Куда применять',
         chat: 'Только чат',
-        chatHint: 'CSS оборачивается в @scope(#chat) — стили попадают только в сообщения и композер, не трогая меню / настройки / библиотеку. Рекомендуется для импортированных тем SillyTavern.',
+        // `@` и `{` / `}` экранируются через литерал-placeholder `{'x'}` —
+        // vue-i18n иначе думает, что `@scope` это linked-message, и парсер
+        // кидает SyntaxError:10 на первом же t('...'). Делаем явно литерал.
+        chatHint: "CSS оборачивается в {'@'}scope(#chat) — стили попадают только в сообщения и композер, не трогая меню / настройки / библиотеку. Рекомендуется для импортированных тем SillyTavern.",
         global: 'На всю апу',
         globalHint: 'CSS применяется ко всему интерфейсу. Admin-поверхности (Настройки, Аккаунт, Docs, Галерея тем) автоматически защищены от правил темы, чтобы ты всегда мог вернуться к этому тумблеру. Полезно для WuNest-нативных тем.',
         globalWarning: 'В CSS есть правила для общих элементов — они перекрасят поля ввода во всём интерфейсе:',
-        scopeFallback: 'Твой браузер не поддерживает @scope нативно (обычно Firefox). Применяем префиксование селекторов через JS — работает, но менее точно.',
+        scopeFallback: "Твой браузер не поддерживает {'@'}scope нативно (обычно Firefox). Применяем префиксование селекторов через JS — работает, но менее точно.",
         importNotice: 'Тема содержит {count} правил для общих элементов. Применяю только к чату, чтобы не сломать меню. Переключи «Куда применять» если хочешь стилить весь UI.',
       },
       guide: {
@@ -858,9 +861,9 @@ const messages = {
         tabForm: 'Форма',
         tabRaw: 'Raw JSON',
         rawHint: 'Редактируй только то, что знаешь. Кнопка «Вернуть» восстановит состояние на момент открытия вкладки.',
-        rawPlaceholder: '{\n  "temperature": 0.9,\n  …\n}',
+        rawPlaceholder: "{'{'}\n  \"temperature\": 0.9,\n  …\n{'}'}",
         rawWarningTitle: 'Режим для продвинутых пользователей',
-        rawWarningBody: 'Сохранение из этой вкладки перепишет все поля значениями из JSON. Если тут окажется {} или битый JSON — промпты, порядок и регексы сотрутся.',
+        rawWarningBody: "Сохранение из этой вкладки перепишет все поля значениями из JSON. Если тут окажется {'{}'} или битый JSON — промпты, порядок и регексы сотрутся.",
         rawRevert: 'Вернуть',
         rawConfirmTitle: 'Ты точно хочешь так сохранить?',
         rawConfirmBody: 'JSON здесь содержит меньше промптов, порядка или регексов, чем сейчас в пресете. Это сотрёт всё, что ты настраивал во вкладках Prompts / Regex. Вернись и поправь, если ошибка.',
@@ -1530,11 +1533,11 @@ const messages = {
       cssScope: {
         label: 'Apply to',
         chat: 'Chat only',
-        chatHint: "CSS is wrapped in @scope(#chat) — rules only hit messages and the composer, leaving menu / settings / library alone. Recommended for imported SillyTavern themes.",
+        chatHint: "CSS is wrapped in {'@'}scope(#chat) — rules only hit messages and the composer, leaving menu / settings / library alone. Recommended for imported SillyTavern themes.",
         global: 'Whole app',
         globalHint: "CSS applies to the entire UI. Admin surfaces (Settings, Account, Docs, Theme gallery) are automatically protected from your theme's rules so you can always reach this toggle. Useful for WuNest-native themes.",
         globalWarning: "Your CSS has rules for broad elements — they'll repaint input fields across the whole UI:",
-        scopeFallback: "Your browser doesn't support @scope natively (usually Firefox). Falling back to JS selector prefixing — works but less precise.",
+        scopeFallback: "Your browser doesn't support {'@'}scope natively (usually Firefox). Falling back to JS selector prefixing — works but less precise.",
         importNotice: "Theme has {count} rules for broad elements. Applying to chat only, so menus stay usable. Flip 'Apply to' if you want the whole UI styled.",
       },
       guide: {
@@ -2087,9 +2090,9 @@ const messages = {
         tabForm: 'Form',
         tabRaw: 'Raw JSON',
         rawHint: 'Only edit if you know what you\'re doing. "Revert" restores the state from when you opened this tab.',
-        rawPlaceholder: '{\n  "temperature": 0.9,\n  …\n}',
+        rawPlaceholder: "{'{'}\n  \"temperature\": 0.9,\n  …\n{'}'}",
         rawWarningTitle: 'Advanced users only',
-        rawWarningBody: 'Saving from this tab overwrites every field with values from the JSON. If it ends up {} or malformed, prompts / ordering / regex will be wiped.',
+        rawWarningBody: "Saving from this tab overwrites every field with values from the JSON. If it ends up {'{}'} or malformed, prompts / ordering / regex will be wiped.",
         rawRevert: 'Revert',
         rawConfirmTitle: 'Really save like this?',
         rawConfirmBody: 'This JSON contains fewer prompts, order entries, or regex scripts than what\'s currently in the preset. Saving will erase what you built on the Prompts / Regex tabs. Cancel if this was accidental.',
