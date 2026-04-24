@@ -283,6 +283,11 @@ onMounted(async () => {
 
 // Fetch model catalogue for current source. Reuses the models store —
 // which caches per source — so switching back and forth is free.
+//
+// Try/catch wraps store call so `models.setActiveSource` rejections
+// don't escape as unhandled promise rejections (source of
+// «SES_UNCAUGHT_EXCEPTION: null» reported by browser extensions that
+// hook unhandled rejections).
 async function refreshAutoModels() {
   if (!props.chat) return
   autoModelsLoading.value = true
@@ -294,10 +299,10 @@ async function refreshAutoModels() {
       const id = src.slice(5)
       await models.setActiveSource({ byokID: id })
     }
-    // Snapshot items — Pinia auto-unwraps `items` computed ref, so no
-    // .value needed. Copy into local array so a later Chat-view source
-    // switch doesn't mutate what we display here.
     autoModelItems.value = models.items.map(m => ({ id: m.id }))
+  } catch (e) {
+    console.warn('auto-summarise: refresh model list failed', e)
+    autoModelItems.value = []
   } finally {
     autoModelsLoading.value = false
   }
@@ -312,7 +317,12 @@ watch([() => props.modelValue, tab, autoSource], ([open, t]) => {
 let autoSaveDebounce: ReturnType<typeof setTimeout> | null = null
 function scheduleAutoSave() {
   if (autoSaveDebounce) clearTimeout(autoSaveDebounce)
-  autoSaveDebounce = setTimeout(saveAutoConfig, 300)
+  // `setTimeout(asyncFn)` sets up an unhandled-promise dance if the fn
+  // rejects. Wrap in .catch() so failures go to console, not to
+  // window's unhandled-rejection handler (which SES hooks).
+  autoSaveDebounce = setTimeout(() => {
+    saveAutoConfig().catch(err => console.warn('auto-summarise save:', err))
+  }, 300)
 }
 
 async function saveAutoConfig() {
@@ -351,36 +361,39 @@ async function saveAutoConfig() {
 
 // Handler: toggle the enable switch. Saves immediately (not debounced —
 // it's a single binary event).
+//
+// Event handlers below swallow their own rejections explicitly. Vue
+// template `@update:model-value` bindings receive the returned Promise
+// but don't await it — any rejection becomes «uncaught» and bubbles
+// to window, where third-party injectors (SES/MetaMask) surface it
+// as an «SES_UNCAUGHT_EXCEPTION». Each handler now has a local .catch().
 function onAutoEnabledChange(v: boolean | null) {
   autoEnabled.value = !!v
-  saveAutoConfig()
+  saveAutoConfig().catch(err => console.warn('auto-summarise save:', err))
 }
 
-// Handler: source radio. Re-fetches models for the new source, then
-// saves config (model picker may auto-select first on re-fetch).
 async function onAutoSourceChange(v: string | null) {
   if (!v) return
-  autoSource.value = v
-  await refreshAutoModels()
-  // Pick remembered/first model for this source. Pinia auto-unwraps
-  // `selected` so direct access gives the string id.
-  autoModel.value = models.selected || autoModelItems.value[0]?.id || ''
-  saveAutoConfig()
+  try {
+    autoSource.value = v
+    await refreshAutoModels()
+    autoModel.value = models.selected || autoModelItems.value[0]?.id || ''
+    await saveAutoConfig()
+  } catch (err) {
+    console.warn('auto-summarise source change:', err)
+  }
 }
 
-// Handler: model picker select.
 function onAutoModelChange(v: string | null) {
   autoModel.value = v ?? ''
-  saveAutoConfig()
+  saveAutoConfig().catch(err => console.warn('auto-summarise save:', err))
 }
 
-// Handler: threshold slider/input. Debounced because slider emits continuously.
 function onAutoThresholdChange(v: number) {
   autoThreshold.value = v
   scheduleAutoSave()
 }
 
-// Numeric input has string-or-number value — sanitise.
 function onAutoThresholdInput(v: string | number) {
   const n = typeof v === 'number' ? v : parseInt(v, 10)
   if (!Number.isFinite(n) || n < 0) return
