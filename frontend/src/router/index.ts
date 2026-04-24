@@ -39,6 +39,16 @@ export const router = createRouter({
       component: () => import('@/views/Docs.vue'),
       meta: { public: true },
     },
+    // Public theme gallery (M42.6). Shareable link for mod authors,
+    // doubles as a vibe-check page so anon visitors can see what the
+    // 5 built-in presets actually look like without signing up. Apply
+    // button redirects through the login flow for anon users.
+    {
+      path: '/themes',
+      name: 'themes',
+      component: () => import('@/views/Themes.vue'),
+      meta: { public: true },
+    },
 
     // ── Authed ──────────────────────────────────────────────────────
     { path: '/chat', name: 'chat', component: () => import('@/views/Chat.vue') },

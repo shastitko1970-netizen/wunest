@@ -1,6 +1,22 @@
 # Theming & CSS
 
-WuNest supports three layers of customization: UI toggles, ST-compatible CSS variables, and your own CSS.
+WuNest supports **four** layers of customization: 5 built-in presets, UI toggles, ST-compatible CSS variables, and your own CSS.
+
+> See the 5 presets side-by-side → [theme gallery](/themes) (public page, shareable link).
+
+## Built-in presets (M42)
+
+**Settings → Appearance → Theme** — five curated themes:
+
+| Preset | Kind | Description |
+|--------|:----:|-------------|
+| **Nest — dark** | 🌑 | Flagship dark (charcoal + coral accent) |
+| **Nest — light** | ☀️ | Paper-light, Dossier-CRM inspired |
+| **Cyber neon** | 🌑 | Deep purple + magenta glow |
+| **Minimal reader** | ☀️ | Max text density, no decoration |
+| **Tavern warm** | 🌑 | Warm amber, roadhouse vibes |
+
+Quick **light ↔ dark** toggle lives in **Settings → Theme** (top section). Pair logic remembers which dark and light preset you actually picked: cyber-neon ↔ minimal-reader round-trips without losing your pick.
 
 ## Quick settings
 
@@ -16,9 +32,11 @@ WuNest supports three layers of customization: UI toggles, ST-compatible CSS var
 
 Everything here writes CSS custom properties to `:root` inline — applies instantly, no reload.
 
-## Importing SillyTavern themes
+## Import & export
 
-**Appearance → Import ST theme** — load a `.json`. Extracted:
+### SillyTavern-compatible JSON
+
+**Appearance → Import ST theme (.json)** — load a `.json`. Extracted:
 
 - Colors: `main_text_color`, `italics_text_color`, `quote_text_color`, `border_color`
 - Sizes: `font_scale`, `chat_width`, `blur_strength`
@@ -26,6 +44,12 @@ Everything here writes CSS custom properties to `:root` inline — applies insta
 - `custom_css` — applied as your custom CSS
 
 Scope auto-sets to `chat` — the ST theme's CSS won't break the menu. If the theme contains rules for broad elements (`body`, `textarea`, `input`), we show an info notice.
+
+### Raw CSS (.css)
+
+**Appearance → Import .css file** — loads a bare CSS file directly (M42.4). Handy when themes travel through the community as plain `.css` without the JSON envelope. Scope auto-set to `chat` too.
+
+**Appearance → Export as .css** — saves your current custom CSS as a standalone `.css` file. Easy to share in Discord/forums without JSON noise. Filename derived from the `/* Name: ... */` comment if present.
 
 ## Custom CSS
 

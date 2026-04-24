@@ -42,6 +42,12 @@ export interface ThemePresetMeta {
   label: string
   description: string
   kind: 'dark' | 'light'
+  /** Id of the same-family theme in the opposite kind. Flipping dark↔light
+   *  from the Settings toggle prefers pair > last-picked > kind default.
+   *  Cyber-neon and minimal-reader pair with each other by design
+   *  (both reader-focused narrow-margin vibes in their own kind).
+   *  Omitted when there's no honest sibling in the 5-preset set. */
+  pair?: ThemePreset
 }
 
 // Metadata that surfaces in the Appearance picker — single source of truth
@@ -52,32 +58,66 @@ export const THEME_PRESETS: ThemePresetMeta[] = [
     label: 'Nest — dark',
     description: 'Фирменная тёмная тема. Серый-угольный фон, coral-акцент.',
     kind: 'dark',
+    pair: 'nest-default-light',
   },
   {
     id: 'nest-default-light',
     label: 'Nest — light',
     description: 'Бумажно-светлая. Инспирирована Dossier CRM.',
     kind: 'light',
+    pair: 'nest-default-dark',
   },
   {
     id: 'cyber-neon',
     label: 'Cyber neon',
     description: 'Тёмный фиолет, магента-акцент, свечение.',
     kind: 'dark',
+    // Cyber-neon's reader-focused narrow column pairs best with
+    // minimal-reader on the light side; both prioritise text density
+    // over chrome. There's no dedicated "cyber-pastel" light twin yet.
+    pair: 'minimal-reader',
   },
   {
     id: 'minimal-reader',
     label: 'Minimal reader',
     description: 'Максимальная плотность текста без декора — для длинных чтений.',
     kind: 'light',
+    pair: 'cyber-neon',
   },
   {
     id: 'tavern-warm',
     label: 'Tavern warm',
     description: 'Теплый янтарный. Роудтрип-эстетика старой корчмы.',
     kind: 'dark',
+    // No warm-light sibling; defaults to nest-default-light on flip
+    // (no pair declared).
   },
 ]
+
+/**
+ * Preferred pair resolution for dark↔light flips from Settings toggle.
+ * Order:
+ *   1. Current preset has `pair` → use it.
+ *   2. Last-picked of the target kind (per-kind LS memory) → use it.
+ *   3. Kind's default (nest-default-{dark,light}) → fallback.
+ *
+ * This keeps UX predictable: cyber-neon flips to minimal-reader and
+ * back as a coherent pair, and custom user round-trips still preserve
+ * their last-picked via LS memory.
+ */
+export function resolvePairFor(currentId: ThemePreset, targetKind: 'dark' | 'light'): ThemePreset {
+  const current = THEME_PRESETS.find(p => p.id === currentId)
+  if (current?.pair) {
+    const pair = THEME_PRESETS.find(p => p.id === current.pair)
+    if (pair && pair.kind === targetKind) return pair.id
+  }
+  const remembered = localStorage.getItem(`nest:last-theme-${targetKind}`) as
+    ThemePreset | null
+  if (remembered && THEME_PRESETS.some(p => p.id === remembered && p.kind === targetKind)) {
+    return remembered
+  }
+  return targetKind === 'dark' ? 'nest-default-dark' : 'nest-default-light'
+}
 
 // Vite bundles each theme as its own chunk via `?raw` + dynamic import.
 // Type the function map so TS catches typos at compile time.

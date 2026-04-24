@@ -6,7 +6,7 @@ import AppearancePanel from '@/components/AppearancePanel.vue'
 import BYOKPanel from '@/components/BYOKPanel.vue'
 import { useModelsStore } from '@/stores/models'
 import { usePreferencesStore } from '@/stores/preferences'
-import { useThemeStore, THEME_PRESETS } from '@/stores/theme'
+import { useThemeStore, resolvePairFor } from '@/stores/theme'
 import { apiFetch } from '@/api/client'
 
 const { t, locale, availableLocales } = useI18n()
@@ -34,12 +34,10 @@ const { currentId: currentThemeId, current: currentPreset } = storeToRefs(themeS
 const themeMode = computed<'dark' | 'light'>({
   get: () => currentPreset.value.kind,
   set: (kind) => {
-    const remembered = localStorage.getItem(`nest:last-theme-${kind}`) as
-      typeof currentThemeId.value | null
-    const fallback = kind === 'dark' ? 'nest-default-dark' : 'nest-default-light'
-    const next = remembered && THEME_PRESETS.some(p => p.id === remembered)
-      ? remembered
-      : fallback
+    // Preset-pair resolution lives in the theme store (M42.6) — tries
+    // current.pair first, then last-picked-of-kind, then kind default.
+    // Keeps cyber-neon ↔ minimal-reader as a coherent pair, etc.
+    const next = resolvePairFor(currentThemeId.value, kind)
     themeStore.apply(next)
   },
 })
