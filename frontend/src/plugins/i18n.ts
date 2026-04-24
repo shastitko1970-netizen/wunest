@@ -1079,7 +1079,7 @@ const messages = {
       },
       contextTokensTitle: 'Оценка размера контекста всех видимых сообщений',
       tokensChip: {
-        title: 'Потрачено в этом чате:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} всего\n\nСледующий промпт (оценка): ~{estimate}',
+        title: 'Потрачено в этом чате:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} всего\nВызовов API: {apiCalls}\n\nСледующий промпт (оценка): ~{estimate}',
       },
       sampler: {
         title: 'Параметры генерации',
@@ -2218,7 +2218,7 @@ const messages = {
       },
       contextTokensTitle: 'Rough size of the full visible context',
       tokensChip: {
-        title: 'Spent in this chat:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} total\n\nNext prompt (estimate): ~{estimate}',
+        title: 'Spent in this chat:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} total\nAPI calls: {apiCalls}\n\nNext prompt (estimate): ~{estimate}',
       },
       sampler: {
         title: 'Generation parameters',

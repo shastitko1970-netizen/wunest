@@ -263,6 +263,7 @@ func (h *Handler) pipeStream(
 	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
 		slog.Error("update placeholder", "err", err, "id", placeholder.ID)
 	}
+	usageTotal := h.bumpChatUsage(ctx, placeholder.ChatID, tokensIn, tokensOut)
 	writeSSE(w, flusher, "done", map[string]any{
 		"id":            placeholder.ID,
 		"content":       cleanContent,
@@ -271,7 +272,22 @@ func (h *Handler) pipeStream(
 		"tokens_out":    tokensOut,
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
+		"usage_total":   usageTotal,
 	})
+}
+
+// bumpChatUsage folds the current call's usage into the chat's monotonic
+// usage_total counter. Returns the fresh total for the SSE `done` payload
+// so the SPA doesn't need to refetch the chat to update its spend chip.
+// Errors are logged-and-ignored — an accounting hiccup shouldn't abort a
+// user-facing stream that already succeeded.
+func (h *Handler) bumpChatUsage(ctx context.Context, chatID uuid.UUID, in, out int) *UsageTotal {
+	total, err := h.Repo.IncrementChatUsage(ctx, chatID, int64(in), int64(out))
+	if err != nil {
+		slog.Warn("increment chat usage", "err", err, "chat_id", chatID)
+		return nil
+	}
+	return total
 }
 
 // streamChat runs the full send-and-stream cycle for one user turn:
@@ -545,7 +561,7 @@ func (h *Handler) streamChat(
 	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
 		slog.Error("update placeholder", "err", err, "id", placeholder.ID)
 	}
-
+	usageTotal := h.bumpChatUsage(ctx, placeholder.ChatID, tokensIn, tokensOut)
 	writeSSE(w, flusher, "done", map[string]any{
 		"id":            placeholder.ID,
 		"content":       cleanContent,
@@ -554,6 +570,7 @@ func (h *Handler) streamChat(
 		"tokens_out":    tokensOut,
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
+		"usage_total":   usageTotal,
 	})
 }
 
@@ -1048,13 +1065,14 @@ func (h *Handler) pipeStreamContinue(
 	if err := h.Repo.UpdateMessageContent(ctx, target.ID, combined, extras); err != nil {
 		slog.Error("continue: save content", "err", err, "id", target.ID)
 	}
-
+	usageTotal := h.bumpChatUsage(ctx, chatID, tokensIn, tokensOut)
 	writeSSE(w, flusher, "done", map[string]any{
 		"id":            target.ID,
 		"content":       combined,
 		"finish_reason": finishReason,
 		"tokens_in":     tokensIn,
 		"tokens_out":    tokensOut,
+		"usage_total":   usageTotal,
 	})
 }
 
@@ -1183,7 +1201,12 @@ func (h *Handler) pipeStreamSwipe(
 	if err := h.Repo.UpdateMessageContent(ctx, placeholder.ID, cleanContent, extras); err != nil {
 		slog.Error("update swipe extras", "err", err, "id", placeholder.ID)
 	}
-
+	// Swipes are the main reason this counter exists — every swipe is a
+	// full-cost API call, but we overwrite prior extras when FinalizeSwipe
+	// lands. Without this bump, a 5-swipe run would look like 1 call in
+	// the chip. With it, each swipe correctly adds its tokens to the
+	// monotonic total.
+	usageTotal := h.bumpChatUsage(ctx, chatID, tokensIn, tokensOut)
 	writeSSE(w, flusher, "done", map[string]any{
 		"id":            placeholder.ID,
 		"content":       cleanContent,
@@ -1192,6 +1215,7 @@ func (h *Handler) pipeStreamSwipe(
 		"tokens_out":    tokensOut,
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
+		"usage_total":   usageTotal,
 	})
 }
 

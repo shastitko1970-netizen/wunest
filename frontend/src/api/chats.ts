@@ -25,6 +25,14 @@ export interface Chat {
     persona_id?: string | null
     byok_id?: string | null
     authors_note?: AuthorsNote | null
+    /** Monotonic counter of provider tokens this chat has consumed over
+     *  its whole lifetime — survives swipes, regenerates and message
+     *  deletions. Written server-side after every successful stream. */
+    usage_total?: {
+      tokens_in: number
+      tokens_out: number
+      api_calls: number
+    }
     [key: string]: unknown
   }
   created_at: string
@@ -301,6 +309,14 @@ export type StreamEvent =
         tokens_out: number
         latency_ms: number
         finish_reason?: string
+        /** Fresh post-bump chat-level spend counter. Patched onto the
+         *  cached Chat so the SPA's spend chip reflects swipes/regens
+         *  that the per-message extras summation can't see. */
+        usage_total?: {
+          tokens_in: number
+          tokens_out: number
+          api_calls: number
+        } | null
     } }
   | { event: 'error'; data: { kind: string; message: string } }
   | { event: 'raw'; data: unknown }

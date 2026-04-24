@@ -298,6 +298,15 @@ export const useChatsStore = defineStore('chats', () => {
                 finish_reason: ev.data.finish_reason,
               }
             }
+            // Sync the monotonic spend counter onto the cached chat so
+            // chat-level surfaces (header chip, stats panel) update
+            // immediately — no refetch, works across swipes/regenerates.
+            if (ev.data.usage_total && currentChat.value && currentChat.value.id === currentId.value) {
+              currentChat.value.chat_metadata = {
+                ...(currentChat.value.chat_metadata ?? {}),
+                usage_total: ev.data.usage_total,
+              }
+            }
             break
           }
           case 'error': {

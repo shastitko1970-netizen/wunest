@@ -96,17 +96,33 @@ const contextTokens = computed(() =>
   countTokensMany((messages.value ?? []).map(m => m.content ?? '')),
 )
 
-// Real token usage summed across every assistant message in this chat —
-// actual numbers reported by the provider, not an approximation. `in` is
-// what was billed on inputs, `out` what was billed on outputs.
+// Real token usage. Two sources, picked in priority order:
+//
+//   1. chat_metadata.usage_total — server-side monotonic counter. Survives
+//      swipes/regenerates/deletes; written after every successful stream.
+//   2. Sum of extras across visible messages — legacy fallback for chats
+//      started before the counter existed AND a live estimate while the
+//      next stream is in flight.
+//
+// We take max(counter, sum) so that during a live stream — where the new
+// call's tokens land on the message's extras BEFORE the counter increments
+// via the `done` SSE — the chip stays in sync without flashing backwards.
 const chatTokens = computed(() => {
-  let inTok = 0
-  let outTok = 0
+  let sumIn = 0
+  let sumOut = 0
   for (const m of (messages.value ?? [])) {
-    inTok += m.extras?.tokens_in ?? 0
-    outTok += m.extras?.tokens_out ?? 0
+    sumIn += m.extras?.tokens_in ?? 0
+    sumOut += m.extras?.tokens_out ?? 0
   }
-  return { in: inTok, out: outTok, total: inTok + outTok }
+  const counter = currentChat.value?.chat_metadata?.usage_total
+  const inTok = Math.max(counter?.tokens_in ?? 0, sumIn)
+  const outTok = Math.max(counter?.tokens_out ?? 0, sumOut)
+  return {
+    in: inTok,
+    out: outTok,
+    total: inTok + outTok,
+    apiCalls: counter?.api_calls ?? 0,
+  }
 })
 
 // 2784 → "2.8k", 12 → "12". Keeps chip tight on mobile while still
@@ -806,6 +822,7 @@ const lastAssistantId = computed(() => {
                 inCount: chatTokens.in,
                 outCount: chatTokens.out,
                 totalCount: chatTokens.total,
+                apiCalls: chatTokens.apiCalls,
                 estimate: contextTokens,
               })"
             >

@@ -478,6 +478,55 @@ func (r *Repository) SaveVariables(ctx context.Context, chatID uuid.UUID, vars m
 	return nil
 }
 
+// UsageTotal is the persisted "how much provider money this chat has eaten"
+// counter. Monotonically increasing: incremented atomically after every
+// successful provider call (initial send, regenerate, swipe, continue).
+// Swipes/regens don't reduce it when prior assistant extras get overwritten,
+// so the SPA's spend chip stays truthful even across retries and branching.
+type UsageTotal struct {
+	TokensIn  int64 `json:"tokens_in"`
+	TokensOut int64 `json:"tokens_out"`
+	APICalls  int64 `json:"api_calls"`
+}
+
+// IncrementChatUsage atomically adds the reported usage of one API call to
+// chat_metadata.usage_total. COALESCE handles first-call-on-this-chat
+// (field doesn't exist yet) and legacy chats from before this counter was
+// introduced. Returns the updated UsageTotal so the caller can emit it on
+// the SSE `done` event for the SPA to reflect immediately (no refetch).
+func (r *Repository) IncrementChatUsage(ctx context.Context, chatID uuid.UUID, tokensIn, tokensOut int64) (*UsageTotal, error) {
+	// Guard against providers that reported nothing — still count the call,
+	// but zeroed tokens so we don't poison the average.
+	if tokensIn < 0 {
+		tokensIn = 0
+	}
+	if tokensOut < 0 {
+		tokensOut = 0
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = COALESCE(chat_metadata, '{}'::jsonb) || jsonb_build_object(
+		         'usage_total',
+		         jsonb_build_object(
+		           'tokens_in',  COALESCE((chat_metadata->'usage_total'->>'tokens_in')::bigint,  0) + $2,
+		           'tokens_out', COALESCE((chat_metadata->'usage_total'->>'tokens_out')::bigint, 0) + $3,
+		           'api_calls',  COALESCE((chat_metadata->'usage_total'->>'api_calls')::bigint,  0) + 1
+		         )
+		       ),
+		       updated_at = NOW()
+		 WHERE id = $1
+		 RETURNING
+		   COALESCE((chat_metadata->'usage_total'->>'tokens_in')::bigint,  0),
+		   COALESCE((chat_metadata->'usage_total'->>'tokens_out')::bigint, 0),
+		   COALESCE((chat_metadata->'usage_total'->>'api_calls')::bigint,  0)
+	`
+	var out UsageTotal
+	if err := r.pg.QueryRow(ctx, q, chatID, tokensIn, tokensOut).Scan(&out.TokensIn, &out.TokensOut, &out.APICalls); err != nil {
+		return nil, fmt.Errorf("increment chat usage: %w", err)
+	}
+	return &out, nil
+}
+
 // SetBYOK writes or clears chat_metadata.byok_id. uuid.Nil clears the key;
 // otherwise the chat's stream path will use the corresponding BYOK key
 // instead of the user's WuApi key. Ownership check stays with the handler.
