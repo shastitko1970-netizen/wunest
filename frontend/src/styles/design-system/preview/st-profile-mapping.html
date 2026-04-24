@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); }
+  .wrap { padding: 18px 22px; }
+  .eyebrow { font-family: var(--nest-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--nest-text-muted); margin-bottom: 8px; }
+  h1 { font-family: var(--nest-font-display); font-weight: 400; font-size: 22px; margin: 0 0 14px; letter-spacing: -0.02em; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--nest-font-mono); font-size: 11px; }
+  th { text-align: left; font-weight: 500; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--nest-text-muted); padding: 4px 10px 4px 0; border-bottom: 1px solid var(--nest-border-subtle); }
+  td { padding: 5px 10px 5px 0; border-bottom: 1px dashed var(--nest-border-subtle); vertical-align: top; }
+  td.src { color: var(--nest-text-secondary); white-space: nowrap; }
+  td.arrow { color: var(--nest-text-muted); width: 14px; text-align: center; }
+  td.dst { color: var(--nest-accent); white-space: nowrap; }
+  td.note { color: var(--nest-text-muted); font-family: var(--nest-font-body); font-size: 11px; }
+</style></head>
+<body><div class="wrap">
+  <div class="eyebrow">ST · WUNEST PROFILE MAPPING</div>
+  <h1>Импорт JSON-профиля SillyTavern</h1>
+  <table>
+    <thead><tr><th>ST field</th><th></th><th>WuNest var</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td class="src">main_text_color</td><td class="arrow">→</td><td class="dst">--nest-text</td><td class="note">body color</td></tr>
+      <tr><td class="src">italics_text_color</td><td class="arrow">→</td><td class="dst">--nest-text-italic</td><td class="note">em, i</td></tr>
+      <tr><td class="src">underline_text_color</td><td class="arrow">→</td><td class="dst">--nest-text-underline</td><td class="note">u</td></tr>
+      <tr><td class="src">quote_text_color</td><td class="arrow">→</td><td class="dst">--nest-accent</td><td class="note">q, blockquote</td></tr>
+      <tr><td class="src">blur_tint_color</td><td class="arrow">→</td><td class="dst">--nest-bg</td><td class="note">rgba OK</td></tr>
+      <tr><td class="src">chat_tint_color</td><td class="arrow">→</td><td class="dst">--nest-chat-bg</td><td class="note">#chat surface</td></tr>
+      <tr><td class="src">user_mes_blur_tint_color</td><td class="arrow">→</td><td class="dst">--nest-msg-user-bg</td><td class="note">user bubble</td></tr>
+      <tr><td class="src">bot_mes_blur_tint_color</td><td class="arrow">→</td><td class="dst">--nest-msg-bot-bg</td><td class="note">bot bubble</td></tr>
+      <tr><td class="src">shadow_color</td><td class="arrow">→</td><td class="dst">--nest-shadow-color</td><td class="note">text + box</td></tr>
+      <tr><td class="src">shadow_width</td><td class="arrow">→</td><td class="dst">--nest-shadow-width</td><td class="note">px</td></tr>
+      <tr><td class="src">border_color</td><td class="arrow">→</td><td class="dst">--nest-border</td><td class="note"></td></tr>
+      <tr><td class="src">blur_strength</td><td class="arrow">→</td><td class="dst">--nest-blur</td><td class="note">backdrop-filter px</td></tr>
+      <tr><td class="src">font_scale</td><td class="arrow">→</td><td class="dst">--nest-font-scale</td><td class="note">1 = 16px base</td></tr>
+      <tr><td class="src">avatar_style</td><td class="arrow">→</td><td class="dst">data-nest-avatar-style</td><td class="note">0 round · 1 square · 2 portrait</td></tr>
+      <tr><td class="src">chat_display</td><td class="arrow">→</td><td class="dst">data-nest-chat-display</td><td class="note">0 flat · 1 bubbles · 2 document</td></tr>
+      <tr><td class="src">chat_width</td><td class="arrow">→</td><td class="dst">--nest-chat-width</td><td class="note">%</td></tr>
+      <tr><td class="src">reduced_motion</td><td class="arrow">→</td><td class="dst">data-nest-reduced-motion</td><td class="note">flag</td></tr>
+      <tr><td class="src">custom_css</td><td class="arrow">→</td><td class="dst">@scope (#chat) { … }</td><td class="note">инжект через cssScope.ts</td></tr>
+    </tbody>
+  </table>
+</div></body></html>

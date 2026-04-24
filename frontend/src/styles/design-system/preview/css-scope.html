@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.scope { padding:14px 16px; border-radius: var(--nest-radius-sm); font-family: var(--nest-font-mono); font-size:12px; line-height:1.55; white-space:pre; }
+.ok { background: color-mix(in srgb, var(--nest-green) 10%, transparent); color: var(--nest-green); border: 1px solid color-mix(in srgb, var(--nest-green) 30%, transparent); }
+.warn { background: color-mix(in srgb, var(--nest-accent) 10%, transparent); color: var(--nest-accent); border: 1px solid color-mix(in srgb, var(--nest-accent) 30%, transparent); }
+</style>
+</head>
+<body><div class="card">
+<div class="row" style="gap:12px;align-items:stretch;flex-wrap:nowrap">
+  <div class="scope ok">/* scope: chat ✓ */
+@scope (#chat) {
+  .mes { border-radius: 4px }
+  .mes_name { font-style: italic }
+}</div>
+  <div class="scope warn">/* scope: global ⚠ */
+:root {
+  --SmartThemeQuoteColor: #d4904a;
+}
+.mes { background: transparent }</div>
+</div>
+<div class="nest-caption" style="margin-top:12px">Пользовательский CSS существует в двух режимах: chat (безопасный, изолирован в <code>#chat</code>) и global (красит всё, требует осторожности).</div>
+</div></body></html>

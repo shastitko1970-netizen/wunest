@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); }
+  .wrap { padding: 20px 24px; }
+  .eyebrow { font-family: var(--nest-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--nest-text-muted); margin-bottom: 10px; }
+  h1 { font-family: var(--nest-font-display); font-weight: 400; font-size: 24px; margin: 0 0 14px; letter-spacing: -0.02em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .cell { padding: 10px 12px; background: var(--nest-surface); border: 1px solid var(--nest-border-subtle); border-radius: 8px; }
+  .cell-title { font-family: var(--nest-font-mono); font-size: 10px; color: var(--nest-text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+  .cell-demo { display: flex; align-items: center; justify-content: flex-start; min-height: 32px; gap: 8px; }
+  .btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; border: 1px solid var(--nest-border); background: transparent; color: var(--nest-text); font-family: inherit; }
+  .btn.pri { background: var(--nest-accent); color: #fff; border-color: var(--nest-accent); }
+  .toggle { width: 32px; height: 18px; background: var(--nest-accent); border-radius: 20px; position: relative; }
+  .toggle::after { content:''; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; }
+  .logo { width: 28px; height: 28px; background: var(--nest-accent); color:#fff; border-radius: 6px; display:flex; align-items:center; justify-content:center; font-family: var(--nest-font-display); font-size: 16px; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, var(--nest-accent), var(--nest-blue)); }
+  .avatar.sq { border-radius: 4px; }
+  .slider { width: 50px; height: 4px; background: var(--nest-bg-elevated); border-radius: 3px; position: relative; }
+  .slider::after { content:''; position: absolute; top: -4px; left: 20px; width: 12px; height: 12px; border-radius: 50%; background: var(--nest-accent); }
+  .bg { width: 100%; height: 24px; background: linear-gradient(90deg, var(--nest-bg), var(--nest-accent)); border-radius: 4px; }
+  .deco { width: 100%; height: 24px; background: repeating-linear-gradient(45deg, var(--nest-accent) 0 4px, transparent 4px 10px); opacity: 0.4; border-radius: 4px; }
+  .text-sample { font-size: 12px; }
+  .text-sample em { color: var(--nest-accent); }
+  .text-sample u { text-decoration-color: var(--nest-accent); }
+</style></head>
+<body><div class="wrap">
+  <div class="eyebrow">CUSTOMIZATION SURFACE · 15 ТОЧЕК КОНТРОЛЯ</div>
+  <h1>Что пользователь может менять</h1>
+  <div class="grid">
+    <div class="cell"><div class="cell-title">Кнопки</div><div class="cell-demo"><span class="btn pri">Send</span><span class="btn">Cancel</span></div></div>
+    <div class="cell"><div class="cell-title">Toggle</div><div class="cell-demo"><div class="toggle"></div><span style="font-size:11px;color:var(--nest-text-secondary)">on</span></div></div>
+    <div class="cell"><div class="cell-title">Логотип</div><div class="cell-demo"><div class="logo">▲</div><span style="font-size:11px;color:var(--nest-text-secondary)">mark/image</span></div></div>
+    <div class="cell"><div class="cell-title">Аватары</div><div class="cell-demo"><div class="avatar"></div><div class="avatar sq"></div></div></div>
+    <div class="cell"><div class="cell-title">Слайдер</div><div class="cell-demo"><div class="slider"></div></div></div>
+    <div class="cell"><div class="cell-title">Текст: i / u / q</div><div class="cell-demo text-sample"><span><em>italic</em> · <u>u-line</u> · quote</span></div></div>
+    <div class="cell"><div class="cell-title">Фон body</div><div class="cell-demo"><div class="bg"></div></div></div>
+    <div class="cell"><div class="cell-title">Blur / shadow</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">--nest-blur: 4px</div></div>
+    <div class="cell"><div class="cell-title">Декорации .mes</div><div class="cell-demo"><div class="deco"></div></div></div>
+    <div class="cell"><div class="cell-title">Loader</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">splash · mark · bar</div></div>
+    <div class="cell"><div class="cell-title">Шрифт + scale</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">Andika · 1.02×</div></div>
+    <div class="cell"><div class="cell-title">Density</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">comfortable / compact</div></div>
+    <div class="cell"><div class="cell-title">Chat display</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">bubbles / flat / document</div></div>
+    <div class="cell"><div class="cell-title">Chat width</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">50% → 100%</div></div>
+    <div class="cell"><div class="cell-title">Top-bar оверлей</div><div class="cell-demo" style="color:var(--nest-text-secondary);font-size:11px">::before image</div></div>
+  </div>
+</div></body></html>

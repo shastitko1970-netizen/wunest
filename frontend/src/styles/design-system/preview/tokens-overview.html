@@ -1,0 +1,55 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); }
+  .wrap { padding: 20px 24px; }
+  .section { margin-bottom: 20px; }
+  .section-title { font-family: var(--nest-font-mono); font-size: 10px; letter-spacing:0.14em; text-transform:uppercase; color: var(--nest-text-muted); margin-bottom:10px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .sw { display:flex; align-items:center; gap:8px; font-family: var(--nest-font-mono); font-size:11px; color: var(--nest-text-secondary); }
+  .chip { width:24px; height:24px; border-radius:6px; border:1px solid var(--nest-border); flex-shrink:0; }
+  .spacer { height: 1px; background: var(--nest-border-subtle); margin: 14px 0; }
+  .type-row { display:flex; align-items:baseline; gap:14px; margin-bottom:6px; }
+  .type-row .name { font-family: var(--nest-font-mono); font-size: 10px; color: var(--nest-text-muted); width: 90px; flex-shrink:0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="section">
+    <div class="section-title">COLORS (dark)</div>
+    <div class="row">
+      <div class="sw"><div class="chip" style="background:var(--nest-bg)"></div>--nest-bg</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-surface)"></div>--nest-surface</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-border)"></div>--nest-border</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-accent)"></div>--nest-accent</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-gold)"></div>--nest-gold</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-green)"></div>--nest-green</div>
+      <div class="sw"><div class="chip" style="background:var(--nest-blue)"></div>--nest-blue</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">TYPE</div>
+    <div class="type-row"><span class="name">display</span><span class="nest-h2" style="font-size:22px">Fraunces heading</span></div>
+    <div class="type-row"><span class="name">body</span><span class="nest-body">Outfit at 15px for readable prose</span></div>
+    <div class="type-row"><span class="name">mono</span><span class="nest-mono" style="font-size:13px;color:var(--nest-text-secondary)">JetBrains · 1,024 tok</span></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">SPACING · RADIUS</div>
+    <div class="row">
+      <div class="sw"><div style="width:4px;height:16px;background:var(--nest-text-muted)"></div>4</div>
+      <div class="sw"><div style="width:8px;height:16px;background:var(--nest-text-muted)"></div>8</div>
+      <div class="sw"><div style="width:12px;height:16px;background:var(--nest-text-muted)"></div>12</div>
+      <div class="sw"><div style="width:16px;height:16px;background:var(--nest-text-muted)"></div>16</div>
+      <div class="sw"><div style="width:24px;height:16px;background:var(--nest-text-muted)"></div>24</div>
+      <div class="sw" style="margin-left:14px"><div style="width:24px;height:24px;border:1px solid var(--nest-border);border-radius:6px"></div>6</div>
+      <div class="sw"><div style="width:24px;height:24px;border:1px solid var(--nest-border);border-radius:12px"></div>12</div>
+      <div class="sw"><div style="width:24px;height:24px;border:1px solid var(--nest-border);border-radius:100px"></div>pill</div>
+    </div>
+  </div>
+
+</div>
+</body></html>

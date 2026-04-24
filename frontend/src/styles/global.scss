@@ -1,12 +1,31 @@
 // WuNest design tokens.
-// Mirrors WuApi's scss/global.scss so shared components feel the same,
-// then adds a Fraunces serif layer for "editorial" moments (character
-// names, lore, chapter headings — inspired by the Dossier CRM).
+//
+// Since M42.1 this file wires the canonical Design System kit (see
+// `./design-system/README.md`) into the Vue bundle. Three concerns:
+//
+//   1. Core token inventory — colors, type, spacing, radii, layout.
+//      Declared inline below to keep the hot path tight.
+//   2. Customization Surface — `tokens/customization.css`, lifted straight
+//      from the DS. Maps every SillyTavern profile field into a `--nest-*`
+//      variable so pasting a Lilac-Witch-style ST theme Just Works.
+//   3. Theme variants — kept as separate files in `./themes/*.css` and
+//      loaded on demand by `src/stores/theme.ts` (no eager bundle cost).
+//
+// The "public contract" for mod authors lives in `design-system/docs/
+// SELECTOR_CONTRACT.md`. Any selector or token removed from this file
+// is a breaking change and must go through CHANGELOG.
 
 @use 'sass:map';
 
 // ── Fonts (Google) ───────────────────────────────────
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+// ── Customization surface (ST profile mapping + extended tokens) ─────
+// Imports the full inventory of customisation points (message decos,
+// scrollbar, slider thumb-image, topbar overlay, etc) with ST fallbacks.
+// Must live at :root scope so `.v-theme--*` can still override — hence
+// declared ABOVE the palette blocks.
+@import './tokens/customization.css';
 
 // ── Tokens ───────────────────────────────────────────
 :root {

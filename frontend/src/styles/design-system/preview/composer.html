@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.composer { display:flex; gap:8px; align-items:flex-end; padding:10px 12px; background: var(--nest-surface); border:1px solid var(--nest-border); border-radius: var(--nest-radius); max-width:600px; }
+.composer textarea { flex:1; resize:none; background:transparent; border:none; color: var(--nest-text); font-family: var(--nest-font-body); font-size:15px; line-height:1.5; outline:none; min-height:24px; }
+.composer textarea::placeholder { color: var(--nest-text-muted); }
+.send { background: var(--nest-accent); color:#fff; border:none; width:36px; height:36px; border-radius: var(--nest-radius-sm); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:16px; }
+.chip { font-family: var(--nest-font-mono); font-size:11px; color: var(--nest-text-muted); padding: 4px 8px; border-radius: 4px; background: var(--nest-bg-elevated); }
+.row-meta { display:flex; gap:8px; margin-top:10px; max-width:600px; }
+</style>
+</head>
+<body><div class="card">
+<div class="composer">
+  <textarea rows="2" placeholder="Сообщение Alyra…">Расскажи про старую карту</textarea>
+  <button class="send">▲</button>
+</div>
+<div class="row-meta">
+  <span class="chip">gpt-4o</span>
+  <span class="chip">temp 0.7</span>
+  <span class="chip">2,048tok</span>
+</div>
+</div></body></html>

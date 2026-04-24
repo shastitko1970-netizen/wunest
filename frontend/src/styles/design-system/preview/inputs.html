@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.input { background: var(--nest-surface); border:1px solid var(--nest-border); color:var(--nest-text); font-family: var(--nest-font-body); font-size:14px; padding:10px 12px; border-radius: var(--nest-radius-sm); width:260px; transition: border-color var(--nest-transition-fast); }
+.input:focus { outline:none; border-color: var(--nest-accent); }
+.field-label { font-family: var(--nest-font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color: var(--nest-text-muted); margin-bottom:6px; display:block; }
+.textarea { min-height:64px; resize:vertical; width:100%; box-sizing:border-box; }
+</style>
+</head>
+<body><div class="card">
+<div class="col" style="gap:14px;max-width:560px">
+  <div>
+    <label class="field-label">Character name</label>
+    <input class="input" value="Alyra, the keeper of ledgers" />
+  </div>
+  <div>
+    <label class="field-label">Message</label>
+    <textarea class="input textarea" placeholder="Напишите что-нибудь…">The map you asked about is older than anyone realises.</textarea>
+  </div>
+</div>
+</div></body></html>

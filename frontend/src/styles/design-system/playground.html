@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WuNest Playground</title>
+<link rel="stylesheet" href="tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); min-height:100vh; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 24px 80px; }
+  header { margin-bottom: 48px; }
+  header h1 { margin:0; font-family: var(--nest-font-display); font-weight:400; font-size: clamp(2.2rem, 5vw, 3.4rem); letter-spacing:-0.02em; line-height:1.05; }
+  header h1 .tri { color: var(--nest-accent); margin-right:10px; }
+  header p { margin: 12px 0 0; max-width: 600px; font-size: 16px; line-height:1.6; color: var(--nest-text-secondary); }
+  section { margin-bottom: 56px; }
+  h2 { font-family: var(--nest-font-display); font-weight:400; font-size:1.9rem; letter-spacing:-0.015em; margin: 0 0 8px; }
+  .eyebrow { font-family: var(--nest-font-mono); font-size:11px; font-weight:500; letter-spacing:0.14em; text-transform:uppercase; color: var(--nest-text-muted); margin-bottom: 8px; }
+  .lede { margin: 0 0 24px; color: var(--nest-text-secondary); font-size:15px; line-height:1.6; max-width: 620px; }
+  .grid { display:grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .tile { background: var(--nest-surface); border:1px solid var(--nest-border-subtle); border-radius: var(--nest-radius); padding: 14px 16px; }
+  .tile .swatch { height: 70px; border-radius: var(--nest-radius-sm); margin-bottom: 10px; border:1px solid var(--nest-border); }
+  .tile code { font-family: var(--nest-font-mono); font-size: 11px; color: var(--nest-text); }
+  .tile .hex { font-family: var(--nest-font-mono); font-size: 11px; color: var(--nest-text-muted); display:block; margin-top:4px; }
+  pre { background: var(--nest-bg-elevated); border:1px solid var(--nest-border-subtle); border-radius: var(--nest-radius-sm); padding: 16px; overflow:auto; font-family: var(--nest-font-mono); font-size: 12px; line-height:1.55; color: var(--nest-text); margin: 0; }
+
+  /* Theme switcher */
+  .controls { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--nest-bg) 90%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--nest-border-subtle); padding: 10px 24px; display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
+  .controls .label { font-family: var(--nest-font-mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color: var(--nest-text-muted); margin-right: 4px; }
+  .chip { font-family: var(--nest-font-body); font-size: 13px; background: transparent; color: var(--nest-text-secondary); border:1px solid var(--nest-border); border-radius: var(--nest-radius-pill); padding: 5px 12px; cursor:pointer; transition: all var(--nest-transition-fast); }
+  .chip:hover { color: var(--nest-text); border-color: var(--nest-text-muted); }
+  .chip.is-active { background: var(--nest-accent); color: #fff; border-color: var(--nest-accent); }
+
+  /* Live mod */
+  .mod-lab { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .mod-lab textarea { width:100%; min-height: 220px; background: var(--nest-bg-elevated); border:1px solid var(--nest-border); border-radius: var(--nest-radius-sm); color: var(--nest-text); font-family: var(--nest-font-mono); font-size:12px; line-height:1.6; padding: 14px; resize: vertical; outline:none; box-sizing: border-box; }
+  .mod-lab textarea:focus { border-color: var(--nest-accent); }
+  .mod-preview { background: var(--nest-surface); border:1px solid var(--nest-border); border-radius: var(--nest-radius); padding: 18px; }
+
+  /* Demo message */
+  .demo-msg { display:flex; gap:12px; padding: 14px; background: var(--nest-surface); border:1px solid var(--nest-border-subtle); border-radius: var(--nest-radius); }
+  .demo-msg .avatar { width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#4a3a2a,#2a1a0a); flex-shrink:0; display:flex;align-items:center;justify-content:center; color: var(--nest-accent); font-family: var(--nest-font-display); font-size: 18px; }
+  .demo-msg .name { font-weight:600; color: var(--nest-text); font-size:14px; }
+  .demo-msg .time { font-family: var(--nest-font-mono); font-size:11px; color: var(--nest-text-muted); margin-left:8px; }
+  .demo-msg .body { font-size:15px; line-height:1.55; color: var(--nest-text); margin-top: 4px; }
+  .demo-msg .body em { color: var(--nest-accent); font-style:italic; }
+
+  @media (max-width: 760px) {
+    .mod-lab { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <span class="label">Theme</span>
+  <button class="chip is-active" data-theme="dark">Nest Dark</button>
+  <button class="chip" data-theme="light">Dossier Light</button>
+  <button class="chip" data-theme="tavern">Tavern Warm</button>
+  <button class="chip" data-theme="cyber">Cyber Neon</button>
+  <button class="chip" data-theme="minimal">Minimal</button>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">WUNEST · DESIGN PLAYGROUND</div>
+    <h1><span class="tri">▲</span>Живой гайд</h1>
+    <p>Переключай тему вверху — весь документ перерисуется. Это работает ровно так же, как пользовательский CSS в приложении: подменяются только CSS-переменные, ни один селектор не хардкодит цвет.</p>
+  </header>
+
+  <section>
+    <div class="eyebrow">01 · PALETTE</div>
+    <h2>Пять токенов, которые красят 90% UI</h2>
+    <p class="lede">Остальные (border-subtle, text-secondary, text-muted) вытекают из этих пяти. Мод уровня 1 — подменить эти переменные и закончить.</p>
+    <div class="grid">
+      <div class="tile"><div class="swatch" style="background:var(--nest-bg)"></div><code>--nest-bg</code></div>
+      <div class="tile"><div class="swatch" style="background:var(--nest-surface)"></div><code>--nest-surface</code></div>
+      <div class="tile"><div class="swatch" style="background:var(--nest-bg-elevated)"></div><code>--nest-bg-elevated</code></div>
+      <div class="tile"><div class="swatch" style="background:var(--nest-border)"></div><code>--nest-border</code></div>
+      <div class="tile"><div class="swatch" style="background:var(--nest-accent)"></div><code>--nest-accent</code></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">02 · TYPE</div>
+    <h2>Три семейства, одна иерархия</h2>
+    <p class="lede">Fraunces для заголовков, Outfit для body, JetBrains Mono для цифр и meta. Пользователь может подменить только body-шрифт — через <code>--SmartThemeBodyFont</code>.</p>
+    <div class="nest-h1" style="margin:8px 0">Display — Fraunces</div>
+    <div class="nest-h2" style="margin:8px 0">Heading — Fraunces</div>
+    <div class="nest-h3" style="margin:8px 0">Subheading — Outfit 600</div>
+    <div class="nest-body" style="margin:8px 0">Body — Outfit 400 at 15px. Читается без напряжения даже в тёмной теме.</div>
+    <div class="nest-mono" style="margin:8px 0; font-size:13px; color:var(--nest-text-secondary)">Mono — JetBrains · 2,048 tokens · 14:32</div>
+  </section>
+
+  <section>
+    <div class="eyebrow">03 · COMPONENT</div>
+    <h2>Сообщение в чате</h2>
+    <p class="lede">Единственный компонент, который видит каждый пользователь. При смене темы выше — он перекрашивается, потому что не содержит ни одного хардкода.</p>
+    <div class="demo-msg">
+      <div class="avatar">A</div>
+      <div style="flex:1">
+        <div><span class="name">Alyra</span><span class="time">14:32</span></div>
+        <div class="body">She closed the ledger softly. <em>«Вы уверены, что хотите это знать?»</em> The candle flickered once.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">04 · LAB</div>
+    <h2>Попробуй свой мод</h2>
+    <p class="lede">Слева — CSS, справа — живой превью. Правила применяются прямо к этой странице. Это ровно то, что пользователь пишет в Settings → Appearance → Custom CSS.</p>
+    <div class="mod-lab">
+      <textarea id="modInput" spellcheck="false">:root {
+  --SmartThemeQuoteColor: #f59e0b;
+  --SmartThemeBodyColor: #fde68a;
+}
+
+.demo-msg {
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,220,160,0.08);
+}
+
+.demo-msg .name {
+  font-style: italic;
+  letter-spacing: 0.02em;
+}</textarea>
+      <div class="mod-preview">
+        <div class="eyebrow" style="margin-bottom:12px">LIVE PREVIEW</div>
+        <div class="demo-msg" id="modDemo">
+          <div class="avatar">A</div>
+          <div style="flex:1">
+            <div><span class="name">Alyra</span><span class="time">14:32</span></div>
+            <div class="body">She closed the ledger softly. <em>«Вы уверены, что хотите это знать?»</em> The candle flickered once.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">05 · CHEAT SHEET</div>
+    <h2>Что менять, чтобы не сломать</h2>
+    <pre>/* ✅ Безопасно: меняет только значения */
+:root {
+  --SmartThemeBlurTintColor: #1a130a;
+  --SmartThemeChatTintColor: #2a1f12;
+  --SmartThemeBorderColor:   #6b4a2a;
+  --SmartThemeBodyColor:     #f4e4c1;
+  --SmartThemeQuoteColor:    #d4904a;
+}
+
+/* ✅ Безопасно: публичные якоря */
+.nest-msg { border-radius: 4px }
+.nest-msg-name { font-style: italic }
+.mes { ... }           /* SillyTavern-алиас */
+#chat { ... }          /* id-якорь */
+
+/* ⚠ Осторожно: глобально ломает шелл */
+body { font-family: Comic Sans !important }
+
+/* ❌ Не делай так: приватный селектор из компонента */
+.v-btn__overlay { opacity: 0 !important }</pre>
+  </section>
+</div>
+
+<script>
+  const themes = {
+    dark: {},
+    light: {
+      '--SmartThemeBlurTintColor': '#FAFAF7',
+      '--SmartThemeChatTintColor': '#FFFFFF',
+      '--SmartThemeBorderColor':   '#E2DFD6',
+      '--SmartThemeBodyColor':     '#141412',
+      '--SmartThemeQuoteColor':    '#ef4444',
+      '--nest-bg': '#FAFAF7', '--nest-surface': '#FFF', '--nest-bg-elevated': '#F3F2EC',
+      '--nest-border': '#E2DFD6', '--nest-border-subtle': '#EFECE4',
+      '--nest-text': '#141412', '--nest-text-secondary': '#4A4740', '--nest-text-muted': '#7A756C',
+    },
+    tavern: {
+      '--nest-bg': '#1a130a', '--nest-surface': '#2a1f12', '--nest-bg-elevated': '#22180c',
+      '--nest-border': '#6b4a2a', '--nest-border-subtle': '#3a2818',
+      '--nest-text': '#f4e4c1', '--nest-text-secondary': '#c9a778', '--nest-text-muted': '#8a6a3a',
+      '--nest-accent': '#d4904a',
+      '--nest-font-body': "'Fraunces', serif",
+    },
+    cyber: {
+      '--nest-bg': '#0a0612', '--nest-surface': '#150a20', '--nest-bg-elevated': '#1e0f30',
+      '--nest-border': '#3c1e50', '--nest-border-subtle': '#2a1540',
+      '--nest-text': '#f1d1ff', '--nest-text-secondary': '#b78de0', '--nest-text-muted': '#7a5a9a',
+      '--nest-accent': '#c485ff',
+    },
+    minimal: {
+      '--nest-bg': '#fafafa', '--nest-surface': '#ffffff', '--nest-bg-elevated': '#f3f3f3',
+      '--nest-border': '#eaeaea', '--nest-border-subtle': '#f0f0f0',
+      '--nest-text': '#1a1a1a', '--nest-text-secondary': '#555', '--nest-text-muted': '#888',
+      '--nest-accent': '#555555',
+      '--nest-font-body': "'Fraunces', serif",
+    },
+  };
+
+  const root = document.documentElement;
+  const originalStyle = root.getAttribute('style') || '';
+
+  function applyTheme(name) {
+    root.setAttribute('style', originalStyle);
+    const vars = themes[name] || {};
+    Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+    document.querySelectorAll('.chip[data-theme]').forEach(c => {
+      c.classList.toggle('is-active', c.dataset.theme === name);
+    });
+  }
+
+  document.querySelectorAll('.chip[data-theme]').forEach(c => {
+    c.addEventListener('click', () => applyTheme(c.dataset.theme));
+  });
+
+  // Live mod lab
+  const input = document.getElementById('modInput');
+  const style = document.createElement('style');
+  document.head.appendChild(style);
+  function updateMod() { style.textContent = input.value; }
+  input.addEventListener('input', updateMod);
+  updateMod();
+</script>
+</body>
+</html>

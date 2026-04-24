@@ -1,0 +1,12 @@
+/* Name: WuNest Default Dark
+   Author: WuNest
+   Эталонная тёмная тема. Повторяет нестДарк, чтобы моды могли
+   отталкиваться от неё как от базы. */
+
+:root {
+  --SmartThemeBlurTintColor: #080808;
+  --SmartThemeChatTintColor: #141414;
+  --SmartThemeBorderColor:   #222222;
+  --SmartThemeBodyColor:     #f0f0f0;
+  --SmartThemeQuoteColor:    #ef4444;
+}

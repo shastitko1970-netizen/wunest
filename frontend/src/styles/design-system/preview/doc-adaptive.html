@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); }
+  .wrap { padding: 22px 26px; }
+  .eyebrow { font-family: var(--nest-font-mono); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color: var(--nest-text-muted); margin-bottom: 10px; }
+  h1 { font-family: var(--nest-font-display); font-weight:400; font-size: 26px; letter-spacing:-0.02em; line-height:1.15; margin: 0 0 8px; }
+  h1 .tri { color: var(--nest-accent); margin-right: 8px; }
+  .lede { font-size: 13px; line-height: 1.55; color: var(--nest-text-secondary); max-width: 600px; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; margin-top: 12px; }
+  .item { display:flex; gap:10px; align-items:flex-start; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--nest-accent); margin-top: 8px; flex-shrink: 0; }
+  .item .k { font-family: var(--nest-font-mono); font-size: 11px; color: var(--nest-text); }
+  .item .v { font-size: 12px; color: var(--nest-text-secondary); line-height: 1.45; }
+  .row { display:flex; flex-wrap:wrap; gap: 6px; margin-top: 14px; }
+  .chip { font-family: var(--nest-font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; background: var(--nest-bg-elevated); color: var(--nest-text-secondary); border: 1px solid var(--nest-border-subtle); }
+  .chip.accent { color: var(--nest-accent); border-color: color-mix(in srgb, var(--nest-accent) 30%, transparent); background: color-mix(in srgb, var(--nest-accent) 10%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">DOCS · ADAPTIVE RULES</div>
+  <h1><span class="tri">▲</span>Три контекста, один код</h1>
+  <p class="lede">Как фронт ведёт себя на десктопе, в мобильном браузере и в webview мобильного приложения. Единый брейкпоинт.</p>
+  <div class="grid">
+    <div class="item"><div class="dot"></div><div><div class="k">BREAKPOINT</div><div class="v">960px — один, без исключений</div></div></div><div class="item"><div class="dot"></div><div><div class="k">DESKTOP</div><div class="v">Нав-стрип в топбаре, hover, ⌘K/Ctrl+K</div></div></div><div class="item"><div class="dot"></div><div><div class="k">MOBILE WEB</div><div class="v">Overlay-drawer, actions always visible</div></div></div><div class="item"><div class="dot"></div><div><div class="k">WEBVIEW</div><div class="v">Safe-area insets, блок pull-to-refresh</div></div></div><div class="item"><div class="dot"></div><div><div class="k">HEIGHT</div><div class="v">100dvh вместо 100vh (URL-бар iOS)</div></div></div><div class="item"><div class="dot"></div><div><div class="k">IME</div><div class="v">Адаптивная высота чата под клавиатуру</div></div></div>
+  </div>
+  <div class="row">
+    <span class="chip accent">Desktop ≥960</span><span class="chip">Mobile <960</span><span class="chip">Webview</span>
+  </div>
+</div>
+</body></html>

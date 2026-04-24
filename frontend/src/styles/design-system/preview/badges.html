@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.badge { font-family: var(--nest-font-mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; padding: 3px 8px; border-radius:4px; font-weight:500; }
+.b-default { background: var(--nest-bg-elevated); color: var(--nest-text-secondary); border:1px solid var(--nest-border); }
+.b-accent { background: color-mix(in srgb, var(--nest-accent) 15%, transparent); color: var(--nest-accent); }
+.b-gold { background: color-mix(in srgb, var(--nest-gold) 15%, transparent); color: var(--nest-gold); }
+.b-green { background: color-mix(in srgb, var(--nest-green) 15%, transparent); color: var(--nest-green); }
+.b-blue { background: color-mix(in srgb, var(--nest-blue) 15%, transparent); color: var(--nest-blue); }
+.b-outline { border:1px solid var(--nest-border); color: var(--nest-text-muted); background: transparent; }
+</style>
+</head>
+<body><div class="card">
+<div class="row" style="gap:8px;flex-wrap:wrap">
+  <span class="badge b-default">DEFAULT</span>
+  <span class="badge b-accent">ACTIVE</span>
+  <span class="badge b-gold">PRO</span>
+  <span class="badge b-green">READY</span>
+  <span class="badge b-blue">BETA</span>
+  <span class="badge b-outline">DRAFT</span>
+</div>
+</div></body></html>

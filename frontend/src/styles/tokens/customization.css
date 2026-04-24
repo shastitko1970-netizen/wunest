@@ -1,0 +1,176 @@
+/* ========================================================================
+   ST Profile Mapping — полный список CSS-переменных, покрывающих все поля
+   SillyTavern-профиля + WuNest-расширения.
+
+   Этот файл — расширение tokens/colors_and_type.css. Собран на основе реального
+   профиля "Lilac Witch" как репрезентативного кейса глубокой кастомизации.
+   ======================================================================== */
+
+:root {
+  /* ── TEXT COLOR (5 ролей текста, как в ST) ───────────────────────────── */
+  --nest-text-italic:     var(--SmartThemeEmColor,        var(--nest-accent));
+  --nest-text-underline:  var(--SmartThemeUnderlineColor, var(--nest-accent));
+  /* --nest-text и --nest-accent уже в основном файле */
+
+  /* ── MESSAGE BUBBLES (раздельные тинты) ──────────────────────────────── */
+  --nest-msg-user-bg:  var(--SmartThemeUserMesBlurTintColor, var(--nest-surface));
+  --nest-msg-bot-bg:   var(--SmartThemeBotMesBlurTintColor,  var(--nest-surface));
+  --nest-msg-bg:       var(--nest-surface);
+  --nest-msg-border:   var(--nest-border);
+  --nest-msg-radius:   var(--nest-radius);
+
+  /* ── SHADOWS ─────────────────────────────────────────────────────────── */
+  --nest-shadow-color: var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.3));
+  --nest-shadow-width: 2px;
+  --nest-shadow-text:  0 0 var(--nest-shadow-width) var(--nest-shadow-color);
+
+  /* ── FONT SCALE (глобальный зум) ─────────────────────────────────────── */
+  --nest-font-scale: 1;
+
+  /* ── CHAT WIDTH (% от viewport, слайдер в Appearance) ────────────────── */
+  --nest-chat-width: 60%;
+
+  /* ── BACKGROUND IMAGES ───────────────────────────────────────────────── */
+  --nest-bg-image: none;
+  --nest-bg-image-position: center;
+  --nest-bg-image-size: cover;
+  --nest-chat-bg: transparent;
+  --nest-chat-bg-image: none;
+
+  /* ── LOGO ────────────────────────────────────────────────────────────── */
+  --nest-logo-text:  "▲";
+  --nest-logo-image: none;
+  --nest-logo-size:  32px;
+
+  /* ── TOP BAR (::before overlay как в ST темах) ───────────────────────── */
+  --nest-topbar-image: none;
+  --nest-topbar-height: var(--nest-header-height);
+
+  /* ── BUTTONS ─────────────────────────────────────────────────────────── */
+  --nest-btn-bg:     transparent;
+  --nest-btn-fg:     var(--nest-text);
+  --nest-btn-border: var(--nest-border);
+  --nest-btn-radius: var(--nest-radius-sm);
+  --nest-btn-font-weight: 500;
+  --nest-btn-padding-y: 8px;
+  --nest-btn-padding-x: 16px;
+
+  /* ── TOGGLE / SWITCH ─────────────────────────────────────────────────── */
+  --nest-toggle-width:       36px;
+  --nest-toggle-height:      20px;
+  --nest-toggle-track-off:   var(--nest-bg-elevated);
+  --nest-toggle-track-on:    var(--nest-accent);
+  --nest-toggle-thumb:       var(--nest-text);
+  --nest-toggle-radius:      var(--nest-radius-pill);
+
+  /* ── SLIDER (картинка в thumb — фича из Lilac Witch) ────────────────── */
+  --nest-slider-track-height: 5px;
+  --nest-slider-track-bg:     var(--nest-bg-elevated);
+  --nest-slider-track-border: var(--nest-border);
+  --nest-slider-thumb-width:  16px;
+  --nest-slider-thumb-height: 16px;
+  --nest-slider-thumb-bg:     var(--nest-accent);
+  --nest-slider-thumb-image:  none;
+
+  /* ── LOADER (экран инициализации) ───────────────────────────────────── */
+  --nest-loader-bg:         var(--nest-bg);
+  --nest-loader-bg-image:   none;
+  --nest-loader-mark:       var(--nest-logo-image);
+  --nest-loader-mark-size:  64px;
+  --nest-loader-accent:     var(--nest-accent);
+  --nest-loader-text-color: var(--nest-text-secondary);
+
+  /* ── MESSAGE DECORATIONS (::before / ::after картинки) ──────────────── */
+  --nest-msg-deco-image:       none;
+  --nest-msg-deco-image-user:  var(--nest-msg-deco-image);
+  --nest-msg-deco-image-bot:   var(--nest-msg-deco-image);
+  --nest-msg-deco-top:         -130px;
+  --nest-msg-deco-left:        -2%;
+  --nest-msg-deco-width:       110%;
+  --nest-msg-deco-height:      270px;
+  --nest-msg-deco-size:        contain;
+  --nest-msg-deco-position:    center;
+
+  /* ── SCROLLBAR ───────────────────────────────────────────────────────── */
+  --nest-scrollbar-width:        10px;
+  --nest-scrollbar-width-firefox: thin;
+  --nest-scrollbar-track:        transparent;
+  --nest-scrollbar-thumb:        var(--nest-border);
+  --nest-scrollbar-thumb-hover:  var(--nest-accent);
+  --nest-scrollbar-radius:       var(--nest-radius-pill);
+  --nest-scrollbar-thumb-border: 2px solid var(--nest-bg);
+
+  /* ── CURSORS ─────────────────────────────────────────────────────────── */
+  --nest-cursor-default: auto;
+  --nest-cursor-pointer: pointer;
+  --nest-cursor-text:    text;
+
+  /* ── SOUNDS (URL, играются через JS) ────────────────────────────────── */
+  --nest-sound-send:         none;
+  --nest-sound-receive:      none;
+  --nest-sound-notification: none;
+  --nest-sound-error:        none;
+  --nest-sound-volume:       0;  /* 0..1, по умолчанию выкл */
+
+  /* ── DENSITY (отступы, высота кнопок) ───────────────────────────────── */
+  --nest-density-padding: var(--nest-space-4);
+  --nest-density-row:     44px;  /* mobile hit target */
+}
+
+/* data-nest-density="compact" */
+[data-nest-density="compact"] {
+  --nest-density-padding: var(--nest-space-2);
+  --nest-density-row:     36px;
+}
+
+/* reduced motion */
+[data-nest-reduced-motion] *,
+[data-nest-reduced-motion] *::before,
+[data-nest-reduced-motion] *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+}
+
+/* font scale */
+html {
+  font-size: calc(16px * var(--nest-font-scale));
+}
+
+/* ── APPLY TO BODY / LAYOUT ──────────────────────────────────────────────
+   Эти правила делают переменные «настоящими». Если компонент использует
+   .nest-msg, .nest-btn, .nest-toggle — он автоматически получает все
+   кастомизации, которые юзер задал на :root.
+   ────────────────────────────────────────────────────────────────────── */
+
+body {
+  background-color: var(--nest-bg);
+  background-image: var(--nest-bg-image);
+  background-position: var(--nest-bg-image-position);
+  background-size: var(--nest-bg-image-size);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: var(--nest-text);
+}
+
+em, i     { color: var(--nest-text-italic); }
+u         { color: var(--nest-text-underline); text-decoration-color: var(--nest-text-underline); }
+q, blockquote { color: var(--nest-accent); }
+
+/* Scrollbar */
+* {
+  scrollbar-width: var(--nest-scrollbar-width-firefox);
+  scrollbar-color: var(--nest-scrollbar-thumb) var(--nest-scrollbar-track);
+}
+*::-webkit-scrollbar       { width: var(--nest-scrollbar-width); height: var(--nest-scrollbar-width); }
+*::-webkit-scrollbar-track { background: var(--nest-scrollbar-track); }
+*::-webkit-scrollbar-thumb {
+  background: var(--nest-scrollbar-thumb);
+  border-radius: var(--nest-scrollbar-radius);
+  border: var(--nest-scrollbar-thumb-border);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--nest-scrollbar-thumb-hover); }
+
+/* Cursors */
+html { cursor: var(--nest-cursor-default); }
+a, button, .nest-btn, [role="button"], .nest-clickable { cursor: var(--nest-cursor-pointer); }
+input, textarea, [contenteditable="true"] { cursor: var(--nest-cursor-text); }

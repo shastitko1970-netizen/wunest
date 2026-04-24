@@ -1,0 +1,11 @@
+/* Name: WuNest Default Light (Dossier)
+   Author: WuNest
+   Тёплая «бумажная» палитра, вдохновлённая Dossier CRM. */
+
+:root {
+  --SmartThemeBlurTintColor: #FAFAF7;
+  --SmartThemeChatTintColor: #FFFFFF;
+  --SmartThemeBorderColor:   #E2DFD6;
+  --SmartThemeBodyColor:     #141412;
+  --SmartThemeQuoteColor:    #ef4444;
+}

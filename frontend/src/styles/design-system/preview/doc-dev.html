@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../tokens/colors_and_type.css">
+<style>
+  html, body { margin:0; padding:0; background: var(--nest-bg); color: var(--nest-text); font-family: var(--nest-font-body); }
+  .wrap { padding: 22px 26px; }
+  .eyebrow { font-family: var(--nest-font-mono); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color: var(--nest-text-muted); margin-bottom: 10px; }
+  h1 { font-family: var(--nest-font-display); font-weight:400; font-size: 26px; letter-spacing:-0.02em; line-height:1.15; margin: 0 0 8px; }
+  h1 .tri { color: var(--nest-accent); margin-right: 8px; }
+  .lede { font-size: 13px; line-height: 1.55; color: var(--nest-text-secondary); max-width: 600px; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; margin-top: 12px; }
+  .item { display:flex; gap:10px; align-items:flex-start; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--nest-accent); margin-top: 8px; flex-shrink: 0; }
+  .item .k { font-family: var(--nest-font-mono); font-size: 11px; color: var(--nest-text); }
+  .item .v { font-size: 12px; color: var(--nest-text-secondary); line-height: 1.45; }
+  .row { display:flex; flex-wrap:wrap; gap: 6px; margin-top: 14px; }
+  .chip { font-family: var(--nest-font-mono); font-size: 10px; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; background: var(--nest-bg-elevated); color: var(--nest-text-secondary); border: 1px solid var(--nest-border-subtle); }
+  .chip.accent { color: var(--nest-accent); border-color: color-mix(in srgb, var(--nest-accent) 30%, transparent); background: color-mix(in srgb, var(--nest-accent) 10%, transparent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">DOCS · DEVELOPER GUIDE</div>
+  <h1><span class="tri">▲</span>Как писать mod-friendly код</h1>
+  <p class="lede">Шаблон Vue-компонента, правила токенов, чеклист PR. Всё, чтобы новый компонент остался совместимым с пользовательскими темами.</p>
+  <div class="grid">
+    <div class="item"><div class="dot"></div><div><div class="k">ТОКЕНЫ</div><div class="v">Только var(--nest-*), никакого hex</div></div></div><div class="item"><div class="dot"></div><div><div class="k">ЯКОРЬ</div><div class="v">.nest-<name> на корне важного блока</div></div></div><div class="item"><div class="dot"></div><div><div class="k">STATE</div><div class="v">data-nest-* для режимов, .is-* для вида</div></div></div><div class="item"><div class="dot"></div><div><div class="k">NESTING</div><div class="v">Один уровень SCSS, больше нельзя</div></div></div><div class="item"><div class="dot"></div><div><div class="k">SCOPED</div><div class="v"><style scoped> всегда</div></div></div><div class="item"><div class="dot"></div><div><div class="k">i18n</div><div class="v">t(ключ) · RU + EN одновременно</div></div></div>
+  </div>
+  <div class="row">
+    <span class="chip accent">Template</span><span class="chip">PR checklist</span><span class="chip">Тесты моды</span>
+  </div>
+</div>
+</body></html>

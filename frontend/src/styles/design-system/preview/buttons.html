@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.btn { font-family: var(--nest-font-body); font-size: 14px; font-weight:500; padding:8px 16px; border-radius: var(--nest-radius-sm); cursor:pointer; border:1px solid transparent; transition: all var(--nest-transition-fast); }
+.btn-primary { background: var(--nest-accent); color: #fff; }
+.btn-primary:hover { filter:brightness(1.1); }
+.btn-secondary { background: transparent; color: var(--nest-text); border-color: var(--nest-border); }
+.btn-secondary:hover { background: var(--nest-bg-elevated); border-color: var(--nest-text-muted); }
+.btn-ghost { background: transparent; color: var(--nest-text-secondary); }
+.btn-ghost:hover { color: var(--nest-text); background: var(--nest-bg-elevated); }
+.btn-danger { background: transparent; color: var(--nest-accent); border-color: var(--nest-accent); }
+.btn-icon { width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center; border-radius:6px;background:transparent;border:1px solid var(--nest-border);color:var(--nest-text-secondary); }
+</style>
+</head>
+<body><div class="card">
+<div class="row" style="gap:10px;align-items:center">
+  <button class="btn btn-primary">Send</button>
+  <button class="btn btn-secondary">Cancel</button>
+  <button class="btn btn-ghost">Skip</button>
+  <button class="btn btn-danger">Delete</button>
+  <button class="btn-icon">↻</button>
+  <button class="btn-icon">▍</button>
+</div>
+<div class="nest-caption" style="margin-top:14px">Primary · Secondary · Ghost · Danger · Icon-only</div>
+</div></body></html>

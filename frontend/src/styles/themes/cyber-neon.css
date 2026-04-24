@@ -1,0 +1,30 @@
+/* Name: Cyber Neon
+   Author: WuNest examples
+   Тёмный фиолет + магента акцент. Пример глубокой кастомизации. */
+
+:root {
+  --SmartThemeBlurTintColor: #0a0612;
+  --SmartThemeChatTintColor: #150a20;
+  --SmartThemeBorderColor:   #3c1e50;
+  --SmartThemeBodyColor:     #f1d1ff;
+  --SmartThemeQuoteColor:    #c485ff;
+}
+
+.mes {
+  background: rgba(30, 15, 45, 0.65);
+  border: 1px solid #3c1e50;
+  border-radius: 14px;
+  box-shadow: 0 2px 14px rgba(120, 60, 200, 0.2);
+  backdrop-filter: blur(6px);
+}
+
+.mes_name {
+  color: #c485ff;
+  text-shadow: 0 0 12px rgba(196, 133, 255, 0.4);
+}
+
+#send_textarea {
+  color: #f1d1ff;
+  background: rgba(20, 10, 35, 0.8);
+  border-color: #3c1e50;
+}

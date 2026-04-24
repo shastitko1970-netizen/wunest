@@ -1,0 +1,21 @@
+/* Name: Minimal Reader
+   Author: WuNest examples
+   Режим чтения: document-стиль, никакого декора, широкая мера. */
+
+:root {
+  --SmartThemeBlurTintColor: #fafafa;
+  --SmartThemeChatTintColor: #ffffff;
+  --SmartThemeBorderColor:   #eaeaea;
+  --SmartThemeBodyColor:     #1a1a1a;
+  --SmartThemeQuoteColor:    #555555;
+  --SmartThemeBodyFont:      'Fraunces';
+}
+
+[data-nest-chat-display='document'] .nest-msg-body {
+  font-size: 17px;
+  line-height: 1.75;
+  max-width: 68ch;
+}
+
+.mes { box-shadow: none; }
+.nest-msg-time { display: none; }

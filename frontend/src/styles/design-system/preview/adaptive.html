@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+.frame { flex:1; border:1px solid var(--nest-border); border-radius: var(--nest-radius-sm); padding:10px; background: var(--nest-surface); display:flex; flex-direction:column; gap:6px; min-width:0; }
+.frame-head { display:flex; align-items:center; gap:6px; padding-bottom:8px; border-bottom:1px dashed var(--nest-border); }
+.dot { width:10px; height:10px; border-radius:50%; background:var(--nest-text-muted); flex-shrink:0; }
+.strip { height:8px; background: var(--nest-bg-elevated); border-radius:2px; }
+.strip.accent { background: var(--nest-accent); width:30%; }
+.lbl { font-family: var(--nest-font-mono); font-size:10px; color: var(--nest-text-muted); letter-spacing:0.08em; }
+</style>
+</head>
+<body><div class="card">
+<div class="row" style="gap:12px;align-items:stretch">
+  <div class="frame" style="min-height:120px">
+    <div class="frame-head"><span class="lbl">DESKTOP ≥ 960</span></div>
+    <div class="row" style="gap:6px;flex:1">
+      <div style="width:40px;background:var(--nest-bg-elevated);border-radius:2px"></div>
+      <div class="col" style="flex:1;gap:4px"><div class="strip"></div><div class="strip"></div><div class="strip accent"></div></div>
+    </div>
+  </div>
+  <div class="frame" style="max-width:120px">
+    <div class="frame-head"><div class="dot"></div><div class="dot"></div><span class="lbl" style="margin-left:auto">&lt;960</span></div>
+    <div class="col" style="gap:4px;flex:1"><div class="strip"></div><div class="strip"></div><div class="strip accent"></div></div>
+  </div>
+</div>
+<div class="nest-caption" style="margin-top:10px">Единый брейкпоинт <b>960px</b>. Десктоп: навстрип в топбаре + hover-actions. Мобайл: overlay-drawer + actions-always-visible + safe-area insets.</div>
+</div></body></html>
