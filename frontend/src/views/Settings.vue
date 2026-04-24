@@ -80,7 +80,7 @@ async function saveDefaultModel(v: string) {
 </script>
 
 <template>
-  <v-container class="nest-settings">
+  <v-container class="nest-settings nest-admin">
     <div class="nest-eyebrow">{{ t('nav.settings') }}</div>
     <h1 class="nest-h1 mt-1">{{ t('settings.title') }}</h1>
 

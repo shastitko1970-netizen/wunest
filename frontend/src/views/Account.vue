@@ -115,7 +115,7 @@ function kindChipColor(kind: string): string {
 </script>
 
 <template>
-  <v-container class="nest-account" fluid>
+  <v-container class="nest-account nest-admin" fluid>
     <!-- Header -->
     <div class="nest-account-head">
       <div>

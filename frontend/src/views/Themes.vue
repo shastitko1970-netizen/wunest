@@ -126,7 +126,7 @@ function kindLabel(kind: 'dark' | 'light') {
 </script>
 
 <template>
-  <div class="nest-themes">
+  <div class="nest-themes nest-admin">
     <!-- Hero -->
     <section class="nest-themes-hero">
       <div class="nest-eyebrow">{{ t('themes.eyebrow') }}</div>

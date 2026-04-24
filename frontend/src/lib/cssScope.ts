@@ -95,6 +95,38 @@ export function scopeCSS(css: string, scope: string): string {
   return globalRules + '\n' + manualPrefix(scopable, scope)
 }
 
+/**
+ * globalGuardCSS — applies user CSS in "Whole app" (global) scope WITHOUT
+ * letting aggressive themes break admin surfaces (Settings, Account,
+ * Docs). Uses `@scope (body) to (.nest-admin)` on modern browsers —
+ * meaning the CSS matches everything under <body> EXCEPT the subtree
+ * rooted at an element with `.nest-admin`.
+ *
+ * Rationale: tester reported a 1350-line theme in global scope wiped
+ * out parts of AppearancePanel controls. That theme was in global
+ * mode by design (needs to repaint topbar/sidebar), but had rules that
+ * hit Vuetify inputs on Settings too. Admin surfaces must remain
+ * readable so the user can always get back to the scope toggle and
+ * disable/switch the theme.
+ *
+ * Firefox fallback: no `@scope` support → CSS applied as-is. Accept
+ * the tradeoff: Firefox users picking global scope are trusted more.
+ * If Settings breaks on Firefox, Safe mode (`?safe`) is the escape.
+ */
+export function globalGuardCSS(css: string): string {
+  if (!css.trim()) return ''
+  const { globalRules, scopable } = splitImports(css)
+  if (supportsCSSScope) {
+    // Scope everything to body but exclude .nest-admin subtrees. Any
+    // class the user writes (`.mes`, `body`, `#top-bar`, etc.) still
+    // resolves inside this scope EXCEPT when its element is a
+    // descendant of a `.nest-admin` node.
+    return `${globalRules}\n@scope (body) to (.nest-admin) {\n${scopable}\n}`
+  }
+  // Firefox / legacy: no @scope → trust user's global-scope intent.
+  return css
+}
+
 /** Split out top-level @-rules that MUST remain global. */
 function splitImports(css: string): { globalRules: string; scopable: string } {
   // Naive scanner: find `@import ...;` and `@font-face { ... }`, `@charset ...;`

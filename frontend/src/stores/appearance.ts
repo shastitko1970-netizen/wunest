@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { appearanceApi, type Appearance } from '@/api/appearance'
-import { scopeCSS } from '@/lib/cssScope'
+import { scopeCSS, globalGuardCSS } from '@/lib/cssScope'
 
 /**
  * Appearance store — user-authored theming.
@@ -245,7 +245,11 @@ function applyAppearance(a: Appearance) {
     const scope = resolveScope(a)
     styleEl.textContent = scope === 'chat'
       ? scopeCSS(a.customCss, '#chat')
-      : a.customCss
+      // Global: protect admin surfaces (Settings/Account/Docs) from
+      // aggressive themes. On modern browsers this wraps in
+      // `@scope (body) to (.nest-admin)`; on Firefox CSS is applied
+      // as-is (scope-exclusion не поддерживается, trust the user).
+      : globalGuardCSS(a.customCss)
   } else if (styleEl) {
     styleEl.remove()
   }

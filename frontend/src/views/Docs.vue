@@ -86,7 +86,7 @@ function topicSummary(t: DocTopic) {
 </script>
 
 <template>
-  <div class="nest-docs">
+  <div class="nest-docs nest-admin">
     <div class="nest-docs-layout">
       <!-- Left ToC -->
       <aside class="nest-docs-toc">
