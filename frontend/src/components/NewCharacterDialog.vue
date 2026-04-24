@@ -75,19 +75,50 @@ const busy = ref(false)
 const error = ref<string | null>(null)
 const focusNameEl = ref<HTMLElement | null>(null)
 
+// Live working copy of the character that reflects mid-dialog mutations
+// (sprite upload/delete, lorebook edits). Necessary because:
+//
+//   - `props.character` is a snapshot from Library.vue's editingCharacter
+//     ref. When the sprite panel DELETEs a sprite, the store gets an
+//     updated copy but editingCharacter still points to the pre-delete
+//     object. If we read props.character at save() time, we PATCH the
+//     character with stale data.assets, silently resurrecting deleted
+//     sprites.
+//   - Tester: «опять эмоции не удаляются, он удаляет, пишет потом что
+//     нет спрайта, нажимаю сохранить — и он такой нууу» — exactly this
+//     bug. Delete removed it from server, UI re-rendered from the
+//     (still-stale) prop, user clicked X again → 404, then Save → stale
+//     data.assets PATCHed → sprite came back.
+//
+// Fix: keep liveCharacter locally, resync to props.character when the
+// parent swaps editingCharacter, and read from it in the template AND
+// in save(). Updates from child panels (CharacterSpritesPanel emit)
+// flow into liveCharacter first, then piggyback into the store.
+const liveCharacter = ref<Character | null>(props.character ?? null)
+watch(
+  () => props.character,
+  (c) => { liveCharacter.value = c ?? null },
+  { immediate: true },
+)
+
 // Sprite count — shown as a chip next to the Expressions section
-// heading. Reads from props.character.data.assets (M40.2).
+// heading. Reads liveCharacter so the chip decrements immediately
+// after a delete instead of waiting for Save + round-trip.
 const spriteCount = computed(() => {
-  const assets = (props.character?.data as any)?.assets ?? []
+  const assets = (liveCharacter.value?.data as any)?.assets ?? []
   return (assets as Array<{ type: string }>).filter(a => a.type === 'expression').length
 })
 
 // Sprite panel emits an updated Character snapshot after upload or
-// delete. We push it straight to the characters store so every other
-// open surface (Chat view, library card) picks up the new assets
-// immediately.
-function onCharacterUpdatedFromSprites(c: any) {
-  // Store has the fresh copy by id; updating in place is cheapest.
+// delete. We fan-out to three places:
+//   1. liveCharacter — so the dialog's own template re-renders with
+//      the fresh assets list.
+//   2. store.items — so the Library view and Chat-view sprite mount
+//      see the update without a refetch.
+//   3. (implicit via reactivity) next save() call will read liveCharacter
+//      — not stale props.character — and PATCH the truthful assets array.
+function onCharacterUpdatedFromSprites(c: Character) {
+  liveCharacter.value = c
   const storeItems = store.items
   const idx = storeItems.findIndex(x => x.id === c.id)
   if (idx >= 0) storeItems[idx] = c
@@ -262,7 +293,13 @@ async function save() {
       // EDIT — preserve character_book / assets / extensions / anything
       // else we don't surface by spreading ch.data into the base. buildData
       // overwrites surfaced fields + deletes cleared optional ones.
-      const data = buildData((props.character.data ?? {}) as Record<string, any>) as any
+      //
+      // IMPORTANT: read from liveCharacter, not props.character. Sprite
+      // deletes + lorebook mutations flow through liveCharacter; using
+      // props.character here would PATCH stale data and re-resurrect
+      // just-deleted sprites (tester's "я тебе это не удалю" bug).
+      const baseData = (liveCharacter.value?.data ?? props.character.data ?? {}) as Record<string, any>
+      const data = buildData(baseData) as any
       const updated = await store.update(props.character.id, {
         name,
         avatar_url: form.avatar_url.trim() || undefined,
@@ -605,7 +642,7 @@ async function save() {
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <CharacterSpritesPanel
-                :character="props.character"
+                :character="liveCharacter"
                 @updated="onCharacterUpdatedFromSprites"
               />
             </v-expansion-panel-text>
