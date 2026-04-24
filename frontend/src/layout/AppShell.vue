@@ -115,6 +115,7 @@ const gatedDisabled = computed(() => authenticated.value && !nestAccessGranted.v
 const navItems = computed<NavItem[]>(() => [
   { to: '/chat',     icon: 'mdi-forum-outline',        label: t('nav.chat'),     disabled: gatedDisabled.value },
   { to: '/library',  icon: 'mdi-bookshelf',            label: t('nav.library'),  disabled: gatedDisabled.value },
+  { to: '/convert',  icon: 'mdi-auto-fix',             label: t('nav.convert') },
   { to: '/docs',     icon: 'mdi-book-open-variant',    label: t('nav.docs') },
   { to: '/account',  icon: 'mdi-account-circle-outline', label: t('nav.account') },
   { to: '/settings', icon: 'mdi-cog-outline',          label: t('nav.settings') },
@@ -125,10 +126,10 @@ const navItems = computed<NavItem[]>(() => [
 
 // Subset of navItems shown directly in the topbar on desktop. Presets used
 // to be here as a separate destination; folded into /library as a tab so
-// the topbar stays lean (Chat + Library + Docs cover everything users
-// need from the topbar; Account + Settings live in the avatar menu).
+// the topbar stays lean. /convert added here — it's a utility the user
+// actively seeks out (not a passive surface like Settings).
 const topbarNav = computed<NavItem[]>(() =>
-  navItems.value.filter(i => ['/chat', '/library', '/docs'].includes(i.to)),
+  navItems.value.filter(i => ['/chat', '/library', '/convert', '/docs'].includes(i.to)),
 )
 
 const goldDisplay = computed(() =>

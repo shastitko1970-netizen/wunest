@@ -57,6 +57,10 @@ export const router = createRouter({
     { path: '/account', name: 'account', component: () => import('@/views/Account.vue') },
     { path: '/presets', name: 'presets', component: () => import('@/views/Presets.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
+    // M43 — theme converter. Auth-required so we can bill tokens to the
+    // signed-in user. Not beta-gated (user can test ST→WuNest conversions
+    // before fully activating).
+    { path: '/convert', name: 'convert', component: () => import('@/views/Converter.vue') },
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',

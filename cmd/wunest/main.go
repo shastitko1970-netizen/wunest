@@ -83,6 +83,11 @@ func main() {
 		Logger:   logger,
 	})
 
+	// Background workers (converter reaper, …). Stop called during
+	// graceful shutdown so we don't drop an in-flight DELETE.
+	stopBackground := srv.StartBackground(rootCtx)
+	defer stopBackground()
+
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           srv.Router(),

@@ -12,11 +12,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
+	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/chats"
 	"github.com/shastitko1970-netizen/wunest/internal/config"
+	"github.com/shastitko1970-netizen/wunest/internal/converter"
 	"github.com/shastitko1970-netizen/wunest/internal/db"
-	"github.com/shastitko1970-netizen/wunest/internal/byok"
 	"github.com/shastitko1970-netizen/wunest/internal/library"
 	"github.com/shastitko1970-netizen/wunest/internal/outboundproxy"
 	"github.com/shastitko1970-netizen/wunest/internal/personas"
@@ -53,6 +54,7 @@ type Server struct {
 	byokRepo   *byok.Repository // stream hot path calls Reveal directly
 	uploads    *uploads.Handler
 	quickReplies *quickreplies.Handler
+	converter  *converter.Handler // M43 — ST theme → WuNest theme via LLM
 }
 
 func New(deps Deps) *Server {
@@ -150,6 +152,38 @@ func New(deps Deps) *Server {
 		byokRepo:     byokRepo,
 		uploads:      &uploads.Handler{Storage: storageClient},
 		quickReplies: &quickreplies.Handler{Repo: quickreplies.NewRepository(deps.Postgres), Users: resolver},
+		// Converter needs same LLM-call primitives as the chat stream
+		// (BYOK + WuApi + proxy pool). Reusing components instead of
+		// forking keeps the "where does the LLM call go" logic in one
+		// place (chats.PrepareRequestForProvider / DirectCallHeaders).
+		converter: &converter.Handler{
+			Repo:      converter.NewRepository(deps.Postgres),
+			Users:     resolver,
+			BYOK:      byokRepo,
+			WuApi:     deps.WuApi,
+			ProxyPool: proxyPool,
+			Logger:    deps.Logger,
+		},
+	}
+}
+
+// StartBackground launches long-running goroutines the server needs
+// (periodic reapers, cache warmers). Returns a stop function that
+// cancels everything and waits for in-flight work to finish; main.go
+// calls it from graceful shutdown.
+//
+// Currently: converter reaper (deletes expired nest_converter_jobs rows
+// every 10 minutes). Add more here as needs arise — keeping one central
+// lifecycle hook avoids scattered goroutine wiring.
+func (s *Server) StartBackground(ctx context.Context) func() {
+	stops := []func(){}
+	if s.converter != nil && s.converter.Repo != nil {
+		stops = append(stops, converter.StartReaper(ctx, s.converter.Repo, s.deps.Logger))
+	}
+	return func() {
+		for _, stop := range stops {
+			stop()
+		}
 	}
 }
 
@@ -196,6 +230,7 @@ func (s *Server) Router() http.Handler {
 	// configured the handler returns 503 with a machine-readable error.
 	s.uploads.Register(mux, authRequired)
 	s.quickReplies.Register(mux, authRequired)
+	s.converter.Register(mux, authRequired)
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
