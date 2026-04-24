@@ -48,6 +48,12 @@ func (h *Handler) openChatStream(ctx context.Context, up upstream, req wuapi.Cha
 func directChatStream(ctx context.Context, pool *outboundproxy.Pool, up upstream, req wuapi.ChatCompletionRequest) (io.ReadCloser, *http.Response, error) {
 	req = PrepareRequestForProvider(up.Provider, req)
 	req.Stream = true
+	// Force providers to include a final usage chunk. OpenAI native requires
+	// this flag explicitly during streaming; Anthropic / OpenRouter / Gemini
+	// OAI-compat send usage either way but don't mind the opt-in.
+	if req.StreamOptions == nil {
+		req.StreamOptions = &wuapi.StreamOptions{IncludeUsage: true}
+	}
 
 	body, err := json.Marshal(req)
 	if err != nil {

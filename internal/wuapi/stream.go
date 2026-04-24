@@ -29,10 +29,22 @@ type ChatCompletionRequest struct {
 	Seed              *int             `json:"seed,omitempty"`
 	Stop              []string         `json:"stop,omitempty"`
 	Stream            bool             `json:"stream"`
+	// StreamOptions — OAI-compat knob we set to force providers (OpenAI in
+	// particular) to emit a final usage chunk during streaming. Without
+	// this OpenAI native DOES NOT include prompt/completion tokens in the
+	// stream and our per-message token accounting ends up at zero.
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Extra holds unknown/user-supplied fields so the caller can pass through
 	// model-specific knobs (tool_choice, response_format, reasoning_effort,
 	// thinking, etc.) without this struct growing every release.
 	Extra map[string]any `json:"-"`
+}
+
+// StreamOptions carries OAI-compat stream_options fields. Only include_usage
+// is in scope today; room to grow when provider docs add more (e.g.
+// token-level logprobs).
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // MarshalJSON merges the named fields with Extra so unknown keys ride along.
@@ -68,6 +80,11 @@ func (c *Client) ChatCompletionsStream(
 	req ChatCompletionRequest,
 ) (io.ReadCloser, *http.Response, error) {
 	req.Stream = true
+	// Opt-in to usage in stream — OpenAI native and most OAI-compat
+	// providers honour this. Without it we silently get 0-token messages.
+	if req.StreamOptions == nil {
+		req.StreamOptions = &StreamOptions{IncludeUsage: true}
+	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
