@@ -86,6 +86,11 @@ func (h *Handler) streamChatRegen(
 	for _, m := range promptMsgs {
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
 	}
+	// M37: transform user messages with attachment URLs into multi-part
+	// content when the model supports vision. No-op for text-only models
+	// (URLs stay as-is in content string). Inlining is gated by preset's
+	// image_inlining flag (defaults ON for vision models).
+	up = ApplyMultimodal(up, DecideMultimodal(model, in.Bundle))
 
 	placeholder, err := h.Repo.AppendMessageForCharacter(ctx, chatID, RoleAssistant, "", charID, &MessageExtras{Model: model})
 	if err != nil {
@@ -639,6 +644,11 @@ func (h *Handler) streamChatSwipe(
 	for _, m := range promptMsgs {
 		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
 	}
+	// M37: transform user messages with attachment URLs into multi-part
+	// content when the model supports vision. No-op for text-only models
+	// (URLs stay as-is in content string). Inlining is gated by preset's
+	// image_inlining flag (defaults ON for vision models).
+	up = ApplyMultimodal(up, DecideMultimodal(model, in.Bundle))
 
 	// The "placeholder" for pipeStream is the existing message row — we
 	// already cleared its content and bumped swipe_id via BeginSwipe. Pass
@@ -647,6 +657,277 @@ func (h *Handler) streamChatSwipe(
 	placeholder := &Message{ID: targetMessageID}
 
 	h.pipeStreamSwipe(w, flusher, ctx, chatID, placeholder, model, ups, in, up)
+}
+
+// streamChatContinue extends an existing assistant message with more
+// content streamed from the model. Unlike swipe (which replaces) this
+// APPENDS — useful when the original response hit max_tokens or the
+// user just wants more.
+//
+// Implementation notes:
+//   - Prompt = normal history through the target message + an assistant-role
+//     message carrying the target's current content as prefill. OpenAI /
+//     Anthropic / DeepSeek all continue from that prefill when the last
+//     message is assistant-role.
+//   - Client sees `continue_start` instead of `assistant_start` so
+//     MessageBubble knows to APPEND incoming token deltas rather than
+//     overwrite the displayed content.
+//   - Final DB write stores existing + streamed content (full final
+//     string) so the row is self-consistent even if the client
+//     disconnected mid-stream.
+func (h *Handler) streamChatContinue(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID uuid.UUID,
+	chatID uuid.UUID,
+	charID *uuid.UUID,
+	otherCharIDs []uuid.UUID,
+	ups upstream,
+	userName string,
+	personaDesc string,
+	target *Message,
+	in SendMessageInput,
+) {
+	ctx := r.Context()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, _ := w.(http.Flusher)
+
+	// Let the client know this is a continue — it should append tokens
+	// to an existing message, not create a new row.
+	writeSSE(w, flusher, "continue_start", map[string]any{
+		"id":           target.ID,
+		"existing_len": len(target.Content),
+	})
+
+	// Speaker character (optional — deleted-character-fallback same as others).
+	var ch *characters.Character
+	if charID != nil {
+		if c, err := h.Characters.Get(ctx, userID, *charID); err == nil {
+			ch = c
+		}
+	}
+	others := h.loadOtherCharacters(ctx, userID, otherCharIDs)
+
+	// History UP TO but NOT INCLUDING the target — we'll inject the
+	// target's content ourselves as a prefill, so including it in
+	// history would duplicate it.
+	all, err := h.Repo.ListMessages(ctx, chatID, false)
+	if err != nil {
+		writeSSEError(w, flusher, "load_history", err)
+		return
+	}
+	history := make([]Message, 0, len(all))
+	for _, m := range all {
+		if m.ID >= target.ID {
+			break
+		}
+		history = append(history, m)
+	}
+
+	worlds := loadAttachedWorlds(ctx, h, userID, charID)
+
+	model := in.Model
+	if model == "" {
+		model = defaultModel
+	}
+
+	promptMsgs := Build(PromptInput{
+		Character:            ch,
+		OtherCharacters:      others,
+		History:              history,
+		UserName:             userName,
+		UserDesc:             personaDesc,
+		SystemPromptOverride: in.SystemPromptOverride,
+		Worlds:               worlds,
+		AuthorsNote:          in.AuthorsNote,
+		Bundle:               in.Bundle,
+	})
+	up := make([]map[string]any, 0, len(promptMsgs)+1)
+	for _, m := range promptMsgs {
+		up = append(up, map[string]any{"role": m.Role, "content": m.Content})
+	}
+	up = ApplyMultimodal(up, DecideMultimodal(model, in.Bundle))
+
+	// Assistant prefill — the heart of the continue trick. Providers
+	// that understand this ({OpenAI, Anthropic, DeepSeek, Gemini,
+	// OpenRouter-proxied to any of the above}) resume from exactly
+	// this text. Providers that don't will generate from scratch
+	// (degrades to regenerate-style; the append merge below still
+	// works).
+	//
+	// If the user's active bundle has `continue_prefill` set (a
+	// "Claude style: continue from the last word" convention), we
+	// append that verbatim AFTER the current content. That's where
+	// ST's continue_prefill preset field feeds in.
+	continuePrefill := target.Content
+	// ST conventions:
+	//   - ContinueNudgePrompt: short nudge inserted as a system hint before
+	//     the prefill. Rarely changes behaviour much; kept optional.
+	//   - ContinuePostfix: text appended to the prefill itself (some users
+	//     like "..." or a newline to give the model a literal starting point).
+	if in.Bundle != nil && in.Bundle.ContinuePostfix != "" {
+		continuePrefill = target.Content + in.Bundle.ContinuePostfix
+	}
+	// In group chats the history rows were prefixed "Alice: ..." —
+	// do the same for the prefill so the model sees consistent
+	// attribution and continues as the right speaker.
+	if len(others) > 0 && charID != nil {
+		for _, c := range append([]*characters.Character{ch}, others...) {
+			if c != nil && c.ID == *charID && c.Name != "" {
+				continuePrefill = c.Name + ": " + continuePrefill
+				break
+			}
+		}
+	}
+	up = append(up, map[string]any{
+		"role":    "assistant",
+		"content": continuePrefill,
+	})
+
+	h.pipeStreamContinue(w, flusher, ctx, chatID, target, model, ups, in, up)
+}
+
+// pipeStreamContinue is the continue-aware twin of pipeStream: tokens
+// are appended to the target row's content (not replacing), and the
+// final content saved is existing + streamed.
+func (h *Handler) pipeStreamContinue(
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	ctx context.Context,
+	chatID uuid.UUID,
+	target *Message,
+	model string,
+	ups upstream,
+	in SendMessageInput,
+	up []map[string]any,
+) {
+	started := time.Now()
+
+	req := wuapi.ChatCompletionRequest{
+		Model:             model,
+		Messages:          up,
+		Temperature:       in.Temperature,
+		TopP:              in.TopP,
+		TopK:              in.TopK,
+		MinP:              in.MinP,
+		MaxTokens:         in.MaxTokens,
+		FrequencyPenalty:  in.FrequencyPenalty,
+		PresencePenalty:   in.PresencePenalty,
+		RepetitionPenalty: in.RepetitionPenalty,
+		Seed:              in.Seed,
+		Stop:              in.Stop,
+		Extra:             mergeReasoning(in.Overrides, in.ReasoningEnabled),
+	}
+
+	body, resp, err := h.openChatStream(ctx, ups, req)
+	if err != nil {
+		writeSSEError(w, flusher, "upstream_connect", err)
+		return
+	}
+	defer body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(body, 4096))
+		writeSSEError(w, flusher, "upstream_status",
+			fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(b))))
+		return
+	}
+
+	var (
+		accumulator         strings.Builder
+		finishReason        string
+		tokensIn, tokensOut int
+	)
+	scanner := bufio.NewScanner(body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		if data == "[DONE]" {
+			break
+		}
+		var event struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			writeSSERaw(w, flusher, "raw", data)
+			continue
+		}
+		for _, ch := range event.Choices {
+			if ch.Delta.Content != "" {
+				accumulator.WriteString(ch.Delta.Content)
+				writeSSE(w, flusher, "token", map[string]any{"content": ch.Delta.Content})
+			}
+			if ch.FinishReason != "" {
+				finishReason = ch.FinishReason
+			}
+		}
+		if event.Usage.PromptTokens > 0 {
+			tokensIn = event.Usage.PromptTokens
+		}
+		if event.Usage.CompletionTokens > 0 {
+			tokensOut = event.Usage.CompletionTokens
+		}
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("chats continue stream scanner", "err", err)
+	}
+
+	streamed := accumulator.String()
+	// Regex transforms on the streamed portion only (existing content
+	// was already transformed when originally persisted).
+	cleanStreamed, newReasoning := ExtractThinking(streamed)
+	cleanStreamed = ApplyRegexToAIOutput(in.Bundle, cleanStreamed)
+	combined := target.Content + cleanStreamed
+
+	extras := &MessageExtras{
+		Model:        model,
+		Reasoning:    newReasoning,
+		TokensIn:     tokensIn,
+		TokensOut:    tokensOut,
+		LatencyMs:    int(time.Since(started).Milliseconds()),
+		FinishReason: finishReason,
+	}
+	// If the target message already had a reasoning block from the
+	// original generation, concatenate rather than replacing.
+	var oldExtras MessageExtras
+	if len(target.Extras) > 0 {
+		_ = json.Unmarshal(target.Extras, &oldExtras)
+	}
+	if oldExtras.Reasoning != "" && newReasoning != "" {
+		extras.Reasoning = oldExtras.Reasoning + "\n\n---\n\n" + newReasoning
+	} else if oldExtras.Reasoning != "" {
+		extras.Reasoning = oldExtras.Reasoning
+	}
+	if err := h.Repo.UpdateMessageContent(ctx, target.ID, combined, extras); err != nil {
+		slog.Error("continue: save content", "err", err, "id", target.ID)
+	}
+
+	writeSSE(w, flusher, "done", map[string]any{
+		"id":            target.ID,
+		"content":       combined,
+		"finish_reason": finishReason,
+		"tokens_in":     tokensIn,
+		"tokens_out":    tokensOut,
+	})
 }
 
 // pipeStreamSwipe is the swipe-aware twin of pipeStream: on done it also

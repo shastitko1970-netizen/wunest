@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'delete', m: Message): void
   (e: 'regenerate', m: Message): void
+  (e: 'continue', m: Message): void
   (e: 'swipe', m: Message): void
   (e: 'select-swipe', m: Message, swipeID: number): void
   (e: 'edit', m: Message, newContent: string): void
@@ -195,6 +196,7 @@ function onEditKeydown(e: KeyboardEvent) {
        `nest-*` classes; the aliases are layout-silent. -->
   <div
     class="nest-msg mes"
+    :data-message-id="message.id"
     :class="{
       'is-user': isUser,
       'is-streaming': streaming,
@@ -320,6 +322,14 @@ function onEditKeydown(e: KeyboardEvent) {
           <v-icon size="14">mdi-plus</v-icon>
         </button>
       </template>
+      <button
+        v-if="allowRegenerate"
+        class="nest-action-btn"
+        :title="t('chat.actions.continue')"
+        @click="emit('continue', message)"
+      >
+        <v-icon size="14">mdi-play-outline</v-icon>
+      </button>
       <button
         v-if="allowRegenerate"
         class="nest-action-btn"

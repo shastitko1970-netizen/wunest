@@ -939,6 +939,11 @@ const messages = {
       sayHi: 'Ещё нет сообщений — напиши привет.',
       you: 'Ты',
       jumpToBottom: 'Вниз к новому',
+      search: {
+        placeholder: 'Поиск по всем чатам…',
+        hint: 'Введи 2+ символа — ищем по всему что ты писал и чаты тебе писали. Горячая клавиша: Ctrl+K',
+        nothing: 'Нет совпадений для «{q}».',
+      },
       assistant: 'Ассистент',
       generationFailed: 'Генерация прервалась: {error}',
       live: {
@@ -953,6 +958,7 @@ const messages = {
       },
       actions: {
         regenerate: 'Перегенерировать',
+        continue: 'Продолжить (дописать к сообщению)',
         edit: 'Редактировать (Ctrl+Enter — сохранить)',
         delete: 'Удалить',
       },
@@ -1998,6 +2004,11 @@ const messages = {
       sayHi: 'No messages yet — say hi.',
       you: 'You',
       jumpToBottom: 'Jump to latest',
+      search: {
+        placeholder: 'Search all chats…',
+        hint: 'Type 2+ characters. Matches everything you and your characters have written. Shortcut: Ctrl+K',
+        nothing: 'No matches for "{q}".',
+      },
       assistant: 'Assistant',
       generationFailed: 'Generation failed: {error}',
       live: {
@@ -2012,6 +2023,7 @@ const messages = {
       },
       actions: {
         regenerate: 'Regenerate',
+        continue: 'Continue (extend message)',
         edit: 'Edit (Ctrl+Enter to save)',
         delete: 'Delete',
       },

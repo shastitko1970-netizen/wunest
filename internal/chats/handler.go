@@ -48,6 +48,7 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	}
 
 	mux.Handle("GET /api/chats", authRequired(http.HandlerFunc(h.list)))
+	mux.Handle("GET /api/chats/search", authRequired(http.HandlerFunc(h.search)))
 	mux.Handle("POST /api/chats", authRequired(http.HandlerFunc(h.create)))
 	mux.Handle("GET /api/chats/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
@@ -66,6 +67,10 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	// Swipes — alternate assistant outputs for the same turn. Creating a new
 	// swipe is a generation (gated); selecting among existing swipes is not.
 	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", betaGated(http.HandlerFunc(h.swipeMessage)))
+	// Continue — extends the last assistant message with more content.
+	// Unlike regenerate (which discards + retries) continue appends to
+	// what's already there, useful when a response was cut short.
+	mux.Handle("POST /api/chats/{id}/messages/{mid}/continue", betaGated(http.HandlerFunc(h.continueMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}/swipe", authRequired(http.HandlerFunc(h.selectSwipe)))
 	// Portability: export current chat as JSONL, import a .jsonl into a new chat.
 	mux.Handle("GET /api/chats/{id}/export", authRequired(http.HandlerFunc(h.exportChat)))
@@ -1490,6 +1495,122 @@ func (h *Handler) regenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
 	h.streamChatRegen(w, r, user.ID, chat.ID, respondingCharID, others, up, userName, userDesc, in)
+}
+
+// search runs a full-text search across the user's chat messages.
+// Returns up to 50 hits ranked by ts_rank_cd then recency.
+//
+// Query params:
+//
+//	q            — search string, required; non-empty after trim
+//	character_id — optional UUID to scope search to one character's chats
+//	limit        — optional 1..200, default 50
+func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		return
+	}
+	var charFilter *uuid.UUID
+	if cs := r.URL.Query().Get("character_id"); cs != "" {
+		if id, err := uuid.Parse(cs); err == nil {
+			charFilter = &id
+		}
+	}
+	limit := 50
+	if ls := r.URL.Query().Get("limit"); ls != "" {
+		if v, err := strconv.Atoi(ls); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	hits, err := h.Repo.SearchMessages(r.Context(), user.ID, q, charFilter, limit)
+	if err != nil {
+		slog.Error("chat search", "err", err, "user_id", user.ID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": hits})
+}
+
+// continueMessage extends the last assistant message with more content.
+//
+// Unlike regenerate (which discards + retries) continue APPENDS to the
+// existing content — useful when a response was cut short by max_tokens
+// or user curiosity («tell me more about that»). Works by:
+//   1. Loading the target message (must be assistant + latest visible)
+//   2. Building a prompt with the existing content as `assistant_prefill`
+//   3. Streaming the continuation
+//   4. Appending streamed tokens to the existing message's content
+//
+// Provider support varies: OpenAI-family allows `{role:"assistant",
+// content:"..."}` as trailing prefill (they resume). Anthropic requires
+// the same. Bundle's `continue_prefill` field can override prefill text.
+func (h *Handler) continueMessage(w http.ResponseWriter, r *http.Request) {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.Users.Resolve(r.Context(), session.WuApi.ID)
+	if err != nil {
+		slog.Error("resolve user", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.Repo.GetChat(r.Context(), user.ID, chatID)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	msg, err := h.Repo.GetMessage(r.Context(), chatID, mid)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	if msg.Role != RoleAssistant {
+		http.Error(w, "can only continue assistant messages", http.StatusBadRequest)
+		return
+	}
+
+	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	if up.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+
+	var in SendMessageInput
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = json.NewDecoder(r.Body).Decode(&in)
+	}
+	userName, userDesc := h.resolvePersona(r.Context(), user.ID, chat.Metadata, session.WuApi.FirstName, session.WuApi.Username)
+	in = h.applyActivePresets(r.Context(), user.ID, in)
+	in.AuthorsNote = readAuthorsNote(chat.Metadata)
+	in = h.applyUserDefaults(r.Context(), user.ID, in)
+
+	// Continue runs as the SAME speaker who produced the original
+	// message. Matches swipe semantics — regenerating the same turn
+	// shouldn't switch voice without explicit user action.
+	respondingCharID := chat.CharacterID
+	if msg.CharacterID != nil {
+		respondingCharID = msg.CharacterID
+	}
+	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
+	h.streamChatContinue(w, r, user.ID, chatID, respondingCharID, others, up, userName, userDesc, msg, in)
 }
 
 // seedGroupGreetings collects a greeting from each participating

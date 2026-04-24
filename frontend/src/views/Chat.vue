@@ -169,7 +169,31 @@ async function maybeLoadFromRoute() {
   const id = route.params.id as string | undefined
   if (id) {
     await chats.open(id)
+    // ?message=<id> comes from the chat-search dialog — jump to the hit
+    // once messages are rendered. Wait 2 ticks so MessageBubble has
+    // painted and DOM refs exist.
+    const msgID = route.query.message
+    if (msgID && typeof msgID === 'string') {
+      await nextTick()
+      await nextTick()
+      scrollToMessage(parseInt(msgID, 10))
+    }
   }
+}
+
+function scrollToMessage(mid: number) {
+  if (!Number.isFinite(mid) || mid <= 0) return
+  const el = scroller.value
+  if (!el) return
+  const target = el.querySelector(`[data-message-id="${mid}"]`) as HTMLElement | null
+  if (!target) return
+  // Override auto-stick so the incoming message-highlight doesn't
+  // get yanked back to the bottom.
+  autoStickBottom.value = false
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // Flash-highlight the target for 1.5s so the user's eye lands on it.
+  target.classList.add('nest-msg-flash')
+  setTimeout(() => target.classList.remove('nest-msg-flash'), 1500)
 }
 
 const characterName = computed(() => currentChat.value?.character_name ?? undefined)
@@ -347,6 +371,15 @@ async function regenerate(_m: Message) {
   await chats.regenerate({
     model: selectedModel.value,
     speaker_id: isGroupChat.value ? (groupSpeaker.value ?? undefined) : undefined,
+  })
+}
+
+// Continue extends the target assistant message with more content —
+// same speaker, same context, just more tokens. Useful when max_tokens
+// cut the response mid-sentence.
+async function continueMessage(m: Message) {
+  await chats.continueAssistant(m, {
+    model: selectedModel.value,
   })
 }
 
@@ -591,6 +624,7 @@ const lastAssistantId = computed(() => {
                 :streaming="streaming && i === messages.length - 1 && m.role === 'assistant'"
                 :allow-regenerate="!streaming && m.role === 'assistant' && m.id === lastAssistantId"
                 @regenerate="regenerate"
+                @continue="continueMessage"
                 @swipe="onSwipe"
                 @select-swipe="onSelectSwipe"
                 @edit="onEditMessage"
@@ -938,6 +972,16 @@ const lastAssistantId = computed(() => {
 .nest-chat-firstturn {
   padding: 40px;
   text-align: center;
+}
+
+// Flash highlight when jumping to a search result. Fades from accent
+// tint back to transparent; purely visual cue, doesn't grab focus.
+:deep(.nest-msg-flash) {
+  animation: nest-search-flash 1.5s ease-out;
+}
+@keyframes nest-search-flash {
+  0% { background: color-mix(in srgb, var(--nest-accent) 30%, transparent); }
+  100% { background: transparent; }
 }
 
 .nest-chat-input {

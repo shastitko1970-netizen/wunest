@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,90 @@ func NewRepository(pg *db.Postgres) *Repository {
 }
 
 // --- chats ---
+
+// SearchHit is one row from the full-text search across a user's chats.
+type SearchHit struct {
+	ChatID        uuid.UUID `json:"chat_id"`
+	ChatName      string    `json:"chat_name"`
+	CharacterID   *uuid.UUID `json:"character_id,omitempty"`
+	CharacterName string    `json:"character_name,omitempty"`
+	MessageID     int64     `json:"message_id"`
+	Role          Role      `json:"role"`
+	Snippet       string    `json:"snippet"`        // ts_headline-wrapped with <b>…</b> markers
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// SearchMessages runs a full-text search across all messages the user
+// owns. The search is scoped by user_id (join chat → user) and uses
+// `simple` tsvector config (see migration 008 for language rationale).
+//
+// Ranking: ts_rank_cd against the query's tsquery. Tie-break on
+// created_at DESC so recent hits float.
+//
+// optionalCharacterID restricts to a single character's chats when
+// non-nil — used by the Library search-in-character-card flow.
+//
+// Limit caps result size; 50 is a reasonable default that keeps the
+// response JSON under 1 MiB even with verbose snippets.
+func (r *Repository) SearchMessages(
+	ctx context.Context,
+	userID uuid.UUID,
+	query string,
+	optionalCharacterID *uuid.UUID,
+	limit int,
+) ([]SearchHit, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	// plainto_tsquery turns a user string ("alice the blacksmith") into
+	// an AND tsquery — simpler than websearch_to_tsquery (which handles
+	// quotes + OR) but sufficient for chat search. If the query is all
+	// short-token noise, the matcher finds nothing, which is fine.
+	const qs = `
+		SELECT
+		    c.id, c.name,
+		    c.character_id, COALESCE(ch.name, '') AS character_name,
+		    m.id, m.role,
+		    ts_headline('simple', m.content, plainto_tsquery('simple', $2),
+		        'StartSel=<<<, StopSel=>>>, MaxWords=20, MinWords=5, MaxFragments=2') AS snippet,
+		    m.created_at
+		  FROM nest_messages m
+		  JOIN nest_chats c ON c.id = m.chat_id
+		  LEFT JOIN nest_characters ch ON ch.id = c.character_id
+		 WHERE c.user_id = $1
+		   AND m.content_tsv @@ plainto_tsquery('simple', $2)
+		   AND m.hidden = FALSE
+		   AND ($3::uuid IS NULL OR c.character_id = $3)
+		 ORDER BY ts_rank_cd(m.content_tsv, plainto_tsquery('simple', $2)) DESC,
+		          m.created_at DESC
+		 LIMIT $4
+	`
+	rows, err := r.pg.Query(ctx, qs, userID, q, optionalCharacterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]SearchHit, 0)
+	for rows.Next() {
+		var h SearchHit
+		var role string
+		if err := rows.Scan(
+			&h.ChatID, &h.ChatName, &h.CharacterID, &h.CharacterName,
+			&h.MessageID, &role, &h.Snippet, &h.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan search hit: %w", err)
+		}
+		h.Role = Role(role)
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
 
 // ListChats returns a user's chats, most-recently-active first.
 // The `last_message_at` is derived from the latest nest_messages row.

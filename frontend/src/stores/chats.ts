@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
   chatsApi,
+  continueMessageStream,
   regenerateStream,
   sendMessageStream,
   swipeMessageStream,
@@ -202,6 +203,22 @@ export const useChatsStore = defineStore('chats', () => {
   function swipeStreamLazy(chatID: string, mid: number, input: Partial<SendMessageInput>) {
     return swipeMessageStream(chatID, mid, input, streamAbort!.signal)
   }
+  function continueStreamLazy(chatID: string, mid: number, input: Partial<SendMessageInput>) {
+    return continueMessageStream(chatID, mid, input, streamAbort!.signal)
+  }
+
+  /** Continue — extend the target assistant message with more content.
+   *  Tokens append to the existing row; final `done` event carries the
+   *  combined text. Only valid on the latest assistant message (server
+   *  rejects non-assistant + non-latest targets). */
+  async function continueAssistant(message: Message, input: Partial<SendMessageInput> = {}) {
+    if (!currentId.value || streaming.value) return
+    if (message.role !== 'assistant') return
+    await runStream(
+      () => continueStreamLazy(currentId.value!, message.id, input),
+      null,
+    )
+  }
 
   // runStream is the shared driver for the generator-based SSE flows
   // (send + regenerate). Centralises the streaming state lifecycle.
@@ -249,6 +266,12 @@ export const useChatsStore = defineStore('chats', () => {
               existing.content = ''
               existing.swipe_id = ev.data.swipe_id
             }
+            break
+          }
+          case 'continue_start': {
+            // Existing message row — tokens APPEND (not replace). Keep
+            // current content intact; the row reference is unchanged.
+            assistantId = ev.data.id
             break
           }
           case 'token': {
@@ -395,7 +418,7 @@ export const useChatsStore = defineStore('chats', () => {
     streaming, streamError,
     currentCharacterId,
     fetchList, open, createForCharacter, createGroupChat, existingForCharacter, remove, rename,
-    send, regenerate, swipe, selectSwipe, stopStreaming,
+    send, regenerate, swipe, selectSwipe, continueAssistant, stopStreaming,
     editMessage, deleteMessage,
     setSampler, setAuthorsNote,
   }

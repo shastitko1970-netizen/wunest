@@ -30,6 +30,20 @@ export interface Chat {
   last_message_at?: string
 }
 
+/** One hit from GET /api/chats/search. Server returns snippets wrapped
+ *  with `<<<...>>>` markers highlighting the match positions — UI
+ *  swaps those for `<mark>` on render. */
+export interface SearchHit {
+  chat_id: string
+  chat_name: string
+  character_id?: string | null
+  character_name?: string
+  message_id: number
+  role: Role
+  snippet: string
+  created_at: string
+}
+
 /** Report returned by POST /api/chats/import. */
 export interface ImportReport {
   chat: Chat
@@ -107,6 +121,14 @@ export const chatsApi = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+
+  search: (q: string, opts: { characterId?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams()
+    params.set('q', q)
+    if (opts.characterId) params.set('character_id', opts.characterId)
+    if (opts.limit) params.set('limit', String(opts.limit))
+    return apiFetch<{ items: SearchHit[] }>(`/api/chats/search?${params.toString()}`)
+  },
 
   rename: (id: string, name: string) =>
     apiFetch<void>(`/api/chats/${id}`, {
@@ -188,6 +210,7 @@ export type StreamEvent =
   | { event: 'user_message'; data: Message }
   | { event: 'assistant_start'; data: { id: number; model: string } }
   | { event: 'swipe_start'; data: { id: number; swipe_id: number } }
+  | { event: 'continue_start'; data: { id: number; existing_len: number } }
   | { event: 'token'; data: { content: string } }
   | { event: 'done'; data: {
         id: number
@@ -247,6 +270,19 @@ export async function* swipeMessageStream(
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
   yield* streamSSE(`/api/chats/${chatID}/messages/${messageID}/swipe`, input, signal)
+}
+
+/** Continue — extend the existing assistant message with more content.
+ *  Streams via SSE; `continue_start` replaces `assistant_start` and each
+ *  `token` event should be APPENDED to the existing message (not added
+ *  to a new row). Final `done.content` carries the combined text. */
+export async function* continueMessageStream(
+  chatID: string,
+  messageID: number,
+  input: Partial<SendMessageInput> = {},
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent, void, unknown> {
+  yield* streamSSE(`/api/chats/${chatID}/messages/${messageID}/continue`, input, signal)
 }
 
 async function* streamSSE(

@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAccountStore } from '@/stores/account'
 import { useI18n } from 'vue-i18n'
+import ChatSearchDialog from '@/components/ChatSearchDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,6 +46,29 @@ onBeforeUnmount(() => mql?.removeEventListener('change', handleMQ))
 
 // Mobile overlay drawer state; hidden entirely on desktop.
 const drawerOpen = ref(false)
+
+// Global Ctrl/⌘+K opens chat search from anywhere in the app. Gated
+// to authenticated users — unauth would see empty results anyway.
+// IME composition events (Chinese/Japanese input) are skipped via
+// `!e.isComposing` so Cmd+K in a CJK compose buffer doesn't hijack.
+const searchOpen = ref(false)
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.isComposing || !authenticated.value) return
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    searchOpen.value = true
+  }
+}
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', onGlobalKeydown)
+  }
+})
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', onGlobalKeydown)
+  }
+})
 
 // Topbar pulls from the account store because that view has the fullest
 // profile (and it's what Account.vue already refreshes). Only fire for
@@ -428,6 +452,9 @@ const localeLabel = (code: string) => {
         </transition>
       </router-view>
     </v-main>
+
+    <!-- Global chat search — Ctrl/⌘+K anywhere in the app. -->
+    <ChatSearchDialog v-model="searchOpen" />
   </v-layout>
 </template>
 
