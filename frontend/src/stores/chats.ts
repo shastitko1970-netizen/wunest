@@ -282,6 +282,14 @@ export const useChatsStore = defineStore('chats', () => {
                 chat_id: currentId.value!,
                 role: 'assistant',
                 content: '',
+                // character_id attributes this bubble to whoever the server
+                // actually picked as speaker — critical in group chats so the
+                // bubble header shows the right name immediately instead of
+                // falling back to the chat's default character. Server
+                // emits it on assistant_start; we thread it onto the row
+                // so MessageBubble.displayName resolves correctly on the
+                // first paint.
+                character_id: ev.data.character_id ?? undefined,
                 swipe_id: 0,
                 extras: { model: ev.data.model },
                 created_at: new Date().toISOString(),
@@ -452,6 +460,16 @@ export const useChatsStore = defineStore('chats', () => {
     messages.value = messages.value.filter(m => m.id !== message.id)
   }
 
+  /** Delete the chosen message + every message below it in the same
+   *  chat. Server returns how many rows were dropped; we return that
+   *  so the UI can show a "deleted N messages" confirmation. */
+  async function deleteMessagesAfter(message: Message) {
+    if (!currentId.value) return 0
+    const res = await chatsApi.deleteMessagesAfter(currentId.value, message.id)
+    messages.value = messages.value.filter(m => m.id < message.id)
+    return res.deleted
+  }
+
   return {
     list, listLoading, listError,
     currentId, currentChat, messages, messagesLoading,
@@ -459,7 +477,7 @@ export const useChatsStore = defineStore('chats', () => {
     currentCharacterId,
     fetchList, open, createForCharacter, createGroupChat, existingForCharacter, remove, rename,
     send, regenerate, requestReplyFromLastUser, swipe, selectSwipe, continueAssistant, stopStreaming,
-    editMessage, deleteMessage,
+    editMessage, deleteMessage, deleteMessagesAfter,
     setSampler, setAuthorsNote,
   }
 })

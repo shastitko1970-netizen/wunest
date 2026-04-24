@@ -284,6 +284,15 @@ export const chatsApi = {
       method: 'DELETE',
     }),
 
+  /** Bulk-delete target message + every message beneath it. Returns the
+   *  number of rows removed so the SPA can tell the user how many they
+   *  just nuked (useful after a 429-flood cleanup). */
+  deleteMessagesAfter: (chatID: string, messageID: number) =>
+    apiFetch<{ deleted: number }>(
+      `/api/chats/${chatID}/messages/${messageID}/delete-after`,
+      { method: 'POST' },
+    ),
+
   /** Navigate between stored swipes. Returns the updated message. */
   selectSwipe: (chatID: string, messageID: number, swipeID: number) =>
     apiFetch<Message>(`/api/chats/${chatID}/messages/${messageID}/swipe`, {
@@ -297,7 +306,7 @@ export const chatsApi = {
 /** One decoded SSE event emitted by POST /api/chats/:id/messages. */
 export type StreamEvent =
   | { event: 'user_message'; data: Message }
-  | { event: 'assistant_start'; data: { id: number; model: string } }
+  | { event: 'assistant_start'; data: { id: number; model: string; character_id?: string | null } }
   | { event: 'swipe_start'; data: { id: number; swipe_id: number } }
   | { event: 'continue_start'; data: { id: number; existing_len: number } }
   | { event: 'token'; data: { content: string } }

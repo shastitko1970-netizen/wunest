@@ -88,6 +88,10 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("POST /api/chats/{id}/messages", betaGated(http.HandlerFunc(h.sendMessage)))
 	mux.Handle("PATCH /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.editMessage)))
 	mux.Handle("DELETE /api/chats/{id}/messages/{mid}", authRequired(http.HandlerFunc(h.deleteMessage)))
+	// Bulk-delete the chosen message + every message beneath it. Used for
+	// cleaning up 429-flood tails and abandoned branches without dozens
+	// of individual delete clicks.
+	mux.Handle("POST /api/chats/{id}/messages/{mid}/delete-after", authRequired(http.HandlerFunc(h.deleteMessagesAfter)))
 	// Swipes — alternate assistant outputs for the same turn. Creating a new
 	// swipe is a generation (gated); selecting among existing swipes is not.
 	mux.Handle("POST /api/chats/{id}/messages/{mid}/swipe", betaGated(http.HandlerFunc(h.swipeMessage)))
@@ -1197,6 +1201,43 @@ func (h *Handler) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteMessagesAfter removes the target message AND every message with a
+// higher id in the same chat. Used to prune the tail of a conversation
+// after a run of rate-limited error messages or a scene branch the user
+// wants to abandon — saving the tester from clicking delete dozens of
+// times in a row.
+//
+// The endpoint is POST /api/chats/{id}/messages/{mid}/delete-after so
+// the intent is explicit in the method (DELETE on a single resource is
+// idempotent; bulk deletes from a point are a different shape).
+func (h *Handler) deleteMessagesAfter(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	chatID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+	var mid int64
+	if _, err := fmt.Sscan(r.PathValue("mid"), &mid); err != nil || mid <= 0 {
+		http.Error(w, "invalid message id", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Repo.GetChat(r.Context(), user.ID, chatID); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	deleted, err := h.Repo.DeleteMessagesAfter(r.Context(), chatID, mid)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
 // editMessageRequest is the JSON body for PATCH /messages/:mid. Both

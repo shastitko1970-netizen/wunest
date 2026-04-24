@@ -861,6 +861,23 @@ func (r *Repository) DeleteMessage(ctx context.Context, chatID uuid.UUID, messag
 	return nil
 }
 
+// DeleteMessagesAfter removes the target message AND every message with a
+// higher id in the same chat. Returns the count of rows removed so the UI
+// can give feedback ("123 messages deleted") — useful confirmation after
+// a prune since the user doesn't always know how many were in the tail.
+//
+// Includes the target itself because the usual trigger is "this reply is
+// bad + everything it spawned" — keeping the target would leave the bad
+// message + a user turn pointing nowhere.
+func (r *Repository) DeleteMessagesAfter(ctx context.Context, chatID uuid.UUID, messageID int64) (int64, error) {
+	const q = `DELETE FROM nest_messages WHERE chat_id = $1 AND id >= $2`
+	tag, err := r.pg.Exec(ctx, q, chatID, messageID)
+	if err != nil {
+		return 0, fmt.Errorf("delete messages after: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // EditMessageContent updates just the content field of a message, leaving
 // role, extras, swipes, timestamps untouched. Use for user-driven edits
 // from the UI; `UpdateMessageContent` is for stream-finalisation.

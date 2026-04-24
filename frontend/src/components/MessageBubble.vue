@@ -20,6 +20,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'delete', m: Message): void
+  (e: 'delete-after', m: Message): void
   (e: 'regenerate', m: Message): void
   (e: 'continue', m: Message): void
   (e: 'toggle-hidden', m: Message): void
@@ -33,6 +34,20 @@ const emit = defineEmits<{
 }>()
 
 const isUser = computed(() => props.message.role === 'user')
+
+// Collapse state — local to the row. Users can fold an assistant reply
+// into a short preview while browsing a long scroll, then expand it back.
+// Local because it's a pure view choice; persisting across reloads would
+// just be clutter. Streaming messages are never collapsed — watch below
+// auto-expands if a collapsed row starts receiving tokens (rare but a
+// continue+reroll can do it).
+const collapsed = ref(false)
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+}
+watch(() => props.streaming, (s) => {
+  if (s && collapsed.value) collapsed.value = false
+})
 
 // Resolve the speaker for the currently-visible swipe. Priority:
 //   1. swipe_character_ids[swipe_id] — per-swipe attribution, used for
@@ -271,7 +286,10 @@ function onEditKeydown(e: KeyboardEvent) {
         </span>
       </template>
       <template v-else>
-        <div class="nest-msg-content mes_text">
+        <div
+          class="nest-msg-content mes_text"
+          :class="{ 'is-collapsed': collapsed }"
+        >
           <!-- Streaming: while tokens fly in, render as plain text so we
                don't re-parse markdown on every chunk. Once the stream ends,
                swap to rich markdown + JSON plate rendering. -->
@@ -286,6 +304,15 @@ function onEditKeydown(e: KeyboardEvent) {
             @toast="(level, text) => emit('plate-toast', level, text)"
           />
         </div>
+        <!-- "Show full message" affordance when collapsed. Click expands. -->
+        <button
+          v-if="collapsed"
+          class="nest-collapse-more"
+          type="button"
+          @click="toggleCollapse"
+        >
+          {{ t('chat.actions.expand') }}
+        </button>
       </template>
     </div>
 
@@ -351,6 +378,18 @@ function onEditKeydown(e: KeyboardEvent) {
       >
         <v-icon size="14">mdi-reload</v-icon>
       </button>
+      <!-- Collapse / expand — local toggle. Handy for long scroll cleanup
+           without actually deleting anything. Icon toggles between
+           up-chevron (collapse) and down-chevron (expand). -->
+      <button
+        class="nest-action-btn"
+        :title="collapsed ? t('chat.actions.expand') : t('chat.actions.collapse')"
+        @click="toggleCollapse"
+      >
+        <v-icon size="14">
+          {{ collapsed ? 'mdi-arrow-expand-vertical' : 'mdi-arrow-collapse-vertical' }}
+        </v-icon>
+      </button>
       <button
         class="nest-action-btn"
         :title="t('chat.actions.edit')"
@@ -371,6 +410,18 @@ function onEditKeydown(e: KeyboardEvent) {
         @click="emit('delete', message)"
       >
         <v-icon size="14">mdi-delete-outline</v-icon>
+      </button>
+      <!-- Bulk-delete from here down. Primary use case: prune a tail of
+           rate-limit errors or abandon a scene branch without dozens of
+           single-delete clicks. Kept alongside the single delete so the
+           icon set is discoverable; Chat.vue gates the action behind a
+           confirm dialog showing the exact row count. -->
+      <button
+        class="nest-action-btn nest-action-btn--danger"
+        :title="t('chat.actions.deleteAfter')"
+        @click="emit('delete-after', message)"
+      >
+        <v-icon size="14">mdi-delete-sweep-outline</v-icon>
       </button>
     </div>
   </div>
@@ -448,6 +499,35 @@ function onEditKeydown(e: KeyboardEvent) {
 }
 
 .nest-msg-content { display: inline; }
+
+// Collapsed state — clip to roughly one-and-a-half lines with a
+// gradient mask so there's a visual cue the message continues. Content
+// is still in the DOM (Ctrl-F / screen readers still see it), just
+// clipped visually. `.nest-collapse-more` below is the click target to
+// expand back.
+.nest-msg-content.is-collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+  cursor: pointer;
+  max-height: 3em;
+}
+.nest-collapse-more {
+  all: unset;
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--nest-accent);
+  cursor: pointer;
+  font-family: var(--nest-font-mono);
+  letter-spacing: 0.03em;
+
+  &:hover { text-decoration: underline; }
+}
 
 .nest-cursor {
   color: var(--nest-accent);

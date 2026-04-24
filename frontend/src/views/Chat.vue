@@ -390,21 +390,48 @@ function detectMentionedSpeaker(text: string): string | null {
   if (!t || !isGroupChat.value) return null
   type Hit = { id: string; pos: number }
   const hits: Hit[] = []
-  for (const opt of groupSpeakerOptions.value) {
-    const name = opt.name
-    if (!name) continue
-    // Word-boundary match without false positives on "Alice" in "Malice".
-    // Unicode word-boundary is tricky in regex; approximate with
-    // (^|[^\p{L}]) ... ([^\p{L}]|$).
-    const re = new RegExp(`(^|[^\\p{L}])${escapeRegex(name)}([^\\p{L}]|$)`, 'iu')
-    const m = re.exec(t)
-    if (m && m.index >= 0) {
-      hits.push({ id: opt.id, pos: m.index })
+  const ids = currentChat.value?.character_ids ?? []
+  for (const id of ids) {
+    const c = charsStore.items.find(x => x.id === id)
+    if (!c) continue
+    // Check every name the author has given this character: canonical
+    // name, V3 nickname, and any greeting-level aliases. Tester's
+    // complaint was that typing a character's nickname didn't pull
+    // them in — we were only matching the single `name` field.
+    const candidates = collectNameAliases(c)
+    for (const name of candidates) {
+      if (!name) continue
+      // Word-boundary match without false positives on "Alice" in
+      // "Malice". Unicode word-boundary approximation.
+      const re = new RegExp(`(^|[^\\p{L}])${escapeRegex(name)}([^\\p{L}]|$)`, 'iu')
+      const m = re.exec(t)
+      if (m && m.index >= 0) {
+        hits.push({ id, pos: m.index })
+        break  // one match per character is enough
+      }
     }
   }
   if (hits.length === 0) return null
   hits.sort((a, b) => a.pos - b.pos)
   return hits[0].id
+}
+
+// collectNameAliases pulls every string the user might reasonably call
+// a character by — canonical name, V3 nickname, any trimmed alt names
+// declared in extensions.names or similar card-authored fields. Short
+// aliases (<2 chars) are skipped to avoid "I" / "U" / etc. matching
+// everything.
+function collectNameAliases(c: { name?: string; data?: { name?: string; nickname?: string; tags?: string[] } }): string[] {
+  const out = new Set<string>()
+  const add = (s: unknown) => {
+    if (typeof s !== 'string') return
+    const t = s.trim()
+    if (t.length >= 2) out.add(t)
+  }
+  add(c.name)
+  add(c.data?.name)
+  add(c.data?.nickname)
+  return [...out]
 }
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -413,8 +440,16 @@ function escapeRegex(s: string): string {
 // Watch streaming → false (stream just finished). If autoNext is on
 // and we're in a group chat, trigger the next speaker's turn without
 // a user message (content="" — backend's "continue" path).
+//
+// Bug fix: abort the auto-chain when the prior stream ended in an
+// error. A 429 from the provider used to loop forever — each retry
+// would hit the same rate limit and surface yet another error, and
+// the user had no way to stop it short of closing the tab. Now an
+// error stops the auto-continue dead; user can resume manually once
+// they've cleared whatever caused the failure.
 watch(streaming, async (now, prev) => {
   if (prev && !now && isGroupChat.value && groupAutoNext.value) {
+    if (streamError.value) return  // prior turn errored → don't cascade
     const next = nextSpeaker(groupSpeaker.value)
     if (!next) return
     groupSpeaker.value = next
@@ -638,11 +673,44 @@ async function onEditMessage(m: Message, newContent: string) {
   }
 }
 
-async function onDeleteMessage(m: Message) {
+// Every destructive message action (single delete + bulk delete-after)
+// funnels through one confirm dialog. Two triggers:
+//   - 'single' — user pressed the trash icon on one message
+//   - 'after'  — user pressed the broom icon to prune a tail
+// Primary reason single delete joined the confirm flow: on mobile, the
+// delete HTTP call takes ~1s to settle; users tap the icon, see no
+// change, tap again — boom, two messages gone instead of one. A confirm
+// dialog swallows the extra tap and makes intent explicit.
+type DeletePending = { mode: 'single' | 'after'; message: Message } | null
+const deletePending = ref<DeletePending>(null)
+
+const deletePendingCount = computed(() => {
+  const p = deletePending.value
+  if (!p) return 0
+  if (p.mode === 'single') return 1
+  return (messages.value ?? []).filter(x => x.id >= p.message.id).length
+})
+
+function onDeleteMessage(m: Message) {
+  deletePending.value = { mode: 'single', message: m }
+}
+function onDeleteAfter(m: Message) {
+  deletePending.value = { mode: 'after', message: m }
+}
+
+async function confirmDelete() {
+  const p = deletePending.value
+  deletePending.value = null
+  if (!p) return
   try {
-    await chats.deleteMessage(m)
+    if (p.mode === 'single') {
+      await chats.deleteMessage(p.message)
+    } else {
+      const deleted = await chats.deleteMessagesAfter(p.message)
+      onPlateToast('success', t('chat.actions.deleteAfterDone', { n: deleted ?? 0 }))
+    }
   } catch (e) {
-    console.error('delete failed', e)
+    onPlateToast('error', (e as Error).message)
   }
 }
 
@@ -974,6 +1042,7 @@ async function requestReplyFromLastUser() {
                 @select-swipe="onSelectSwipe"
                 @edit="onEditMessage"
                 @delete="onDeleteMessage"
+                @delete-after="onDeleteAfter"
                 @plate-draft="onPlateDraft"
                 @plate-toast="onPlateToast"
               />
@@ -1132,6 +1201,39 @@ async function requestReplyFromLastUser() {
     >
       {{ plateToast.text }}
     </v-snackbar>
+
+    <!-- Confirm dialog for destructive message actions (single delete +
+         bulk delete-after). Single-tap no longer vanishes a message — the
+         confirm stage eats accidental double-taps on mobile and gives
+         bulk-delete an explicit count so users don't prune more than
+         they meant to. -->
+    <v-dialog
+      :model-value="deletePending !== null"
+      max-width="400"
+      @update:model-value="v => !v && (deletePending = null)"
+    >
+      <v-card class="nest-confirm">
+        <v-card-title>
+          {{ deletePending?.mode === 'after'
+            ? t('chat.actions.deleteAfterConfirm.title', { n: deletePendingCount })
+            : t('chat.actions.deleteConfirm.title') }}
+        </v-card-title>
+        <v-card-text>
+          {{ deletePending?.mode === 'after'
+            ? t('chat.actions.deleteAfterConfirm.body')
+            : t('chat.actions.deleteConfirm.body') }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="deletePending = null">
+            {{ t('common.cancel') }}
+          </v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDelete">
+            {{ t('common.delete') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Generation settings drawer — lazily mounts sampler form. -->
     <GenerationSettings v-model="settingsOpen" />

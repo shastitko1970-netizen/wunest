@@ -993,6 +993,18 @@ const messages = {
         hide: 'Скрыть из интерфейса (модель всё равно увидит)',
         unhide: 'Показать',
         delete: 'Удалить',
+        deleteAfter: 'Удалить это и всё после',
+        deleteAfterDone: 'Удалено {n} сообщений',
+        collapse: 'Свернуть',
+        expand: 'Развернуть',
+        deleteConfirm: {
+          title: 'Удалить сообщение?',
+          body: 'Действие нельзя откатить.',
+        },
+        deleteAfterConfirm: {
+          title: 'Удалить {n} сообщений?',
+          body: 'Это сообщение и все, что ниже, будут удалены. Действие необратимо.',
+        },
       },
       slash: {
         getvarHint: '/getvar показывает значение переменной в toast\'е (не вставляет в текст)',
@@ -1136,6 +1148,10 @@ const messages = {
         groupOlder: 'Раньше',
         empty: 'Пока нет чатов.',
         browse: 'Открыть библиотеку',
+        deleteConfirm: {
+          title: 'Удалить чат?',
+          body: 'Чат «{name}» будет удалён со всеми сообщениями. Это действие нельзя отменить.',
+        },
       },
     },
     studio: {
@@ -2134,6 +2150,18 @@ const messages = {
         hide: 'Hide from UI (model still sees it)',
         unhide: 'Show',
         delete: 'Delete',
+        deleteAfter: 'Delete this and everything after',
+        deleteAfterDone: 'Deleted {n} messages',
+        collapse: 'Collapse',
+        expand: 'Expand',
+        deleteConfirm: {
+          title: 'Delete this message?',
+          body: 'This cannot be undone.',
+        },
+        deleteAfterConfirm: {
+          title: 'Delete {n} messages?',
+          body: 'This message and everything below will be removed. Cannot be undone.',
+        },
       },
       slash: {
         getvarHint: '/getvar shows the variable in a toast (does not insert into text)',
@@ -2277,6 +2305,10 @@ const messages = {
         groupOlder: 'Older',
         empty: 'No chats yet.',
         browse: 'Browse Library',
+        deleteConfirm: {
+          title: 'Delete chat?',
+          body: 'Chat "{name}" and all its messages will be permanently deleted. Cannot be undone.',
+        },
       },
     },
     studio: {

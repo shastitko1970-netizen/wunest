@@ -69,9 +69,23 @@ const grouped = computed(() => groupByDay(filteredList.value))
 function select(c: Chat) {
   router.push(`/chat/${c.id}`)
 }
-async function del(c: Chat, ev: Event) {
+
+// Two-stage delete: first click stages the chat in `pendingDelete`, which
+// opens a confirm dialog. Guards against a stray click wiping out a chat
+// the user spent hours on. Earlier builds deleted immediately on icon
+// click — the TODO for this confirm had been open since M4 and a tester
+// with a 5000-message RP chat understandably wanted it sooner.
+const pendingDelete = ref<Chat | null>(null)
+
+function stageDelete(c: Chat, ev: Event) {
   ev.stopPropagation()
-  // TODO: confirm dialog in M4
+  pendingDelete.value = c
+}
+
+async function confirmDelete() {
+  const c = pendingDelete.value
+  pendingDelete.value = null
+  if (!c) return
   await store.remove(c.id)
   if (currentId.value === c.id) router.push('/chat')
 }
@@ -177,13 +191,38 @@ async function del(c: Chat, ev: Event) {
           <button
             class="nest-chatitem-del"
             :aria-label="`Delete chat ${c.name}`"
-            @click="(ev) => del(c, ev)"
+            @click="(ev) => stageDelete(c, ev)"
           >
             <v-icon size="14">mdi-close</v-icon>
           </button>
         </div>
       </div>
     </template>
+
+    <!-- Confirm-delete dialog. Message-count + chat name surface so a user
+         who's drunk/tired (their words) has one last chance to bail on
+         wiping a long chat. Cancel is the default-focused action. -->
+    <v-dialog
+      :model-value="pendingDelete !== null"
+      max-width="420"
+      @update:model-value="v => !v && (pendingDelete = null)"
+    >
+      <v-card class="nest-confirm">
+        <v-card-title>{{ t('chat.list.deleteConfirm.title') }}</v-card-title>
+        <v-card-text>
+          {{ t('chat.list.deleteConfirm.body', { name: pendingDelete?.name || '' }) }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="pendingDelete = null">
+            {{ t('common.cancel') }}
+          </v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDelete">
+            {{ t('common.delete') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
