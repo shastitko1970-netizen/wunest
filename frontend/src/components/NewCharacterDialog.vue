@@ -6,6 +6,7 @@ import { useCharactersStore } from '@/stores/characters'
 import type { Character, CharacterBook } from '@/api/characters'
 import { uploadAvatar } from '@/api/uploads'
 import CharacterBookPanel from '@/components/CharacterBookPanel.vue'
+import CharacterSpritesPanel from '@/components/CharacterSpritesPanel.vue'
 
 // Character create / edit dialog. Same form serves both — when `character`
 // is provided on open, we hydrate from it and PATCH on save; otherwise we
@@ -73,6 +74,24 @@ const form = reactive({
 const busy = ref(false)
 const error = ref<string | null>(null)
 const focusNameEl = ref<HTMLElement | null>(null)
+
+// Sprite count — shown as a chip next to the Expressions section
+// heading. Reads from props.character.data.assets (M40.2).
+const spriteCount = computed(() => {
+  const assets = (props.character?.data as any)?.assets ?? []
+  return (assets as Array<{ type: string }>).filter(a => a.type === 'expression').length
+})
+
+// Sprite panel emits an updated Character snapshot after upload or
+// delete. We push it straight to the characters store so every other
+// open surface (Chat view, library card) picks up the new assets
+// immediately.
+function onCharacterUpdatedFromSprites(c: any) {
+  // Store has the fresh copy by id; updating in place is cheapest.
+  const storeItems = store.items
+  const idx = storeItems.findIndex(x => x.id === c.id)
+  if (idx >= 0) storeItems[idx] = c
+}
 
 // Avatar-upload state: a separate spinner + error so the URL field stays
 // usable during network activity and errors don't clobber the save error.
@@ -564,6 +583,31 @@ async function save() {
             </v-expansion-panel-title>
             <v-expansion-panel-text>
               <CharacterBookPanel v-model="form.character_book" />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+
+          <!-- ─── Sprites / expressions (M40.2) — only useful once the
+                character is persisted (needs an id for the upload
+                endpoint). Shown on edit mode only. -->
+          <v-expansion-panel v-if="isEdit && props.character">
+            <v-expansion-panel-title>
+              <v-icon size="16" class="mr-2">mdi-emoticon-outline</v-icon>
+              {{ t('characterSprites.title') }}
+              <v-chip
+                v-if="spriteCount > 0"
+                size="x-small"
+                color="primary"
+                variant="tonal"
+                class="nest-mono ml-2"
+              >
+                {{ spriteCount }}
+              </v-chip>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
+              <CharacterSpritesPanel
+                :character="props.character"
+                @updated="onCharacterUpdatedFromSprites"
+              />
             </v-expansion-panel-text>
           </v-expansion-panel>
 

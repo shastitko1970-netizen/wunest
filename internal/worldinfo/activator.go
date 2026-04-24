@@ -185,6 +185,9 @@ func Activate(in ActivationInput) Activated {
 	out := Activated{
 		BeforeChar: make([]string, 0, len(rows)),
 		AfterChar:  make([]string, 0, len(rows)),
+		BeforeAN:   make([]string, 0),
+		AfterAN:    make([]string, 0),
+		AtDepth:    make([]AtDepthEntry, 0),
 		Trace:      make([]Trace, 0, len(rows)),
 	}
 	seen := make(map[string]struct{}, len(rows))
@@ -207,6 +210,21 @@ func Activate(in ActivationInput) Activated {
 		switch pos {
 		case PositionAfterChar:
 			out.AfterChar = append(out.AfterChar, content)
+		case PositionBeforeAN:
+			out.BeforeAN = append(out.BeforeAN, content)
+		case PositionAfterAN:
+			out.AfterAN = append(out.AfterAN, content)
+		case PositionAtDepth:
+			role := r.e.Role
+			if role == "" {
+				role = "system"
+			}
+			out.AtDepth = append(out.AtDepth, AtDepthEntry{
+				Content: content,
+				Depth:   r.e.Depth,
+				Role:    role,
+				Order:   r.e.InsertionOrder,
+			})
 		default:
 			out.BeforeChar = append(out.BeforeChar, content)
 		}

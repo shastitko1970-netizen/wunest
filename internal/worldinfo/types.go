@@ -130,10 +130,28 @@ type ActivationInput struct {
 	DefaultDepth int
 }
 
+// AtDepthEntry is one activated entry destined for a specific depth in
+// history. Depth 0 means "right before the model's next reply"; depth N
+// means "N turns back from the end". Role is "system" (default), "user",
+// or "assistant" — mirrors ST's semantics.
+type AtDepthEntry struct {
+	Content string
+	Depth   int
+	Role    string
+	// Order preserves InsertionOrder tie-breaks when multiple entries
+	// fire at the same depth.
+	Order int
+}
+
 // Activated is the result of running the activator against some history.
+// Each bucket groups entries by their `position` field; the prompt
+// builder is responsible for splicing them at the right location.
 type Activated struct {
-	BeforeChar []string // concatenate these before the character system block
-	AfterChar  []string // concatenate these after the character system block
+	BeforeChar []string       // prepend to character system block
+	AfterChar  []string       // append after character system block
+	BeforeAN   []string       // inject immediately before Author's Note
+	AfterAN    []string       // inject immediately after Author's Note
+	AtDepth    []AtDepthEntry // inject at specific depths in history
 	// Traced entries — which keys matched, for future debugging UI.
 	Trace []Trace
 }

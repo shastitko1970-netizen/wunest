@@ -25,6 +25,10 @@ interface PersistedPrefs {
   // names and auto-switch the speaker accordingly. Saves a click when
   // the user wrote "Alice, what do you think?" — Alice responds.
   groupDetectMention?: boolean
+  // Hide character expression sprites even when available (M40.3).
+  // Some users find live-emotion sprites distracting; default false
+  // (show when available).
+  hideSprites?: boolean
 }
 
 function loadFromStorage(): PersistedPrefs {
@@ -48,19 +52,21 @@ export const usePreferencesStore = defineStore('preferences', () => {
   // when you don't).
   const groupAutoNext = ref<boolean>(stored.groupAutoNext ?? false)
   const groupDetectMention = ref<boolean>(stored.groupDetectMention ?? true)
+  const hideSprites = ref<boolean>(stored.hideSprites ?? false)
 
   function persist() {
     const next: PersistedPrefs = {
       disableStreaming: disableStreaming.value,
       groupAutoNext: groupAutoNext.value,
       groupDetectMention: groupDetectMention.value,
+      hideSprites: hideSprites.value,
     }
     try { localStorage.setItem(LS_KEY, JSON.stringify(next)) } catch { /* quota */ }
   }
 
   // Any mutation → persist the whole bag. Small object, don't bother with
   // a debounce.
-  watch([disableStreaming, groupAutoNext, groupDetectMention], persist)
+  watch([disableStreaming, groupAutoNext, groupDetectMention, hideSprites], persist)
 
   // Cross-tab sync — a different tab toggling the pref should reflect here
   // without waiting for a reload.
@@ -78,9 +84,12 @@ export const usePreferencesStore = defineStore('preferences', () => {
         if (typeof parsed.groupDetectMention === 'boolean') {
           groupDetectMention.value = parsed.groupDetectMention
         }
+        if (typeof parsed.hideSprites === 'boolean') {
+          hideSprites.value = parsed.hideSprites
+        }
       } catch { /* ignore */ }
     })
   }
 
-  return { disableStreaming, groupAutoNext, groupDetectMention }
+  return { disableStreaming, groupAutoNext, groupDetectMention, hideSprites }
 })

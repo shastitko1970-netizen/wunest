@@ -23,6 +23,17 @@ export interface CharacterData {
   creator_notes_multilingual?: Record<string, string>
   source?: string[]
   group_only_greetings?: string[]
+  /** V3 asset references — sprite art, alternative avatars,
+   *  backgrounds etc. WuNest uses `type: "expression"` entries for
+   *  M40 per-emotion sprites. `uri` points at MinIO public URL. */
+  assets?: CardAsset[]
+}
+
+export interface CardAsset {
+  type: string  // "expression" | "icon" | "background" | …
+  uri: string
+  name?: string
+  ext?: string
 }
 
 export interface CharacterBook {

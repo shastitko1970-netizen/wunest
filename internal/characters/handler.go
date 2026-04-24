@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
@@ -57,6 +59,13 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("GET /api/characters/{id}", authRequired(http.HandlerFunc(h.get)))
 	mux.Handle("PATCH /api/characters/{id}", authRequired(http.HandlerFunc(h.update)))
 	mux.Handle("DELETE /api/characters/{id}", authRequired(http.HandlerFunc(h.delete)))
+	// M40.2 sprite/expression endpoints. Sprites live in the character's
+	// V3 `data.assets[]` array as {type:"expression", name, uri}. Upload
+	// goes through MinIO (nest-avatars bucket), same content-hash path
+	// as avatars. Name is user-supplied ("happy" / "angry" / ...) so
+	// emotion detection can map keywords → assets.
+	mux.Handle("POST /api/characters/{id}/sprites", authRequired(http.HandlerFunc(h.uploadSprite)))
+	mux.Handle("DELETE /api/characters/{id}/sprites/{name}", authRequired(http.HandlerFunc(h.deleteSprite)))
 }
 
 // --- endpoints ---
@@ -340,6 +349,165 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// uploadSprite ingests a single image file as a character expression.
+// Multipart form:
+//   - file:  the image (png/jpeg/webp accepted, same limits as avatars)
+//   - name:  emotion label ("happy" / "sad" / "angry" / ... free-form)
+//
+// Appends (or replaces when `name` already exists) the entry in
+// character.data.assets. Keeps the V3 schema authoritative — any
+// exporter can round-trip the asset list as standard card metadata.
+//
+// Storage: same MinIO bucket as avatars (nest-avatars). The content
+// URL is hashed, not namespaced per-character, so identical sprites
+// across characters dedupe. Character-level deletion only removes the
+// CardAsset entry; the underlying object is garbage-collected by the
+// daily orphan reaper when no character references it anymore.
+func (h *Handler) uploadSprite(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if h.Storage == nil {
+		http.Error(w, "object storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		http.Error(w, "parse multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	if header.Size > maxUploadSize {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxUploadSize))
+	if err != nil {
+		http.Error(w, "read file", http.StatusBadRequest)
+		return
+	}
+
+	// Load character, bail early if not owned by caller.
+	c, err := h.Repo.Get(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	// Upload — reuse the attachment path (no thumbnail needed; sprites
+	// are often already-sized portrait art). Content-type sniffed
+	// server-side for safety.
+	url, err := h.Storage.PutAttachment(r.Context(), raw, header.Header.Get("Content-Type"))
+	if err != nil {
+		slog.Error("sprite upload", "err", err, "character_id", id)
+		http.Error(w, "upload failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build the asset entry (V3 shape) and upsert into data.assets by
+	// name — re-uploading "happy" replaces the old URL rather than
+	// piling up duplicates.
+	asset := CardAsset{
+		Type: "expression",
+		URI:  url,
+		Name: name,
+		Ext:  strings.TrimPrefix(filepath.Ext(header.Filename), "."),
+	}
+	data := c.Data
+	data.Assets = upsertAsset(data.Assets, asset)
+
+	updated, err := h.Repo.Update(r.Context(), user.ID, id, UpdatePatch{Data: &data})
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"character": updated,
+		"asset":     asset,
+	})
+}
+
+// deleteSprite removes an expression by name from the character's
+// assets array. The underlying MinIO object is NOT deleted here —
+// it's content-hashed so another character (or a re-upload of the
+// same file) might share it; the daily orphan reaper handles cleanup
+// when no references remain.
+func (h *Handler) deleteSprite(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	c, err := h.Repo.Get(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	data := c.Data
+	before := len(data.Assets)
+	data.Assets = removeAssetByName(data.Assets, name)
+	if len(data.Assets) == before {
+		http.Error(w, "sprite not found", http.StatusNotFound)
+		return
+	}
+	if _, err := h.Repo.Update(r.Context(), user.ID, id, UpdatePatch{Data: &data}); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// upsertAsset appends or replaces (by name) the asset in the list.
+func upsertAsset(list []CardAsset, a CardAsset) []CardAsset {
+	for i, existing := range list {
+		// Replace when both type AND name match — different types with
+		// the same name (e.g. "happy" background vs "happy" expression)
+		// don't collide.
+		if existing.Type == a.Type && existing.Name == a.Name {
+			list[i] = a
+			return list
+		}
+	}
+	return append(list, a)
+}
+
+func removeAssetByName(list []CardAsset, name string) []CardAsset {
+	out := make([]CardAsset, 0, len(list))
+	for _, a := range list {
+		if a.Type == "expression" && a.Name == name {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // --- helpers ---

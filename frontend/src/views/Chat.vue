@@ -9,6 +9,7 @@ import { useModelsStore } from '@/stores/models'
 import { useCharactersStore } from '@/stores/characters'
 import { usePreferencesStore } from '@/stores/preferences'
 import { tryDispatch } from '@/lib/slashCommands'
+import { detectEmotion } from '@/lib/emotions'
 import type { Message } from '@/api/chats'
 import ChatList from '@/components/ChatList.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
@@ -277,7 +278,7 @@ const groupCharacterNames = computed<Record<string, string>>(() => {
 // it auto-switches the speaker. Saves a click when the user's
 // message already names the addressee.
 const prefs = usePreferencesStore()
-const { groupAutoNext, groupDetectMention } = storeToRefs(prefs)
+const { groupAutoNext, groupDetectMention, hideSprites: hideSpritesPref } = storeToRefs(prefs)
 
 // Pick the next speaker in character_ids order — round-robin. Skips
 // over the current speaker. Returns current when only one participant
@@ -582,6 +583,78 @@ function onPlateToast(level: 'info' | 'success' | 'error', text: string) {
   plateToast.value = { show: true, level, text }
 }
 
+// ─── M40: sprite rendering ───────────────────────────────────────
+//
+// For the currently-speaking character, pick an expression sprite
+// based on the last assistant message's content. Re-runs on every
+// streaming token so the sprite updates live as the character
+// "changes mood" mid-response.
+//
+// Scoped to single-character chats for v1 — group chats would need
+// per-speaker sprite layering which is scope creep. Disabled via
+// user preference if sprites feel distracting.
+
+const activeCharacter = computed(() => {
+  const cid = currentChat.value?.character_id
+  if (!cid) return null
+  return charsStore.items.find(c => c.id === cid) ?? null
+})
+
+// Flat list of available sprite names for the current character.
+const availableSprites = computed(() => {
+  const assets = (activeCharacter.value?.data as any)?.assets ?? []
+  return (assets as Array<{ type: string; name: string; uri: string }>)
+    .filter(a => a.type === 'expression' && a.name)
+})
+
+// Map name → URL for fast sprite lookup at render time.
+const spriteURLByName = computed(() => {
+  const m: Record<string, string> = {}
+  for (const a of availableSprites.value) m[a.name.toLowerCase()] = a.uri
+  return m
+})
+
+// Live-detected emotion from the last assistant message. Empty
+// string when no detection (keeps the previous sprite on screen).
+const detectedEmotion = ref('')
+watch(() => [messages.value, availableSprites.value.length] as const, () => {
+  if (availableSprites.value.length === 0) {
+    detectedEmotion.value = ''
+    return
+  }
+  // Find last assistant message (use existing lastAssistantId but
+  // read the full content, not just the id).
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const m = messages.value[i]
+    if (m && m.role === 'assistant') {
+      const found = detectEmotion({
+        content: m.content,
+        available: availableSprites.value.map(a => a.name),
+      })
+      if (found) detectedEmotion.value = found
+      break
+    }
+  }
+}, { deep: true, immediate: true })
+
+// Current sprite URL — resolved from detectedEmotion or the first
+// expression as default. Empty when the character has none, in which
+// case the sprite layer is hidden.
+const currentSpriteURL = computed(() => {
+  if (availableSprites.value.length === 0) return ''
+  const lookupName = detectedEmotion.value.toLowerCase()
+  if (lookupName && spriteURLByName.value[lookupName]) {
+    return spriteURLByName.value[lookupName]
+  }
+  // Fallback: first sprite alphabetically (usually "neutral" or similar).
+  const sorted = [...availableSprites.value].sort((a, b) => a.name.localeCompare(b.name))
+  return sorted[0]?.uri ?? ''
+})
+
+// User toggle: hide sprites even when the character has them. Stored
+// in preferences (M39 gave us the pattern).
+const spritesEnabled = computed(() => !hideSpritesPref.value)
+
 // Only the most recent assistant message can be regenerated in V1.
 const lastAssistantId = computed(() => {
   for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -743,6 +816,21 @@ const lastAssistantId = computed(() => {
              Passive scroll listener updates autoStickBottom so new
              streaming tokens don't drag us back down when the user
              scrolled up to re-read earlier content. -->
+        <!-- M40.3: fixed-position character sprite, overlaid on the
+             chat panel. Outside the scroller so it doesn't move with
+             message content. Cross-fade on emotion change via Vue
+             <transition>. Hidden on mobile to preserve reading width
+             + when user opts out in prefs. -->
+        <transition name="nest-sprite-fade">
+          <div
+            v-if="spritesEnabled && currentSpriteURL"
+            :key="currentSpriteURL"
+            class="nest-char-sprite"
+          >
+            <img :src="currentSpriteURL" :alt="detectedEmotion || 'character'" />
+          </div>
+        </transition>
+
         <div ref="scroller" class="nest-chat-scroll" id="chat" @scroll.passive="onScroll">
           <div class="nest-chat-messages">
             <div v-if="messagesLoading" class="nest-state">
@@ -1090,6 +1178,7 @@ const lastAssistantId = computed(() => {
 }
 
 .nest-chat-scroll {
+  position: relative;             // anchor for .nest-char-sprite overlay
   flex: 1 1 auto;
   min-height: 0;                 // Firefox refuses to shrink without this
   overflow-y: auto;
@@ -1120,6 +1209,43 @@ const lastAssistantId = computed(() => {
 .nest-chat-firstturn {
   padding: 40px;
   text-align: center;
+}
+
+// M40.3 character sprite — fixed overlay at bottom-left of the chat
+// panel. Sits outside the scroller so scrolling messages don't drag
+// the sprite with them. Pointer-events none so it never hijacks
+// clicks underneath.
+//
+// Bottom offset = composer height (~120px) + breathing room.
+.nest-char-sprite {
+  position: absolute;
+  left: 16px;
+  bottom: 140px;
+  width: 200px;
+  aspect-ratio: 3 / 4;
+  pointer-events: none;
+  z-index: 2;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.35));
+  }
+}
+@media (max-width: 960px) {
+  // Hide sprite on mobile — the 375px-wide viewport is too tight to
+  // share with 200px of character art.
+  .nest-char-sprite { display: none; }
+}
+
+.nest-sprite-fade-enter-active,
+.nest-sprite-fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.nest-sprite-fade-enter-from,
+.nest-sprite-fade-leave-to {
+  opacity: 0;
 }
 
 // Flash highlight when jumping to a search result. Fades from accent

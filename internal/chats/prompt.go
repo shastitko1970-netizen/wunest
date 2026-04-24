@@ -173,10 +173,23 @@ func Build(in PromptInput) []ChatMessage {
 		})
 	}
 
+	// M40.1: WI position=at_depth entries. Insert at their declared
+	// depth from end-of-history BEFORE Author's Note splicing. That way
+	// an `at_depth=2 before_an` entry and an Author's Note at depth 0
+	// don't fight for the same slot — AN always wraps around depth
+	// entries since we splice AN last.
+	act := in.worldInfo()
+	if len(act.AtDepth) > 0 {
+		out = spliceAtDepthEntries(out, act.AtDepth, in)
+	}
+
 	// Author's Note — inject at `Depth` positions from the end. Depth 0 means
 	// append after the last turn; depth 1 means "one turn back"; depth ≥ len
 	// clamps to right after the initial system message. We splice rather than
 	// prepend so the injection is actually mid-history, matching ST's model.
+	//
+	// before_an / after_an WI entries wrap around this Author's Note
+	// injection when both fire on the same request.
 	if in.AuthorsNote != nil && strings.TrimSpace(in.AuthorsNote.Content) != "" {
 		role := in.AuthorsNote.Role
 		if role == "" {
@@ -199,10 +212,110 @@ func Build(in PromptInput) []ChatMessage {
 		if len(out) > 0 && out[0].Role == "system" && insertAt < 1 {
 			insertAt = 1
 		}
-		out = append(out[:insertAt], append([]ChatMessage{note}, out[insertAt:]...)...)
+
+		// before_an: splice activated WI entries right before the AN.
+		insertBatch := make([]ChatMessage, 0, 1+len(act.BeforeAN)+len(act.AfterAN))
+		for _, block := range act.BeforeAN {
+			insertBatch = append(insertBatch, ChatMessage{
+				Role:    "system",
+				Content: SubstituteMacros(block, in),
+			})
+		}
+		insertBatch = append(insertBatch, note)
+		for _, block := range act.AfterAN {
+			insertBatch = append(insertBatch, ChatMessage{
+				Role:    "system",
+				Content: SubstituteMacros(block, in),
+			})
+		}
+		out = append(out[:insertAt], append(insertBatch, out[insertAt:]...)...)
+	} else if len(act.BeforeAN) > 0 || len(act.AfterAN) > 0 {
+		// AN absent but before_an/after_an entries fired anyway — splice
+		// them as system messages near end-of-history so the model still
+		// sees them relative to the conversation tail.
+		insertAt := len(out)
+		insertBatch := make([]ChatMessage, 0, len(act.BeforeAN)+len(act.AfterAN))
+		for _, block := range act.BeforeAN {
+			insertBatch = append(insertBatch, ChatMessage{
+				Role:    "system",
+				Content: SubstituteMacros(block, in),
+			})
+		}
+		for _, block := range act.AfterAN {
+			insertBatch = append(insertBatch, ChatMessage{
+				Role:    "system",
+				Content: SubstituteMacros(block, in),
+			})
+		}
+		out = append(out[:insertAt], append(insertBatch, out[insertAt:]...)...)
 	}
 
 	return out
+}
+
+// spliceAtDepthEntries inserts each at_depth entry at its target depth
+// (counted from end of history). Multiple entries at the same depth
+// preserve InsertionOrder ordering (already sorted by the activator).
+//
+// Depth semantics (matching ST):
+//   depth 0 — appended at very end (after last message, before any AN)
+//   depth 1 — one message before end
+//   depth N — N messages back, clamped to top-of-history + 1 so we
+//             never push before the leading system block
+func spliceAtDepthEntries(msgs []ChatMessage, entries []worldinfo.AtDepthEntry, in PromptInput) []ChatMessage {
+	if len(entries) == 0 {
+		return msgs
+	}
+	// Group by depth so we preserve order within the same bucket.
+	byDepth := make(map[int][]worldinfo.AtDepthEntry, len(entries))
+	for _, e := range entries {
+		byDepth[e.Depth] = append(byDepth[e.Depth], e)
+	}
+	// Walk depths high → low so earlier splices don't shift later
+	// insertion indices.
+	depths := make([]int, 0, len(byDepth))
+	for d := range byDepth {
+		depths = append(depths, d)
+	}
+	// Descending sort (biggest depth = earliest in history = splices first).
+	for i := 0; i < len(depths); i++ {
+		for j := i + 1; j < len(depths); j++ {
+			if depths[j] > depths[i] {
+				depths[i], depths[j] = depths[j], depths[i]
+			}
+		}
+	}
+
+	for _, d := range depths {
+		insertAt := len(msgs) - d
+		if insertAt < 0 {
+			insertAt = 0
+		}
+		if insertAt > len(msgs) {
+			insertAt = len(msgs)
+		}
+		// Never push before the leading system block.
+		if len(msgs) > 0 && msgs[0].Role == "system" && insertAt < 1 {
+			insertAt = 1
+		}
+		batch := make([]ChatMessage, 0, len(byDepth[d]))
+		for _, e := range byDepth[d] {
+			batch = append(batch, ChatMessage{
+				Role:    e.Role,
+				Content: SubstituteMacros(e.Content, in),
+			})
+		}
+		msgs = append(msgs[:insertAt], append(batch, msgs[insertAt:]...)...)
+	}
+	return msgs
+}
+
+// worldInfo caches the activator call — buildSystem + Build() both
+// want the buckets; no point running activation twice.
+// PromptInput carries the cached result via pointer so we don't
+// mutate value semantics.
+func (in PromptInput) worldInfo() worldinfo.Activated {
+	return activateWorlds(in)
 }
 
 // buildSystem concatenates the character's description, personality,

@@ -906,6 +906,14 @@ const messages = {
       pageNext: 'Дальше',
       pageN: 'Стр. {n}',
     },
+    characterSprites: {
+      title: 'Эмоции (спрайты)',
+      hint: 'Загрузи PNG для разных эмоций (happy, sad, angry и т.д.). В чате автоматически выберется спрайт под последнюю реплику персонажа — по тегам <happy> или ключевым словам («улыбнулся», «нахмурился»).',
+      emotionPlaceholder: 'Напр. happy / sad / angry',
+      add: 'Добавить спрайты',
+      uploadAll: 'Загрузить ({n})',
+      confirmDelete: 'Удалить спрайт «{name}»?',
+    },
     quickReplies: {
       title: 'Быстрые ответы',
       hint: 'Короткие шаблоны-чипы над инпутом. Клик — вставить в черновик. Переключи «Отправить сразу», если шаблон надо отправлять без редактирования.',
@@ -2023,6 +2031,14 @@ const messages = {
       pageBack: 'Prev',
       pageNext: 'Next',
       pageN: 'Page {n}',
+    },
+    characterSprites: {
+      title: 'Expressions (sprites)',
+      hint: 'Upload PNGs for different emotions (happy, sad, angry…). The chat picks the matching sprite automatically based on the last message — via <happy> tags or keyword detection (smiled, frowned).',
+      emotionPlaceholder: 'e.g. happy / sad / angry',
+      add: 'Add sprites',
+      uploadAll: 'Upload ({n})',
+      confirmDelete: 'Delete sprite "{name}"?',
     },
     quickReplies: {
       title: 'Quick replies',
