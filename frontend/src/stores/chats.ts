@@ -119,21 +119,27 @@ export const useChatsStore = defineStore('chats', () => {
     if (currentChat.value?.id === id) currentChat.value.name = name
   }
 
-  /** Send a user message and stream the assistant reply. */
+  /** Send a user message and stream the assistant reply. When `content` is
+   *  empty string we skip the optimistic user row — the server treats that
+   *  as "no new user turn, reply from existing history" (used by the
+   *  "ask for a reply" button when the chat tails on a user message). */
   async function send(input: SendMessageInput) {
     if (!currentId.value || streaming.value) return
 
-    // Optimistic: append a temporary user row that'll be swapped for the
-    // persisted one once the `user_message` event arrives.
-    const optimistic: Message = {
-      id: -Date.now(),
-      chat_id: currentId.value,
-      role: 'user',
-      content: input.content,
-      swipe_id: 0,
-      created_at: new Date().toISOString(),
+    let optimistic: Message | null = null
+    if (input.content && input.content.trim().length > 0) {
+      // Optimistic: append a temporary user row that'll be swapped for the
+      // persisted one once the `user_message` event arrives.
+      optimistic = {
+        id: -Date.now(),
+        chat_id: currentId.value,
+        role: 'user',
+        content: input.content,
+        swipe_id: 0,
+        created_at: new Date().toISOString(),
+      }
+      messages.value = [...messages.value, optimistic]
     }
-    messages.value = [...messages.value, optimistic]
 
     await runStream(
       () => sendMessageStream(currentId.value!, input, streamAbort!.signal),
@@ -141,23 +147,48 @@ export const useChatsStore = defineStore('chats', () => {
     )
   }
 
-  /** Drop the last assistant reply and stream a fresh one. */
+  /** Generate a new variant of the last assistant reply, keeping the prior
+   *  ones addressable via swipe navigation. Implemented on top of swipe so
+   *  history is never destroyed — the "♻ new variant" button in the UI and
+   *  the regenerate hotkey both call into this.
+   *
+   *  Fall-through to the destructive regenerateStream only when there is no
+   *  existing assistant message to swipe from (rare — usually means the user
+   *  deleted the tail; in that case the UI should be routing through
+   *  `requestReplyFromLastUser` instead, but we keep the fallback to avoid
+   *  hard-breaking old call sites). */
   async function regenerate(input: Partial<SendMessageInput> = {}) {
     if (!currentId.value || streaming.value) return
 
-    // Remove the last assistant message locally so the UI reflects the
-    // pending regen before the stream even starts. Server does the DB delete.
+    // Find the last assistant message. If one exists, route through swipe —
+    // additive, non-destructive, prior variants stay reachable.
     for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i]!.role === 'assistant') {
-        messages.value.splice(i, 1)
-        break
+      const m = messages.value[i]
+      if (m && m.role === 'assistant') {
+        await swipe(m, input)
+        return
       }
     }
 
+    // No assistant tail — fall back to the destructive server regenerate.
+    // Callers that hit this branch almost certainly want requestReplyFromLastUser
+    // instead (user deleted the bot reply and wants a new one); we take the
+    // safe route anyway.
     await runStream(
       () => regenerateStream(currentId.value!, input, streamAbort!.signal),
       null,
     )
+  }
+
+  /** Ask the model to reply to the existing last-user-message without typing
+   *  anything new. Fires when the user's tail message has no assistant
+   *  follow-up yet — typically after deleting the bot's previous reply.
+   *
+   *  Server treats `content: ''` as "no new user turn; just stream a reply
+   *  from current history", so we don't append a blank user row. */
+  async function requestReplyFromLastUser(input: Partial<SendMessageInput> = {}) {
+    if (!currentId.value || streaming.value) return
+    await send({ ...(input as SendMessageInput), content: '' })
   }
 
   /** Swipe — append a NEW variant to an existing assistant message (keeps
@@ -427,7 +458,7 @@ export const useChatsStore = defineStore('chats', () => {
     streaming, streamError,
     currentCharacterId,
     fetchList, open, createForCharacter, createGroupChat, existingForCharacter, remove, rename,
-    send, regenerate, swipe, selectSwipe, continueAssistant, stopStreaming,
+    send, regenerate, requestReplyFromLastUser, swipe, selectSwipe, continueAssistant, stopStreaming,
     editMessage, deleteMessage,
     setSampler, setAuthorsNote,
   }

@@ -717,6 +717,22 @@ const lastAssistantId = computed(() => {
   }
   return null
 })
+
+// True when the chat ends on a user turn with no assistant follow-up —
+// either because no reply has arrived yet, or because the user deleted the
+// last assistant message. Used to surface an "ask for a reply" action
+// directly above the composer (bug fix: previously the regenerate
+// affordance was gated to assistant-tails only, leaving the user with no
+// option besides retyping).
+const tailIsUserWithoutReply = computed(() => {
+  const msgs = messages.value ?? []
+  if (msgs.length === 0) return false
+  return msgs[msgs.length - 1]!.role === 'user' && !streaming.value
+})
+
+async function requestReplyFromLastUser() {
+  await chats.requestReplyFromLastUser({ model: selectedModel.value })
+}
 </script>
 
 <template>
@@ -876,20 +892,25 @@ const lastAssistantId = computed(() => {
              Passive scroll listener updates autoStickBottom so new
              streaming tokens don't drag us back down when the user
              scrolled up to re-read earlier content. -->
-        <!-- M40.3: fixed-position character sprite, overlaid on the
-             chat panel. Outside the scroller so it doesn't move with
-             message content. Cross-fade on emotion change via Vue
-             <transition>. Hidden on mobile to preserve reading width
-             + when user opts out in prefs. -->
-        <transition name="nest-sprite-fade">
-          <div
-            v-if="spritesEnabled && currentSpriteURL"
-            :key="currentSpriteURL"
-            class="nest-char-sprite"
-          >
-            <img :src="currentSpriteURL" :alt="detectedEmotion || 'character'" />
-          </div>
-        </transition>
+        <!-- M40.3: character sprite, overlaid on the chat panel. Teleported
+             to <body> so it lives outside the flex parent — otherwise
+             opening a Vuetify overlay (model picker, sampler drawer etc)
+             reflows .nest-chat-main and the sprite's `position:absolute`
+             snaps to a different anchor for one frame, producing the
+             "sprite flies away" bug users reported. Fixed positioning
+             keyed to viewport is stable under overlay mounts.
+             Hidden on mobile + when user opts out in prefs. -->
+        <Teleport to="body">
+          <transition name="nest-sprite-fade">
+            <div
+              v-if="spritesEnabled && currentSpriteURL && hasSelection"
+              :key="currentSpriteURL"
+              class="nest-char-sprite"
+            >
+              <img :src="currentSpriteURL" :alt="detectedEmotion || 'character'" />
+            </div>
+          </transition>
+        </Teleport>
 
         <div ref="scroller" class="nest-chat-scroll" id="chat" @scroll.passive="onScroll">
           <div class="nest-chat-messages">
@@ -1039,6 +1060,25 @@ const lastAssistantId = computed(() => {
               @click="continueAs"
             >
               {{ t('groupChat.flow.continueAs', { name: characterNameFor(groupSpeaker) || '—' }) }}
+            </v-btn>
+          </div>
+
+          <!-- Ask-for-reply rail — appears when the conversation tails on a
+               user message with no assistant follow-up yet, typically after
+               deleting the bot's previous reply. One click re-runs
+               generation from the current history; no retyping needed. -->
+          <div
+            v-if="tailIsUserWithoutReply && !isGroupChat && draft.trim().length === 0"
+            class="nest-continue-row"
+          >
+            <v-btn
+              size="small"
+              variant="tonal"
+              color="primary"
+              prepend-icon="mdi-reload"
+              @click="requestReplyFromLastUser"
+            >
+              {{ t('chat.askForReply') }}
             </v-btn>
           </div>
         </div>
@@ -1278,13 +1318,19 @@ const lastAssistantId = computed(() => {
 //
 // Bottom offset = composer height (~120px) + breathing room.
 .nest-char-sprite {
-  position: absolute;
+  // Teleported to <body>, so position: fixed against the viewport rather
+  // than the chat flex parent. This insulates the sprite from any reflow
+  // caused by Vuetify overlay mounts (model picker, sampler drawer, etc)
+  // that used to yank it around mid-stream. pointer-events: none keeps
+  // clicks flowing through to chat UI beneath.
+  position: fixed;
   left: 16px;
   bottom: 140px;
   width: 200px;
   aspect-ratio: 3 / 4;
   pointer-events: none;
-  z-index: 2;
+  // Above chat content, below Vuetify overlays (which live at 2400+).
+  z-index: 10;
 
   img {
     width: 100%;

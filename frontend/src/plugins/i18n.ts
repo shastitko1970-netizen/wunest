@@ -1081,6 +1081,7 @@ const messages = {
       tokensChip: {
         title: 'Потрачено в этом чате:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} всего\nВызовов API: {apiCalls}\n\nСледующий промпт (оценка): ~{estimate}',
       },
+      askForReply: 'Попросить ответ',
       sampler: {
         title: 'Параметры генерации',
         advanced: 'Дополнительно',
@@ -2220,6 +2221,7 @@ const messages = {
       tokensChip: {
         title: 'Spent in this chat:\n↑ {inCount} input\n↓ {outCount} output\n= {totalCount} total\nAPI calls: {apiCalls}\n\nNext prompt (estimate): ~{estimate}',
       },
+      askForReply: 'Ask for a reply',
       sampler: {
         title: 'Generation parameters',
         advanced: 'Advanced',
