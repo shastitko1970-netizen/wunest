@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { usePersonasStore } from '@/stores/personas'
 import type { Persona } from '@/api/personas'
+import { uploadAvatar } from '@/api/uploads'
 
 // Two-pane Personas management: list on the left, form on the right.
 // Matches the WorldsPanel layout for consistency.
@@ -19,6 +20,41 @@ const saving = ref(false)
 const saveError = ref<string | null>(null)
 const isNew = ref(false)
 const confirmDeleteId = ref<string | null>(null)
+
+// Avatar upload state — kept separate from `saveError` so an upload
+// failure doesn't clobber a pending save error message, and vice versa.
+const avatarFileInput = ref<HTMLInputElement | null>(null)
+const avatarUploading = ref(false)
+const avatarError = ref<string | null>(null)
+
+async function onAvatarFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    avatarUploading.value = true
+    avatarError.value = null
+    const res = await uploadAvatar(file)
+    // Only the thumbnail URL matters for personas — we don't surface the
+    // full-size original anywhere in the persona UI. If that changes,
+    // plumb res.avatar_original_url through Persona type + repo.
+    draftAvatar.value = res.avatar_url
+  } catch (err: any) {
+    avatarError.value = err?.message || String(err)
+  } finally {
+    avatarUploading.value = false
+    if (input) input.value = ''
+  }
+}
+
+function pickAvatarFile() {
+  avatarFileInput.value?.click()
+}
+
+function clearAvatar() {
+  draftAvatar.value = ''
+  avatarError.value = null
+}
 
 onMounted(async () => {
   await store.fetchAll()
@@ -41,6 +77,7 @@ function openPersona(id: string) {
   draftDesc.value = p.description
   draftAvatar.value = p.avatar_url ?? ''
   saveError.value = null
+  avatarError.value = null
 }
 
 function startNew() {
@@ -50,6 +87,7 @@ function startNew() {
   draftDesc.value = ''
   draftAvatar.value = ''
   saveError.value = null
+  avatarError.value = null
 }
 
 // ── SillyTavern persona import ──────────────────────────────────────
@@ -250,10 +288,30 @@ watch(items, () => {
       <template v-else>
         <div class="nest-editor-head">
           <div class="nest-editor-head-left">
-            <v-avatar :size="56" :color="draftAvatar ? undefined : 'surface-variant'">
-              <img v-if="draftAvatar" :src="draftAvatar" :alt="draftName" referrerpolicy="no-referrer" />
-              <span v-else class="text-body-1">{{ draftInitials }}</span>
-            </v-avatar>
+            <!-- Click-to-upload: the head avatar is the primary target for
+                 "change photo". Same file picker the Upload button uses,
+                 so power users can do either. Accepts only images. -->
+            <button
+              type="button"
+              class="nest-persona-avatar-btn"
+              :title="t('library.create.avatarUpload')"
+              :disabled="avatarUploading"
+              @click="pickAvatarFile"
+            >
+              <v-avatar :size="56" :color="draftAvatar ? undefined : 'surface-variant'">
+                <img v-if="draftAvatar" :src="draftAvatar" :alt="draftName" referrerpolicy="no-referrer" />
+                <span v-else class="text-body-1">{{ draftInitials }}</span>
+              </v-avatar>
+              <v-icon class="nest-persona-avatar-edit" size="14">mdi-camera</v-icon>
+              <v-progress-circular
+                v-if="avatarUploading"
+                class="nest-persona-avatar-spinner"
+                size="20"
+                width="2"
+                indeterminate
+                color="primary"
+              />
+            </button>
             <div>
               <div class="nest-eyebrow">
                 {{ isNew ? t('personas.newTitle') : t('personas.editTitle') }}
@@ -307,13 +365,54 @@ watch(items, () => {
           class="mb-3"
         />
 
-        <v-text-field
-          v-model="draftAvatar"
-          :label="t('personas.avatarLabel')"
-          :placeholder="t('personas.avatarPlaceholder')"
+        <div class="nest-persona-avatar-row mb-3">
+          <v-text-field
+            v-model="draftAvatar"
+            :label="t('personas.avatarLabel')"
+            :placeholder="t('personas.avatarPlaceholder')"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <!-- Hidden <input type="file"> — both the head avatar and the
+               Upload button trigger this via pickAvatarFile(). -->
+          <input
+            ref="avatarFileInput"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            style="display:none"
+            @change="onAvatarFileChange"
+          />
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-upload"
+            :loading="avatarUploading"
+            @click="pickAvatarFile"
+          >
+            {{ t('library.create.avatarUpload') }}
+          </v-btn>
+          <v-btn
+            v-if="draftAvatar"
+            size="small"
+            variant="text"
+            color="error"
+            icon="mdi-close"
+            :title="t('library.create.avatarClear')"
+            @click="clearAvatar"
+          />
+        </div>
+        <v-alert
+          v-if="avatarError"
+          type="error"
           density="compact"
+          variant="tonal"
+          closable
           class="mb-3"
-        />
+          @click:close="avatarError = null"
+        >
+          {{ avatarError }}
+        </v-alert>
 
         <div class="d-flex justify-end">
           <v-btn
@@ -457,6 +556,55 @@ watch(items, () => {
 .nest-editor-head-right {
   display: flex;
   gap: 6px;
+}
+
+// Click-to-upload avatar button. The overlay camera badge + hover lift
+// cue that the avatar itself is interactive — users who miss the
+// separate Upload button can still discover it.
+.nest-persona-avatar-btn {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: transform var(--nest-transition-fast), box-shadow var(--nest-transition-fast);
+
+  &:hover {
+    transform: scale(1.03);
+  }
+  &:disabled {
+    cursor: wait;
+    opacity: 0.85;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--nest-accent);
+    outline-offset: 2px;
+  }
+}
+.nest-persona-avatar-edit {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: var(--nest-accent);
+  color: var(--nest-text-on-accent, #fff);
+  border: 2px solid var(--nest-surface);
+  border-radius: 50%;
+  padding: 3px;
+}
+.nest-persona-avatar-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+// URL field + Upload + Clear buttons in one row. Wraps on narrow mobile.
+.nest-persona-avatar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .nest-confirm {
