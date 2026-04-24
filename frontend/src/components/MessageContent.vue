@@ -86,6 +86,11 @@ const DP_CFG = {
     'ellipse', 'g', 'defs', 'use', 'symbol', 'title', 'desc', 'text', 'tspan',
     'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur',
     'feOffset', 'feMerge', 'feMergeNode', 'clipPath',
+    // <style> is allowed — ST character cards routinely bundle CSS with
+    // their plate HTML. We rewrite selectors to be message-scoped in a
+    // post-sanitize pass (scopeStyleBlocks below) so a character's stylesheet
+    // can't reach outside its own bubble.
+    'style',
   ],
   ALLOWED_ATTR: [
     // Structural
@@ -127,11 +132,113 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   }
 })
 
+// Unique scope for this message instance. Every <style> block inside this
+// bubble gets its selectors prefixed with the matching data attribute, so
+// character-authored CSS stays inside its own message bubble and never
+// leaks to the rest of the app.
+const scopeId = `m${Math.random().toString(36).slice(2, 10)}`
+const scopeSel = `[data-nest-msg-scope="${scopeId}"]`
+
 function renderMd(body: string): string {
   const raw = md.value.render(body)
-  // `sanitize` returns TrustedHTML on browsers with TT enabled; the string
-  // form works for our v-html injection either way.
-  return String(DOMPurify.sanitize(raw, DP_CFG))
+  const purified = String(DOMPurify.sanitize(raw, DP_CFG))
+  return scopeStyleBlocks(purified, scopeSel)
+}
+
+// scopeStyleBlocks finds every <style> element in a fragment of HTML and
+// rewrites its CSS so selectors only match elements inside this message's
+// scope. Author can drop a <style> in their character card and have it
+// actually apply, without bleeding onto the app shell.
+//
+// Returns the original HTML unchanged when there are no style tags, the
+// fast path for 99% of messages.
+function scopeStyleBlocks(html: string, scope: string): string {
+  if (!html.includes('<style')) return html
+  // Parse the fragment into a detached container so we can manipulate
+  // <style> element text content in isolation.
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  const styles = tmp.querySelectorAll('style')
+  for (const style of Array.from(styles)) {
+    const scoped = scopeCssText(style.textContent ?? '', scope)
+    if (scoped === null) {
+      // Malformed CSS — drop the <style> rather than pollute the page.
+      style.remove()
+      continue
+    }
+    style.textContent = scoped
+  }
+  return tmp.innerHTML
+}
+
+// scopeCssText parses a CSS string via a constructable stylesheet (offline,
+// no document effect), walks the rules, and rewrites each selector with a
+// scope prefix. Returns null when parsing fails outright.
+//
+// Handles nested at-rules (@media / @supports) by recursing. @import is
+// dropped to prevent remote CSS fetches. @keyframes / @font-face / etc
+// pass through as-is.
+function scopeCssText(css: string, scope: string): string | null {
+  // Pre-strip @import — constructable stylesheets ignore them anyway but
+  // being explicit documents intent.
+  css = css.replace(/@import\b[^;]*;?/gi, '')
+  try {
+    // Some iOS Safari versions still ship without `CSSStyleSheet` ctor;
+    // fall back to a detached <style> tag attached to an inert document.
+    let sheet: CSSStyleSheet
+    if (typeof CSSStyleSheet !== 'undefined' && 'replaceSync' in CSSStyleSheet.prototype) {
+      sheet = new CSSStyleSheet()
+      sheet.replaceSync(css)
+    } else {
+      const s = document.implementation.createHTMLDocument('').createElement('style')
+      s.textContent = css
+      document.implementation.createHTMLDocument('').head.appendChild(s)
+      sheet = s.sheet as CSSStyleSheet
+    }
+    const rules = Array.from(sheet.cssRules)
+    return rules.map(r => serializeRule(r, scope)).join('\n')
+  } catch {
+    return null
+  }
+}
+
+function serializeRule(rule: CSSRule, scope: string): string {
+  // Plain style rule: prefix every comma-separated selector with scope.
+  if (rule instanceof CSSStyleRule) {
+    const selectors = rule.selectorText
+      .split(',')
+      .map(s => scopedSelector(s.trim(), scope))
+      .filter(s => s)
+      .join(', ')
+    return `${selectors} { ${rule.style.cssText} }`
+  }
+  // Grouping rules — @media, @supports. Recurse the inner rules.
+  const groupRule = rule as CSSRule & { cssRules?: CSSRuleList; conditionText?: string; name?: string }
+  if (typeof CSSMediaRule !== 'undefined' && rule instanceof CSSMediaRule) {
+    const inner = Array.from(rule.cssRules).map(r => serializeRule(r, scope)).join('\n')
+    return `@media ${rule.conditionText} { ${inner} }`
+  }
+  if (typeof CSSSupportsRule !== 'undefined' && rule instanceof CSSSupportsRule) {
+    const inner = Array.from(rule.cssRules).map(r => serializeRule(r, scope)).join('\n')
+    return `@supports ${rule.conditionText} { ${inner} }`
+  }
+  // @keyframes / @font-face / any other — no inner selectors to scope.
+  return groupRule.cssText ?? ''
+}
+
+// scopedSelector prepends the scope to a selector unless it targets :root,
+// html, or body — those would either never match (root is outside our tree)
+// or intentionally reach up to the chat shell (html/body) which we forbid.
+//
+// Doesn't double-scope if the selector already contains the scope (author
+// manually scoped already — respect their intent).
+function scopedSelector(sel: string, scope: string): string {
+  if (!sel) return ''
+  if (sel.includes(scope)) return sel
+  // Strip anything that would escape the scope. Authors sometimes write
+  // `:root { --accent: red; }` or `body.dark { ... }`; both are too global.
+  if (/^(?::root\b|html\b|body\b)/i.test(sel)) return `${scope} ${sel.replace(/^(?::root|html|body)\S*/i, '').trim() || '*'}`
+  return `${scope} ${sel}`
 }
 
 // ─── Plate action bridge (M32 interactive plates) ────────────────
@@ -194,6 +301,7 @@ function runAction(action: PlateAction) {
       <div
         v-else
         class="nest-md"
+        :data-nest-msg-scope="scopeId"
         v-html="renderMd(part.body)"
       />
     </template>
@@ -210,8 +318,23 @@ function runAction(action: PlateAction) {
 .nest-md {
   :deep(p) { margin: 0 0 8px; line-height: 1.55; }
   :deep(p:last-child) { margin-bottom: 0; }
-  :deep(strong) { color: var(--nest-text); font-weight: 600; }
-  :deep(em) { color: var(--nest-text-secondary); font-style: italic; }
+  // strong/em intentionally DON'T override color — inherit from the
+  // enclosing context so author-coloured plaques ("status: red" etc)
+  // keep their colour through bolded words. Distinction comes from
+  // weight/style alone, which is enough visual signal without fighting
+  // the author's palette.
+  :deep(strong), :deep(b) { font-weight: 600; color: inherit; }
+  :deep(em), :deep(i)     { font-style: italic; color: inherit; }
+  :deep(u) { text-decoration: underline; text-underline-offset: 2px; }
+  :deep(s), :deep(del), :deep(strike) { text-decoration: line-through; opacity: 0.7; }
+  :deep(mark) {
+    background: color-mix(in srgb, var(--nest-accent) 30%, transparent);
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  :deep(small) { font-size: 0.88em; opacity: 0.85; }
+  :deep(sub), :deep(sup) { font-size: 0.75em; }
   :deep(blockquote) {
     margin: 6px 0;
     padding: 4px 10px;
@@ -403,5 +526,85 @@ function runAction(action: PlateAction) {
     display: block;
     margin: 6px 0;
   }
+
+  // ── Baseline styling for ST / roleplay class conventions ──────────
+  // Character cards from CHUB + mirrors use a narrow vocabulary of
+  // class names to tag narrative text. Most authors DON'T ship CSS for
+  // these (they assume the host renders them) — so we provide sensible
+  // defaults here. Author <style> still wins thanks to source order
+  // (author block gets scoped + appended to the DOM after this CSS).
+
+  :deep(.quote), :deep(.q), :deep(q) {
+    color: var(--nest-text-secondary);
+    font-style: italic;
+  }
+  :deep(.thought), :deep(.think), :deep(.thinking),
+  :deep(.inner-thoughts), :deep(.inner_thoughts) {
+    font-style: italic;
+    color: color-mix(in srgb, var(--nest-text) 70%, var(--nest-accent) 30%);
+    opacity: 0.92;
+  }
+  :deep(.whisper), :deep(.whispered) {
+    font-size: 0.92em;
+    color: var(--nest-text-muted);
+    font-style: italic;
+  }
+  :deep(.shout), :deep(.yelling) {
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  :deep(.action), :deep(.narration), :deep(.narrate) {
+    color: var(--nest-text-secondary);
+    font-style: italic;
+  }
+  :deep(.speech), :deep(.dialogue), :deep(.said) {
+    color: var(--nest-text);
+    // No font-style — regular dialogue reads as normal text.
+  }
+  :deep(.ooc), :deep(.oocnote) {
+    display: inline-block;
+    padding: 1px 8px;
+    margin: 2px 0;
+    font-size: 0.88em;
+    color: var(--nest-text-muted);
+    background: var(--nest-bg-elevated);
+    border-radius: var(--nest-radius-pill);
+    font-style: italic;
+  }
+  :deep(.system), :deep(.systemmessage), :deep(.system-message) {
+    background: rgba(0, 0, 0, 0.12);
+    border-left: 2px solid var(--nest-border);
+    padding: 4px 10px;
+    margin: 4px 0;
+    color: var(--nest-text-muted);
+    font-size: 0.92em;
+    border-radius: 0 var(--nest-radius-sm) var(--nest-radius-sm) 0;
+  }
+  // Info plaques — common name. Author CSS should customise; baseline
+  // is a soft-bordered card so it doesn't look like raw text.
+  :deep(.plate), :deep(.card), :deep(.info-box), :deep(.stat-block) {
+    display: block;
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: var(--nest-bg-elevated);
+    border: 1px solid var(--nest-border-subtle);
+    border-radius: var(--nest-radius-sm);
+  }
+  // Status / HP / MP bar-like rows — common layout.
+  :deep(.status), :deep(.stats), :deep(.statline) {
+    font-family: var(--nest-font-mono);
+    font-size: 0.92em;
+    color: var(--nest-text-secondary);
+  }
+
+  // Author-supplied colour containers: once an author sets a `color` via
+  // inline style, descendants should FULLY inherit (we already made
+  // strong/em inherit globally above, but lists/links still have their
+  // own rules — reset those here).
+  :deep([style*="color"]) a { color: inherit; text-decoration: underline; }
+  :deep([style*="color"]) code,
+  :deep([style*="color"]) kbd,
+  :deep([style*="color"]) samp { color: inherit; }
 }
 </style>
