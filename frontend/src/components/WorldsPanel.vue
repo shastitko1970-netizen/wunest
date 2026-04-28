@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useWorldsStore } from '@/stores/worlds'
 import type { World, WorldEntry } from '@/api/worlds'
 import ImportLorebookDialog from '@/components/ImportLorebookDialog.vue'
+import UsageHintChip from '@/components/UsageHintChip.vue'
 
 const { t } = useI18n()
 const store = useWorldsStore()
@@ -168,6 +169,9 @@ const hasDraftChanges = computed(() => {
           </v-btn>
         </div>
       </div>
+
+      <!-- M54.3 — slot usage hint. -->
+      <UsageHintChip :used="items.length" class="mb-2" />
 
       <div v-if="loading && !items.length" class="nest-state">
         <v-progress-circular indeterminate color="primary" size="24" />
@@ -453,8 +457,12 @@ const hasDraftChanges = computed(() => {
               <!-- Row 6: stateful activation timers (stored, not yet enforced) -->
               <details class="nest-entry-advanced mt-3">
                 <summary class="nest-entry-advanced-head">
-                  {{ t('worlds.advanced') }}
+                  <span>{{ t('worlds.advanced') }}</span>
+                  <span class="nest-entry-advanced-flag">{{ t('worlds.notAppliedV1') }}</span>
                 </summary>
+                <div class="nest-entry-advanced-notice mt-2">
+                  {{ t('worlds.advancedNotice') }}
+                </div>
                 <div class="d-flex flex-wrap ga-3 mt-2">
                   <v-text-field
                     v-model.number="entry.sticky"
@@ -784,17 +792,42 @@ const hasDraftChanges = computed(() => {
   cursor: pointer;
   list-style: none;
   padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 
   &::-webkit-details-marker { display: none; }
   &::before {
     content: '▸';
     display: inline-block;
-    margin-right: 6px;
+    margin-right: 2px;
     transition: transform var(--nest-transition-fast);
   }
 }
 details[open] > .nest-entry-advanced-head::before {
   transform: rotate(90deg);
+}
+// M53 — visible "stored only" marker so users don't burn time configuring
+// fields that v1 silently ignores. Per-field hints say the same thing but
+// are easy to miss; this surfaces it on the collapsed summary.
+.nest-entry-advanced-flag {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 184, 0, 0.14);
+  color: var(--nest-text-muted);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  text-transform: none;
+}
+.nest-entry-advanced-notice {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--nest-text-muted);
+  background: var(--nest-surface-soft, rgba(255, 184, 0, 0.06));
+  border-left: 2px solid rgba(255, 184, 0, 0.5);
+  padding: 8px 10px;
+  border-radius: 4px;
 }
 
 .nest-entry-group { flex: 1 1 220px; min-width: 0; }

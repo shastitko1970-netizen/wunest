@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { isLimitReached } from '@/api/client'
+import { useSubscriptionStore } from '@/stores/subscription'
 import {
   defaultsApi,
   presetsApi,
@@ -82,7 +84,15 @@ export const usePresetsStore = defineStore('presets', () => {
     data: unknown,
     options: { autoActivate?: boolean } = {},
   ): Promise<{ preset: Preset; activated: boolean }> {
-    const p = await presetsApi.create({ type, name, data })
+    let p: Preset
+    try {
+      p = await presetsApi.create({ type, name, data })
+    } catch (e) {
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
     items.value = [...items.value, p].sort((a, b) => a.name.localeCompare(b.name))
 
     let activated = false

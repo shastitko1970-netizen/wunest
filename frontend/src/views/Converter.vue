@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useModelsStore } from '@/stores/models'
 import { byokApi, type BYOKKey } from '@/api/byok'
-import { convertTheme, listJobs, type ConvertJob, type ConvertResponse } from '@/api/convert'
+import { convertTheme, listJobs, retryJob, type ConvertJob, type ConvertResponse } from '@/api/convert'
 import { ApiError } from '@/api/client'
 import { useAppearanceStore } from '@/stores/appearance'
 import { fromST, type STTheme } from '@/api/appearance'
@@ -72,12 +72,21 @@ async function onSourcePick(v: string | null) {
   await onSourceChange()
 }
 
+// ── Input mode (M51 Sprint 2 wave 2) ──────────────────────────────
+// Two ways to feed the converter: file upload (original) or paste-text
+// (new). Files now accept .json AND .css — bare CSS gets wrapped into
+// the ST envelope `{name, custom_css}` on submit. Paste-text auto-
+// detects: leading `{` ⇒ JSON, anything else ⇒ CSS.
+type InputMode = 'file' | 'paste'
+const inputMode = ref<InputMode>('file')
+
 // ── File upload state ─────────────────────────────────────────────
-// Single-file uploader. Can't drop multiple themes; conversion is
-// expensive (LLM tokens) so we want deliberate one-at-a-time flow.
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const dragOver = ref(false)
+
+// ── Paste-text state ──────────────────────────────────────────────
+const pasteText = ref('')
 
 // Display bytes as KB with one decimal — themes are always well
 // under 1MB so no MB/GB logic needed.
@@ -88,11 +97,34 @@ function formatKB(bytes: number): string {
 const MAX_BYTES = 500 * 1024
 const MAX_KB_LABEL = '500 KB'
 
-const fileError = computed<string | null>(() => {
-  if (!selectedFile.value) return null
-  if (selectedFile.value.size > MAX_BYTES) return t('converter.errors.tooLarge', { max: MAX_KB_LABEL })
-  if (!/\.json$/i.test(selectedFile.value.name)) return t('converter.errors.notJson')
+// Validation surfaces inline under the input — runs over either the
+// file or the paste-text depending on active mode.
+const inputError = computed<string | null>(() => {
+  if (inputMode.value === 'file') {
+    if (!selectedFile.value) return null
+    if (selectedFile.value.size > MAX_BYTES) return t('converter.errors.tooLarge', { max: MAX_KB_LABEL })
+    if (!/\.(json|css)$/i.test(selectedFile.value.name)) return t('converter.errors.notJsonOrCss')
+    return null
+  }
+  // Paste mode.
+  const txt = pasteText.value
+  if (!txt.trim()) return null
+  // Encode UTF-8 → use Blob to get accurate byte length.
+  const sizeBytes = new TextEncoder().encode(txt).length
+  if (sizeBytes > MAX_BYTES) return t('converter.errors.tooLarge', { max: MAX_KB_LABEL })
+  // Looks like JSON but malformed? Save the user a 30-180s LLM call.
+  const trimmed = txt.trimStart()
+  if (trimmed.startsWith('{')) {
+    try { JSON.parse(txt) } catch {
+      return t('converter.errors.malformedJson')
+    }
+  }
   return null
+})
+
+// Whether we have something to convert at all.
+const hasInput = computed<boolean>(() => {
+  return inputMode.value === 'file' ? !!selectedFile.value : pasteText.value.trim().length > 0
 })
 
 function pickFile() { fileInput.value?.click() }
@@ -107,6 +139,54 @@ function onDrop(e: DragEvent) {
   if (f) selectedFile.value = f
 }
 
+// ── Build the request payload ─────────────────────────────────────
+// Centralised in one place so both submit-modes (file/paste) and the
+// auto-wrap-CSS logic agree on what gets sent. Returns `{blob, filename}`
+// plus `null` when there's nothing to send (no file / empty paste).
+//
+// Behaviour:
+//   - File `.json` → as-is
+//   - File `.css`  → wrapped: `{name: <stem>, custom_css: <bytes>}`
+//   - Paste JSON   → as-is
+//   - Paste CSS    → wrapped: `{name: 'Untitled CSS', custom_css: <text>}`
+async function buildPayload(): Promise<{ blob: Blob; filename: string } | null> {
+  if (inputMode.value === 'file') {
+    const f = selectedFile.value
+    if (!f) return null
+    if (/\.json$/i.test(f.name)) {
+      return { blob: f, filename: f.name }
+    }
+    if (/\.css$/i.test(f.name)) {
+      const css = await f.text()
+      const stem = f.name.replace(/\.css$/i, '')
+      const envelope = JSON.stringify({ name: stem, custom_css: css })
+      return {
+        blob: new Blob([envelope], { type: 'application/json' }),
+        filename: stem + '.json',
+      }
+    }
+    // Should be unreachable thanks to inputError validation, but
+    // guard anyway — return as-is and let backend reject.
+    return { blob: f, filename: f.name }
+  }
+
+  // Paste mode.
+  const txt = pasteText.value.trim()
+  if (!txt) return null
+  const looksLikeJson = txt.startsWith('{')
+  if (looksLikeJson) {
+    return {
+      blob: new Blob([txt], { type: 'application/json' }),
+      filename: 'pasted.json',
+    }
+  }
+  const envelope = JSON.stringify({ name: 'Untitled CSS', custom_css: txt })
+  return {
+    blob: new Blob([envelope], { type: 'application/json' }),
+    filename: 'pasted.json',
+  }
+}
+
 // ── Convert action ────────────────────────────────────────────────
 const converting = ref(false)
 const convertError = ref<string | null>(null)
@@ -114,7 +194,9 @@ const rateLimitUntil = ref<Date | null>(null)
 const result = ref<ConvertResponse | null>(null)
 
 async function doConvert() {
-  if (!selectedFile.value || fileError.value || !selectedModel.value) return
+  if (!hasInput.value || inputError.value || !selectedModel.value) return
+  const payload = await buildPayload()
+  if (!payload) return
   converting.value = true
   convertError.value = null
   rateLimitUntil.value = null
@@ -122,7 +204,8 @@ async function doConvert() {
   try {
     const byokId = source.value.kind === 'byok' ? source.value.id : undefined
     const res = await convertTheme({
-      file: selectedFile.value,
+      blob: payload.blob,
+      filename: payload.filename,
       model: selectedModel.value,
       byokId,
     })
@@ -130,20 +213,78 @@ async function doConvert() {
     // Kick a refresh of the recent-jobs list so the chip strip updates.
     await fetchRecent()
   } catch (err) {
-    if (err instanceof ApiError) {
-      if (err.status === 429) {
-        // Custom "rate_limited|ISO8601" encoding from api/convert.ts
-        const [, when] = err.message.split('|')
-        if (when) rateLimitUntil.value = new Date(when)
-        convertError.value = t('converter.errors.rateLimited')
-      } else if (err.status === 502) {
-        convertError.value = t('converter.errors.modelFailed', { detail: err.message })
-      } else {
-        convertError.value = err.message || t('converter.errors.unknown')
-      }
+    handleConvertError(err)
+  } finally {
+    converting.value = false
+  }
+}
+
+// Shared error mapping used by both convert and retry. Kept here
+// (not in convert.ts) because the surfaced message depends on i18n.
+function handleConvertError(err: unknown) {
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      const [, when] = err.message.split('|')
+      if (when) rateLimitUntil.value = new Date(when)
+      convertError.value = t('converter.errors.rateLimited')
+    } else if (err.status === 410) {
+      // M51 — retry handler returns 410 for legacy rows / expired source.
+      convertError.value = t('converter.errors.retryGone')
+    } else if (err.status === 502) {
+      convertError.value = t('converter.errors.modelFailed', { detail: err.message })
     } else {
-      convertError.value = (err as Error).message || t('converter.errors.unknown')
+      convertError.value = err.message || t('converter.errors.unknown')
     }
+  } else {
+    convertError.value = (err as Error).message || t('converter.errors.unknown')
+  }
+}
+
+// ── Retry flow (M51 Sprint 2 wave 2) ──────────────────────────────
+// Re-runs an existing job's input through a different model. Two
+// entry points: «Попробовать другую модель» on the result panel
+// after a fresh conversion, OR the refresh-icon on each history row.
+// Both surface the same picker dialog and hit POST /api/convert/{id}/retry.
+const retryDialogOpen = ref(false)
+const retryJobId = ref<string | null>(null)
+const retryModel = ref<string>('')
+
+// Convert a job-row source state into our Source union for prefilling
+// the model picker. For BYOK entries we just use the stored id; if
+// that key was deleted since the job ran the picker will harmlessly
+// fall back to "no key" (loading state on the model store).
+function openRetryDialog(job: ConvertJob | ConvertResponse['job']) {
+  retryJobId.value = job.id
+  retryModel.value = job.model
+  // Pre-select source matching the source job (best-effort — user can
+  // change in the dialog).
+  if (job.byok_id) {
+    source.value = { kind: 'byok', id: job.byok_id }
+  } else {
+    source.value = { kind: 'wuapi' }
+  }
+  void onSourceChange()
+  retryDialogOpen.value = true
+}
+
+async function doRetry() {
+  if (!retryJobId.value || !selectedModel.value) return
+  converting.value = true
+  convertError.value = null
+  rateLimitUntil.value = null
+  retryDialogOpen.value = false
+  try {
+    const byokId = source.value.kind === 'byok' ? source.value.id : undefined
+    const res = await retryJob(retryJobId.value, selectedModel.value, byokId)
+    result.value = res
+    await fetchRecent()
+    // Scroll back to result so the new outcome is visible.
+    if (typeof window !== 'undefined') {
+      const el = document.querySelector('.nest-converter-result')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  } catch (err) {
+    handleConvertError(err)
   } finally {
     converting.value = false
   }
@@ -178,8 +319,36 @@ const appearance = useAppearanceStore()
 const applying = ref(false)
 const applied = ref(false)
 
+// M51 Sprint 1 wave 3 — runtime guard before applying converter output.
+// Previously `result.value.output` was just cast to `STTheme` and fed to
+// fromST(), which silently dropped wrong types. M43.1 caught a regression
+// where `avatar_style: "1"` (string!) made it through and broke avatars.
+// The check is intentionally lenient: any field MAY be present, MAY be
+// undefined, but if present it must be the right shape.
+function isPlausibleSTTheme(o: unknown): o is STTheme {
+  if (!o || typeof o !== 'object') return false
+  const t = o as Record<string, unknown>
+  const stringFields = [
+    'name', 'main_text_color', 'italics_text_color', 'quote_text_color',
+    'border_color', 'blur_tint_color', 'custom_css',
+  ]
+  const numberFields = ['font_scale', 'chat_width', 'avatar_style', 'chat_display', 'blur_strength']
+  const boolFields = ['noShadows', 'reduced_motion']
+  for (const f of stringFields) if (t[f] !== undefined && typeof t[f] !== 'string') return false
+  for (const f of numberFields) if (t[f] !== undefined && typeof t[f] !== 'number') return false
+  for (const f of boolFields) if (t[f] !== undefined && typeof t[f] !== 'boolean') return false
+  return true
+}
+
+const validationError = ref<string | null>(null)
+
 function applyToMe() {
   if (!result.value) return
+  validationError.value = null
+  if (!isPlausibleSTTheme(result.value.output)) {
+    validationError.value = t('converter.result.validationFailed')
+    return
+  }
   applying.value = true
   try {
     const theme = result.value.output as STTheme
@@ -192,6 +361,36 @@ function applyToMe() {
     applying.value = false
   }
 }
+
+// ── Preview helpers ───────────────────────────────────────────────
+// First N lines of the generated `custom_css`, so the user can sanity-
+// check what's about to be applied without downloading the file. Cheap
+// to compute, capped to keep the panel small.
+const CSS_PREVIEW_LINES = 30
+const cssPreview = computed<string>(() => {
+  const css = (result.value?.output as STTheme | undefined)?.custom_css
+  if (!css) return ''
+  const lines = css.split('\n')
+  if (lines.length <= CSS_PREVIEW_LINES) return css
+  return lines.slice(0, CSS_PREVIEW_LINES).join('\n') + '\n…'
+})
+
+// Count of WuNest-style selectors (`.nest-*`) in the generated CSS —
+// rough proxy for "did the converter actually do its job rewriting ST
+// selectors". A theme conversion that produces 0 nest-* selectors is
+// suspicious; the user-facing line says "we rewrote N selectors" so the
+// user can tell at a glance the LLM didn't just echo back the input.
+const selectorRewriteCount = computed<number>(() => {
+  const css = (result.value?.output as STTheme | undefined)?.custom_css
+  if (!css) return 0
+  // Count distinct `.nest-…` occurrences (selectors only — non-greedy
+  // word-boundary capture). Includes `.nest-msg`, `.nest-msg-body`, etc.
+  // Each occurrence is +1; CSS authors duplicating the same selector
+  // for cascade reasons get counted multiple times — that's fine, it
+  // still reflects effort.
+  const matches = css.match(/\.nest-[a-z0-9-]+/g)
+  return matches ? matches.length : 0
+})
 
 // ── Download as file ──────────────────────────────────────────────
 function downloadResult() {
@@ -301,40 +500,77 @@ const converterNotes = computed<string[]>(() => {
       />
     </section>
 
-    <!-- ── Step 2. Upload ──────────────────────────────────────── -->
+    <!-- ── Step 2. Input (M51 Sprint 2 wave 2) ─────────────────────
+         Two ways to feed the converter:
+           • Файл — JSON or CSS file (CSS gets auto-wrapped on submit)
+           • Вставить — paste raw text, auto-detect JSON vs CSS -->
     <section class="nest-section">
       <h2 class="nest-h2">{{ t('converter.step2.title') }}</h2>
       <p class="nest-subtitle mb-3">{{ t('converter.step2.tagline', { max: MAX_KB_LABEL }) }}</p>
 
-      <div
-        class="nest-converter-dropzone"
-        :class="{ 'is-dragging': dragOver, 'is-selected': !!selectedFile, 'is-invalid': !!fileError }"
-        @dragover.prevent="dragOver = true"
-        @dragleave.prevent="dragOver = false"
-        @drop="onDrop"
-        @click="pickFile"
+      <v-tabs
+        v-model="inputMode"
+        density="compact"
+        class="nest-converter-tabs mb-3"
+        color="primary"
       >
-        <input
-          ref="fileInput"
-          type="file"
-          accept="application/json,.json"
-          class="nest-converter-file-input"
-          @change="onFileChange"
-        />
-        <template v-if="selectedFile">
-          <v-icon size="28" :color="fileError ? 'error' : 'primary'">
-            {{ fileError ? 'mdi-alert-circle-outline' : 'mdi-file-code-outline' }}
-          </v-icon>
-          <div class="nest-converter-filename nest-mono">{{ selectedFile.name }}</div>
-          <div class="nest-converter-filesize">{{ formatKB(selectedFile.size) }}</div>
-        </template>
-        <template v-else>
-          <v-icon size="28" color="surface-variant">mdi-cloud-upload-outline</v-icon>
-          <div class="nest-converter-drop-label">{{ t('converter.step2.dropLabel') }}</div>
-          <div class="nest-converter-drop-hint nest-mono">{{ t('converter.step2.dropHint', { max: MAX_KB_LABEL }) }}</div>
-        </template>
+        <v-tab value="file" prepend-icon="mdi-file-upload-outline">{{ t('converter.step2.tabFile') }}</v-tab>
+        <v-tab value="paste" prepend-icon="mdi-text-box-edit-outline">{{ t('converter.step2.tabPaste') }}</v-tab>
+      </v-tabs>
+
+      <!-- File mode — accepts .json and .css; CSS gets wrapped on submit. -->
+      <div v-if="inputMode === 'file'">
+        <div
+          class="nest-converter-dropzone"
+          :class="{ 'is-dragging': dragOver, 'is-selected': !!selectedFile, 'is-invalid': !!inputError }"
+          @dragover.prevent="dragOver = true"
+          @dragleave.prevent="dragOver = false"
+          @drop="onDrop"
+          @click="pickFile"
+        >
+          <input
+            ref="fileInput"
+            type="file"
+            accept="application/json,.json,.css,text/css"
+            class="nest-converter-file-input"
+            @change="onFileChange"
+          />
+          <template v-if="selectedFile">
+            <v-icon size="28" :color="inputError ? 'error' : 'primary'">
+              {{ inputError ? 'mdi-alert-circle-outline' : 'mdi-file-code-outline' }}
+            </v-icon>
+            <div class="nest-converter-filename nest-mono">{{ selectedFile.name }}</div>
+            <div class="nest-converter-filesize">{{ formatKB(selectedFile.size) }}</div>
+          </template>
+          <template v-else>
+            <v-icon size="28" color="surface-variant">mdi-cloud-upload-outline</v-icon>
+            <div class="nest-converter-drop-label">{{ t('converter.step2.dropLabel') }}</div>
+            <div class="nest-converter-drop-hint nest-mono">{{ t('converter.step2.dropHint', { max: MAX_KB_LABEL }) }}</div>
+          </template>
+        </div>
       </div>
-      <p v-if="fileError" class="nest-hint text-error mt-2">{{ fileError }}</p>
+
+      <!-- Paste mode — monospaced textarea, auto-detect JSON vs CSS. -->
+      <div v-else>
+        <v-textarea
+          v-model="pasteText"
+          :placeholder="t('converter.step2.pastePlaceholder')"
+          :error="!!inputError"
+          rows="14"
+          variant="outlined"
+          density="comfortable"
+          class="nest-converter-paste"
+          spellcheck="false"
+          autocapitalize="off"
+          autocorrect="off"
+          hide-details="auto"
+        />
+        <p class="nest-converter-drop-hint nest-mono mt-1">
+          {{ t('converter.step2.pasteHint', { max: MAX_KB_LABEL }) }}
+        </p>
+      </div>
+
+      <p v-if="inputError" class="nest-hint text-error mt-2">{{ inputError }}</p>
     </section>
 
     <!-- ── Action ──────────────────────────────────────────────── -->
@@ -344,7 +580,7 @@ const converterNotes = computed<string[]>(() => {
           color="primary"
           size="large"
           :loading="converting"
-          :disabled="!selectedFile || !!fileError || !selectedModel || converting"
+          :disabled="!hasInput || !!inputError || !selectedModel || converting"
           @click="doConvert"
         >
           <v-icon size="20" class="mr-2">mdi-auto-fix</v-icon>
@@ -389,6 +625,43 @@ const converterNotes = computed<string[]>(() => {
         <li v-for="(note, i) in converterNotes" :key="i">{{ note }}</li>
       </ul>
 
+      <!-- Preview block (M51 Sprint 1 wave 3). Two pieces of cheap
+           insight before the user clicks Apply:
+             - Selector-rewrite count: how many `.nest-*` selectors the
+               converter actually produced. Zero = suspicious (model
+               likely echoed the ST input back).
+             - CSS snippet: first 30 lines so the user can eyeball
+               whether the model wrote sensible code or hallucinated.
+           Cheap to render — just two computeds and a <pre>. -->
+      <div class="nest-converter-preview mt-3">
+        <div class="nest-eyebrow">{{ t('converter.result.previewTitle') }}</div>
+        <div class="nest-converter-preview-stat nest-mono">
+          {{ t('converter.result.previewSelectors', { count: selectorRewriteCount }) }}
+        </div>
+        <p v-if="!cssPreview" class="nest-subtitle nest-hint--sm mt-2">
+          {{ t('converter.result.previewEmpty') }}
+        </p>
+        <template v-else>
+          <p class="nest-subtitle nest-hint--sm mt-2 mb-1">
+            {{ t('converter.result.previewSnippet', { n: 30 }) }}
+          </p>
+          <pre class="nest-converter-preview-code"><code>{{ cssPreview }}</code></pre>
+        </template>
+      </div>
+
+      <!-- Validation alert (M51 Sprint 1 wave 3). Surfaces only when
+           the runtime guard rejects an Apply attempt; the user can
+           still Download and inspect the file. -->
+      <v-alert
+        v-if="validationError"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mt-3"
+      >
+        {{ validationError }}
+      </v-alert>
+
       <div class="nest-converter-result-actions mt-3">
         <v-btn
           color="primary"
@@ -405,6 +678,17 @@ const converterNotes = computed<string[]>(() => {
         >
           <v-icon size="18" class="mr-2">mdi-palette-outline</v-icon>
           {{ applied ? t('converter.result.applied') : t('converter.result.apply') }}
+        </v-btn>
+        <!-- M51 Sprint 2 wave 2 — re-run with another model on the
+             same input. Opens the picker dialog pre-filled with the
+             current job's model + source. -->
+        <v-btn
+          variant="text"
+          :disabled="converting"
+          @click="openRetryDialog(result.job)"
+        >
+          <v-icon size="18" class="mr-2">mdi-refresh</v-icon>
+          {{ t('converter.result.retry') }}
         </v-btn>
       </div>
     </section>
@@ -432,9 +716,63 @@ const converterNotes = computed<string[]>(() => {
           >
             <v-icon size="16">mdi-download</v-icon>
           </a>
+          <!-- M51 Sprint 2 wave 2 — retry button on each history row.
+               Hidden for non-terminal states (running/pending) since
+               there's nothing finished to compare against yet.
+               Opens the model-picker dialog pre-filled with this row's
+               model + source. -->
+          <button
+            v-if="j.status === 'done' || j.status === 'error'"
+            type="button"
+            class="nest-converter-recent-retry"
+            :title="t('converter.result.retry')"
+            @click="openRetryDialog(j)"
+          >
+            <v-icon size="16">mdi-refresh</v-icon>
+          </button>
         </div>
       </div>
     </section>
+
+    <!-- ── Retry dialog (M51 Sprint 2 wave 2) ──────────────────────
+         Light-weight model-picker reuse. We don't duplicate the
+         BYOK/wuapi radio set here — it's already on the page above,
+         and openRetryDialog() pre-syncs `source` to the row's source.
+         Dialog just shows the model dropdown for the active source
+         and a confirm. -->
+    <v-dialog v-model="retryDialogOpen" max-width="480" class="nest-admin">
+      <v-card>
+        <v-card-title>{{ t('converter.retry.title') }}</v-card-title>
+        <v-card-text>
+          <p class="nest-subtitle mb-3">{{ t('converter.retry.body') }}</p>
+          <v-select
+            :items="modelItems"
+            :model-value="selectedModel"
+            :loading="modelsLoading"
+            density="compact"
+            hide-details
+            :label="t('converter.step1.modelLabel')"
+            @update:model-value="(id: string) => models.select(id)"
+          />
+          <p class="nest-converter-hint nest-mono mt-2">
+            {{ t('converter.retry.sourceHint', { source: sourceLabel }) }}
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="retryDialogOpen = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!selectedModel || converting"
+            :loading="converting"
+            @click="doRetry"
+          >
+            {{ t('converter.retry.run') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- ── Back to Settings ────────────────────────────────────── -->
     <section class="nest-section nest-converter-footer">
@@ -482,6 +820,41 @@ const converterNotes = computed<string[]>(() => {
 }
 .nest-converter-select {
   max-width: 420px;
+}
+
+// ── Tabs (file / paste) ─────────────────────────────────────
+// M51 Sprint 2 wave 2. Slim tabs above the input area. Inherit
+// Vuetify styling, just nudge the underline color so it tracks
+// the active preset's accent (Vuetify primary bridge).
+.nest-converter-tabs {
+  border-bottom: 1px solid var(--nest-border);
+}
+
+// ── Paste textarea ──────────────────────────────────────────
+.nest-converter-paste {
+  :deep(textarea) {
+    font-family: var(--nest-font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+}
+
+// ── Retry icon in history rows ──────────────────────────────
+.nest-converter-recent-retry {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--nest-text-muted);
+  border-radius: var(--nest-radius-sm);
+  padding: 4px 6px;
+  cursor: pointer;
+  transition: color var(--nest-transition-fast),
+              border-color var(--nest-transition-fast),
+              background var(--nest-transition-fast);
+  &:hover {
+    color: var(--nest-accent);
+    border-color: var(--nest-border);
+    background: var(--nest-bg-elevated);
+  }
 }
 
 // ── Dropzone ─────────────────────────────────────────────────
@@ -562,6 +935,37 @@ const converterNotes = computed<string[]>(() => {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+// ── Preview block (M51 Sprint 1 wave 3) ─────────────────────
+// What the LLM produced, at a glance, before user clicks Apply.
+.nest-converter-preview {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px dashed var(--nest-border);
+  border-radius: var(--nest-radius-sm);
+  background: var(--nest-bg-elevated);
+}
+.nest-converter-preview-stat {
+  font-size: 13px;
+  color: var(--nest-text-secondary);
+  margin-top: 2px;
+}
+.nest-converter-preview-code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--nest-bg);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  font-family: var(--nest-font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--nest-text);
+  // Tall enough to read 30 lines without scrolling, but capped so the
+  // preview doesn't dominate the panel for verbose themes.
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre;
 }
 
 // ── Recent strip ────────────────────────────────────────────

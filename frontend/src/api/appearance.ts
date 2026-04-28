@@ -17,13 +17,60 @@ export interface Appearance {
   // Core tokens (override --nest-accent etc.).
   accent?: string            // hex or rgba: becomes --nest-accent
   mainTextColor?: string     // --nest-text
-  italicsColor?: string      // italic emphasis
-  quoteColor?: string        // blockquote text
+  italicsColor?: string      // italic emphasis → --nest-text-italic (M51 Sprint 1)
+  quoteColor?: string        // blockquote text → --nest-text-quote (M51 Sprint 1)
   borderColor?: string       // --nest-border
 
+  // M51 Sprint 2 wave 1 — first-class background controls. Previously
+  // only reachable via raw custom CSS or by importing an ST theme that
+  // bundled --SmartThemeBlurTintColor. Each maps 1:1 onto a --nest-*
+  // token; clearing the field removes the inline override and lets the
+  // active preset's CSS cascade win again.
+  bgColor?: string           // --nest-bg (page backdrop)
+  surfaceColor?: string      // --nest-surface AND --nest-bg-elevated (cards, sidebar)
+  textSecondaryColor?: string // --nest-text-secondary
+  textMutedColor?: string    // --nest-text-muted
+
+  // M52.3 — uniform icon colour. Drives `--nest-icon-color`, consumed
+  // by a global `.mdi:not([class*="text-"])` rule so all decorative
+  // Material Design icons (topbar nav, drawer chrome, dialog actions)
+  // pick up the user's chosen colour. Vuetify-classed semantic icons
+  // (text-error / text-success / text-warning) are deliberately
+  // EXEMPTED — green check / red error keep their meaning regardless
+  // of decorative palette choice. When unset, icons inherit currentColor
+  // from their parent (today's behaviour, identical to pre-M52.3).
+  iconColor?: string
+
+
+  // M51 Sprint 2 wave 1 — typography family picker. Five named presets +
+  // a 'custom' escape hatch where the user drops in a literal CSS
+  // font-family stack. The picker writes both `--nest-font-body` (used
+  // by .nest-body / paragraph chrome) and `--nest-font-display` (used
+  // by .nest-h1..h4) — keeping them in sync is what makes "pick a font"
+  // feel like one decision rather than three. Mono stays bound to
+  // JetBrains Mono unless user sets it directly via custom CSS — code
+  // blocks shouldn't suddenly become serif.
+  fontFamily?: 'system' | 'sans' | 'serif' | 'mono' | string
+
+  // M51 Sprint 2 wave 1 — radius scale multiplier (0.5 … 2). Pushes
+  // through `--nest-radius-scale` which the base radii consume via
+  // calc() in tokens/colors_and_type.css. 1 = stock; 0.5 = sharp;
+  // 2 = generous. Pill (100px) is intentionally NOT scaled — its
+  // semantics are "always max-round".
+  radiusScale?: number
+
+  // M51 Sprint 2 wave 3 — follow OS dark/light setting. When true,
+  // the theme store attaches a `prefers-color-scheme` listener and
+  // auto-flips between the active preset and its `pair` (or the
+  // bundled default of the matching kind if no pair). Default
+  // undefined ≡ false — opt-in to avoid surprising users with a
+  // jarring first-paint flip. A manual preset pick disables this
+  // automatically (matching macOS Auto-mode UX).
+  followSystemTheme?: boolean
+
   // Density & size.
-  fontScale?: number         // 0.85–1.3 (multiplier on base 14px)
-  chatWidth?: number         // 50–100 (percent of chat main column)
+  fontScale?: number         // 0.7–1.5 (chat-only multiplier; clamped in fromST)
+  chatWidth?: number         // 40–100 (percent of chat main column; clamped in fromST)
   avatarStyle?: AvatarStyle  // round | square | portrait (3:4 aspect)
   chatDisplay?: ChatDisplay  // bubbles | flat | document
 
@@ -46,6 +93,18 @@ export interface Appearance {
   // Render inline HTML in messages (sanitized). On by default; turn off if
   // you're worried about models smuggling markup in.
   htmlRendering?: boolean
+
+  // M51 Sprint 1 wave 3 — server-synced theme preset. Previously the
+  // active preset id lived ONLY in localStorage (`nest:theme-preset`),
+  // so a login on a new device painted with the local fallback rather
+  // than the user's last pick. By piggybacking on the appearance blob
+  // it ride-alongs the existing per-user PUT and arrives in the same
+  // GET as accent/customCss/etc., keeping cross-device parity.
+  //
+  // Typed loosely as string so this file doesn't import from
+  // stores/theme.ts (avoid circular dep). The theme store validates
+  // unknown values on apply().
+  themePreset?: string
 
   // Metadata — when imported from ST, we stash the original name here.
   importedFrom?: string
@@ -75,7 +134,7 @@ export interface STTheme {
   blur_tint_color?: string
   font_scale?: number
   chat_width?: number
-  avatar_style?: number      // 0 = round, 1 = square
+  avatar_style?: number      // 0 = round, 1 = square, 2 = portrait
   chat_display?: number      // 0 = flat, 1 = bubbles, 2 = document
   noShadows?: boolean
   reduced_motion?: boolean
@@ -143,8 +202,12 @@ export function toST(a: Appearance): STTheme {
   if (a.borderColor) out.border_color = a.borderColor
   if (typeof a.fontScale === 'number') out.font_scale = a.fontScale
   if (typeof a.chatWidth === 'number') out.chat_width = a.chatWidth
+  // Symmetric round-trip with fromST. Value 2 (portrait) was missing
+  // before M51-Sprint1 so a portrait → export → import cycle quietly
+  // collapsed avatars back to square.
   if (a.avatarStyle === 'round') out.avatar_style = 0
   if (a.avatarStyle === 'square') out.avatar_style = 1
+  if (a.avatarStyle === 'portrait') out.avatar_style = 2
   if (a.chatDisplay === 'flat') out.chat_display = 0
   if (a.chatDisplay === 'bubbles') out.chat_display = 1
   if (a.chatDisplay === 'document') out.chat_display = 2

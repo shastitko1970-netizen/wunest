@@ -26,6 +26,12 @@ type Config struct {
 
 	WuApiBaseURL     string
 	WuApiInternalURL string
+	// WuNestAPISecret is the shared secret WuNest sends to WuApi as
+	// `?app=wunest&secret=...` when fetching the gold catalog (M55.2).
+	// Server-side only — never exposed to the SPA. WuApi compares
+	// constant-time and includes `:lite` eco-mode variants in the
+	// response when matched. Empty → no eco-mode for this deploy.
+	WuNestAPISecret string
 
 	SessionCookieDomain string
 	SessionCookieName   string
@@ -68,6 +74,7 @@ func Load() (*Config, error) {
 
 		WuApiBaseURL:     envOr("WUAPI_BASE_URL", "https://api.wusphere.ru"),
 		WuApiInternalURL: os.Getenv("WUAPI_INTERNAL_URL"),
+		WuNestAPISecret:  os.Getenv("WUNEST_API_SECRET"),
 
 		SessionCookieDomain: envOr("SESSION_COOKIE_DOMAIN", ".wusphere.ru"),
 		SessionCookieName:   envOr("SESSION_COOKIE_NAME", "wu_session"),

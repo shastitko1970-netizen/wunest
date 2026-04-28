@@ -37,6 +37,14 @@ export interface Chat {
       tokens_out: number
       api_calls: number
     }
+    /** M51 Sprint 3 wave 2 — per-chat theme override. When set, the SPA
+     *  applies that preset on chat-mount and reverts to user-default
+     *  on unmount. Empty / unset = use the user-default appearance.themePreset. */
+    theme_preset?: string
+    /** M55 — WuEco virtual provider flag. When true the SPA picks the
+     *  `:lite` variant of any selected model on send so the server
+     *  applies eco-mode caps (input 30k, output 1500, reasoning off). */
+    eco_mode?: boolean
     [key: string]: unknown
   }
   created_at: string
@@ -275,6 +283,31 @@ export const chatsApi = {
       body: JSON.stringify(note),
     }),
 
+  /**
+   * M51 Sprint 3 wave 2 — set or clear the chat's theme preset override.
+   * When set, the SPA applies that preset on mount and reverts to the
+   * user-default appearance.themePreset on unmount. Pass `null` to clear.
+   *
+   * Note: the preset id is not validated server-side — sending an unknown
+   * id will surface a friendly fallback in the theme store at apply time
+   * rather than corrupting state.
+   */
+  setThemePreset: (id: string, preset: string | null) =>
+    apiFetch<void>(`/api/chats/${id}/theme-preset`, {
+      method: 'PUT',
+      body: JSON.stringify({ theme_preset: preset }),
+    }),
+
+  /** Toggle WuEco virtual provider for this chat (M55). When enabled
+   *  the SPA will append `:lite` to model ids before sending so the
+   *  server applies eco-mode caps. Persisted in chat_metadata so the
+   *  preference survives chat reopens. */
+  setEcoMode: (id: string, enabled: boolean) =>
+    apiFetch<void>(`/api/chats/${id}/eco-mode`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+
   /** Download the chat as JSONL. Returns a Blob + suggested filename. */
   async exportJsonl(id: string): Promise<{ blob: Blob; filename: string }> {
     const res = await fetch(`/api/chats/${id}/export`, { credentials: 'include' })
@@ -365,6 +398,11 @@ export type StreamEvent =
         tokens_out: number
         latency_ms: number
         finish_reason?: string
+        /** Model id of the run that just completed (M53). Lets the
+         *  client refresh `extras.model` on swipes/regens — without it
+         *  the bubble's model badge stayed at the previous run's value
+         *  until the user reloaded. */
+        model?: string
         /** Fresh post-bump chat-level spend counter. Patched onto the
          *  cached Chat so the SPA's spend chip reflects swipes/regens
          *  that the per-message extras summation can't see. */

@@ -66,4 +66,8 @@ export const accountApi = {
     apiFetch<GoldTransaction[]>(
       `/api/me/gold/transactions?limit=${limit}&offset=${offset}`,
     ),
+  // Logout. Hits POST /auth/logout — backend forwards to WuApi and emits a
+  // Set-Cookie that wipes wu_session across .wusphere.ru. Returns 204 even
+  // on upstream errors, so the caller can always proceed to redirect.
+  logout: () => apiFetch<void>('/auth/logout', { method: 'POST' }),
 }

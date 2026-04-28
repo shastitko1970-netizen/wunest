@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { worldsApi, type World, type WorldSummary, type WorldEntry } from '@/api/worlds'
+import { isLimitReached } from '@/api/client'
+import { useSubscriptionStore } from '@/stores/subscription'
 
 /**
  * Worlds store — catalogue of user-owned lorebooks plus a lazy cache of full
@@ -37,10 +39,17 @@ export const useWorldsStore = defineStore('worlds', () => {
   }
 
   async function create(name: string, description = '', entries: WorldEntry[] = []): Promise<World> {
-    const w = await worldsApi.create({ name, description, entries })
-    cache.value = { ...cache.value, [w.id]: w }
-    items.value = [toSummary(w), ...items.value]
-    return w
+    try {
+      const w = await worldsApi.create({ name, description, entries })
+      cache.value = { ...cache.value, [w.id]: w }
+      items.value = [toSummary(w), ...items.value]
+      return w
+    } catch (e) {
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
   }
 
   async function update(id: string, patch: { name?: string; description?: string; entries?: WorldEntry[] }): Promise<World> {
@@ -60,10 +69,17 @@ export const useWorldsStore = defineStore('worlds', () => {
   }
 
   async function importST(name: string, description: string, entries: unknown): Promise<World> {
-    const w = await worldsApi.importST({ name, description, entries })
-    cache.value = { ...cache.value, [w.id]: w }
-    items.value = [toSummary(w), ...items.value]
-    return w
+    try {
+      const w = await worldsApi.importST({ name, description, entries })
+      cache.value = { ...cache.value, [w.id]: w }
+      items.value = [toSummary(w), ...items.value]
+      return w
+    } catch (e) {
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
   }
 
   function toSummary(w: World): WorldSummary {

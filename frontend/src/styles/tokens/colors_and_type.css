@@ -40,9 +40,14 @@
   --nest-space-16: 64px;
 
   /* ── RADII ──────────────────────────────────────────────────────────── */
-  --nest-radius-sm:   6px;
-  --nest-radius:      12px;
-  --nest-radius-lg:   16px;
+  /* --nest-radius-scale — M51 Sprint 2 wave 1. Multiplier consumed by
+     base radii via calc(). Default 1; AppearancePanel slider writes
+     0.5–2 inline on :root. Pill is intentionally NOT scaled — its
+     semantics are "always max-round". */
+  --nest-radius-scale: 1;
+  --nest-radius-sm:   calc(6px  * var(--nest-radius-scale, 1));
+  --nest-radius:      calc(12px * var(--nest-radius-scale, 1));
+  --nest-radius-lg:   calc(16px * var(--nest-radius-scale, 1));
   --nest-radius-pill: 100px;
 
   /* ── TRANSITIONS ────────────────────────────────────────────────────── */

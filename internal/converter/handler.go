@@ -54,9 +54,18 @@ type Handler struct {
 	Logger    *slog.Logger
 }
 
-// Register hooks the four endpoints. Caller supplies authRequired middleware.
+// Register hooks the converter endpoints. Caller supplies authRequired
+// middleware.
+//
+// Routes:
+//   - POST /api/convert/theme        — upload + convert (multipart)
+//   - POST /api/convert/{id}/retry   — re-run with another model (M51)
+//   - GET  /api/convert/jobs         — recent history
+//   - GET  /api/convert/{id}         — fetch one + its output
+//   - GET  /api/convert/{id}/download — download result as .json file
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/convert/theme", authRequired(http.HandlerFunc(h.convert)))
+	mux.Handle("POST /api/convert/{id}/retry", authRequired(http.HandlerFunc(h.retry)))
 	mux.Handle("GET /api/convert/jobs", authRequired(http.HandlerFunc(h.listJobs)))
 	mux.Handle("GET /api/convert/{id}", authRequired(http.HandlerFunc(h.getJob)))
 	mux.Handle("GET /api/convert/{id}/download", authRequired(http.HandlerFunc(h.download)))
@@ -132,30 +141,58 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ── 2-7. Rate-limit + LLM call + persist (shared with retry) ─
+	h.runConversion(ctx, w, userRow.ID, model, byokID, inputBytes, session.WuApi.APIKey)
+}
+
+// runConversion is the shared post-input-parsing pipeline used by both
+// `convert` (initial upload) and `retry` (re-run with another model).
+//
+// Steps:
+//
+//	2. Rate-limit check (3/hour per user; counts errored too)
+//	3. Resolve upstream (BYOK key vs WuApi pool)
+//	4. Create pending job row (with input bytes for future retries)
+//	5. Run LLM call (180s ceiling, detached ctx so closing tab doesn't kill it)
+//	6. Parse model output → WuNest theme JSON
+//	7. Finish row → write 200 with the response shape both endpoints share
+//
+// Writes the HTTP response on the supplied writer. Returns nothing —
+// any error path also writes its own response. Intentionally a single
+// long function rather than further-split: the steps share short-lived
+// state (job ID, usage) that pure-function decomposition would force
+// onto an awkward struct.
+func (h *Handler) runConversion(
+	ctx context.Context,
+	w http.ResponseWriter,
+	userID uuid.UUID,
+	model string,
+	byokID *uuid.UUID,
+	inputBytes []byte,
+	sessionAPIKey string,
+) {
 	// ── 2. Rate limit ───────────────────────────────────────────
-	n, err := h.Repo.RecentCount(ctx, userRow.ID, RateWindow)
+	n, err := h.Repo.RecentCount(ctx, userID, RateWindow)
 	if err != nil {
 		h.logWarn("recent count", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if n >= RateLimit {
-		// Compute reset hint = earliest-pending-job.created + RateWindow.
-		// Good-enough precision; client just shows a countdown.
 		resetsAt := time.Now().Add(RateWindow).Format(time.RFC3339)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":      "rate_limited",
-			"limit":      RateLimit,
-			"window":     "1h",
-			"resets_at":  resetsAt,
+			"error":     "rate_limited",
+			"limit":     RateLimit,
+			"window":    "1h",
+			"resets_at": resetsAt,
 		})
 		return
 	}
 
 	// ── 3. Resolve upstream (BYOK vs WuApi) ─────────────────────
-	ups, err := h.resolveUpstream(ctx, userRow.ID, byokID, session.WuApi.APIKey)
+	ups, err := h.resolveUpstream(ctx, userID, byokID, sessionAPIKey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -165,11 +202,14 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256(inputBytes)
 	inputHash := hex.EncodeToString(sum[:])
 	job, err := h.Repo.Create(ctx, CreateInput{
-		UserID:      userRow.ID,
+		UserID:      userID,
 		Model:       model,
 		BYOKID:      byokID,
 		InputSHA256: inputHash,
 		InputSize:   len(inputBytes),
+		// M51 Sprint 2 wave 2 — persist raw input so the retry handler
+		// can re-feed the same bytes when the user picks another model.
+		InputData: inputBytes,
 	})
 	if err != nil {
 		h.logWarn("create job", err)
@@ -179,10 +219,6 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 	_ = h.Repo.MarkRunning(ctx, job.ID)
 
 	// ── 5. Call the LLM ──────────────────────────────────────────
-	// Detached context with a ceiling — user may close the tab, but we
-	// still want to finish so the 24h output is usable for them later.
-	// 180s is generous for a 500 KB theme + extensive rewrite; longer
-	// would keep a pool slot busy unnecessarily.
 	llmCtx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
@@ -193,9 +229,6 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
-		// No explicit max_tokens — per spec ("не ограничиваем ничего по
-		// инпут/оутпут"). Providers will cap at their own model-level
-		// ceiling (Anthropic 8K-64K, OpenAI 16K-128K depending on model).
 	}
 
 	content, usage, err := h.callLLM(llmCtx, ups, req)
@@ -220,11 +253,9 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "converter: model returned non-JSON — try a better model", http.StatusBadGateway)
 		return
 	}
-	// Normalise — re-marshal so we store compact JSON regardless of
-	// how the model formatted it.
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, []byte(out)); err != nil {
-		compact.Write(out) // non-fatal — fall back to raw
+		compact.Write(out)
 	}
 
 	// ── 7. Finish row → 200 response ────────────────────────────
@@ -236,14 +267,11 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		h.logWarn("finish job", err)
 	}
-	// Re-fetch so created_at/finished_at/etc. are server-canonical.
 	fresh, err := h.Repo.Get(ctx, job.ID)
 	if err != nil {
-		// Degenerate: row was reaped between finish + fetch. Build a
-		// synthesised response using what we know.
 		fresh = &Job{
 			ID:        job.ID,
-			UserID:    userRow.ID,
+			UserID:    userID,
 			Status:    StatusDone,
 			Model:     model,
 			BYOKID:    byokID,
@@ -252,11 +280,101 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"job":           fresh,
-		"output":        json.RawMessage(compact.Bytes()),
-		"output_url":    "/api/convert/" + job.ID.String(),
-		"download_url":  "/api/convert/" + job.ID.String() + "/download",
+		"job":          fresh,
+		"output":       json.RawMessage(compact.Bytes()),
+		"output_url":   "/api/convert/" + job.ID.String(),
+		"download_url": "/api/convert/" + job.ID.String() + "/download",
 	})
+}
+
+// ── POST /api/convert/{id}/retry ─────────────────────────────────────
+//
+// M51 Sprint 2 wave 2. Re-runs the conversion of an existing job's
+// input through a different model and/or source. Useful for comparing
+// quality between a cheap (Gemini Flash) and an expensive (Claude
+// Sonnet) model on the same theme without re-uploading.
+//
+// Body (application/json): { "model": "...", "byok_id": "uuid"|null|"" }
+//
+// Returns the same shape as POST /api/convert/theme on success. On
+// errors:
+//
+//	403 — caller is not the owner of the source job
+//	410 — source job exists but predates input persistence (legacy row)
+//	410 — source job expired / not found
+//	429 — rate-limit (3/hour, shared with regular convert)
+//
+// The new job is independent: it gets its own row, its own ID, its own
+// 24h expiry. We RE-store the input bytes in the new row so subsequent
+// retry-of-retry doesn't have to chase back to the original.
+func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session := auth.FromContext(ctx)
+	if session == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userRow, err := h.Users.Resolve(ctx, session.WuApi.ID)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	// Body — JSON, not multipart.
+	var body struct {
+		Model  string  `json:"model"`
+		BYOKID *string `json:"byok_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4*1024)).Decode(&body); err != nil {
+		http.Error(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	model := strings.TrimSpace(body.Model)
+	if model == "" {
+		http.Error(w, "model required", http.StatusBadRequest)
+		return
+	}
+	var byokID *uuid.UUID
+	if body.BYOKID != nil && strings.TrimSpace(*body.BYOKID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(*body.BYOKID))
+		if err != nil {
+			http.Error(w, "invalid byok_id", http.StatusBadRequest)
+			return
+		}
+		byokID = &parsed
+	}
+
+	// Fetch source job + its input bytes.
+	src, input, err := h.Repo.GetWithInput(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "source job not found or expired", http.StatusGone)
+			return
+		}
+		h.logWarn("retry: get with input", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if src.UserID != userRow.ID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if len(input) == 0 {
+		// Legacy row created before migration 013 — input wasn't
+		// persisted. Surface a clear 410 so the SPA can prompt the
+		// user to re-upload.
+		http.Error(w, "this conversion predates retry support — please re-upload the file", http.StatusGone)
+		return
+	}
+
+	// Same shared pipeline as `convert`.
+	h.runConversion(ctx, w, userRow.ID, model, byokID, input, session.WuApi.APIKey)
 }
 
 // ── GET /api/convert/jobs ─────────────────────────────────────────────

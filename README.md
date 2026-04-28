@@ -2,7 +2,7 @@
 
 Modern web client for LLM roleplay, part of the [WuSphere](https://wusphere.ru) ecosystem.
 
-**Status:** 🏗️ early scaffold — `nest.wusphere.ru` not yet live.
+**Status:** ✅ live at [`nest.wusphere.ru`](https://nest.wusphere.ru) — actively iterating.
 
 ## What is it
 
@@ -27,8 +27,10 @@ Browser (Vue 3 + Vuetify SPA)
    └──► WuApi /v1/chat/completions  (upstream LLM proxy)
 ```
 
-See [obsidian vault](../WuTavern/obsidian/Tavern/99-WuTavern-Plan/WuApi-Integration.md)
-for the full integration design.
+High-level design lives in the (private) obsidian vault under
+`../WuTavern/obsidian/Tavern/99-WuTavern-Plan/`. If you've cloned only
+this repo, the architecture diagram above + [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+have everything a new contributor needs.
 
 ## Tech stack
 
@@ -60,20 +62,42 @@ wunest/
 └── go.mod
 ```
 
-## Dev quickstart (WIP)
+## Dev quickstart
+
+Full step-by-step in [`CONTRIBUTING.md`](./CONTRIBUTING.md). TL;DR:
 
 ```bash
-# backend
+# 1. Bring up Postgres + Redis (we use the same compose as prod)
+docker compose up -d postgres redis
+
+# 2. Configure the backend
 cp .env.example .env
+# edit DATABASE_URL, REDIS_ADDR, WUAPI_BASE_URL, COOKIE_DOMAIN
+# (defaults work for local dev; SECRETS_KEY must be 32 bytes)
+
+# 3. Run migrations
+go run ./cmd/wunest --migrate-only   # or: make migrate
+
+# 4. Start backend on :9090
 go run ./cmd/wunest
 
-# frontend (separate terminal)
+# 5. Start frontend dev server (separate terminal)
 cd frontend
 npm install
-npm run dev
+npm run dev    # http://localhost:5173, proxies /api/* → :9090
 ```
 
-Frontend dev server at http://localhost:5173 proxies `/api/*` to backend on `:9090`.
+**Gotchas:**
+- BYOK calls to Anthropic / OpenAI use an outbound proxy pool because the
+  origin host is geo-blocked. Set `OUTBOUND_PROXIES=` in `.env` for local
+  dev — without it, BYOK requests to those providers will 403. WuApi-pool
+  and OpenRouter / DeepSeek / Mistral / Google work without a proxy.
+- MinIO is **optional** in dev. Without it, character-import avatars and
+  background-image uploads fall back to "no image", but everything else
+  works.
+- `wu_session` cookie is shared across `.wusphere.ru` subdomains. For
+  local dev, log in on the live site once and copy the cookie value into
+  your dev browser, OR run WuApi locally (instructions in WuApi repo).
 
 ## Deploy
 

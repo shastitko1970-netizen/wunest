@@ -273,10 +273,16 @@ func (h *Handler) pipeStream(
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
+		// M53 — model travels in `done` so the client can refresh
+		// extras.model on the existing row. Without it, swipes/regens
+		// kept the original model in the UI until reload, where the
+		// DB-stored value (the latest run) replaced it — users saw the
+		// model badge "jump" between session and reload.
+		"model": model,
 	})
 	// M44 — auto-summary async hook. No-op unless user opted in on this
 	// chat and tokens_in >= their configured threshold.
-	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn)
+	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn, model)
 }
 
 // bumpChatUsage folds the current call's usage into the chat's monotonic
@@ -431,6 +437,15 @@ func (h *Handler) streamChat(
 		model = defaultModel
 	}
 
+	// M53 critical fix — apply multimodal transform to user messages with
+	// attachment URLs (markdown image refs → image_url multipart) when
+	// the model supports vision. Without this the FIRST send of a chat
+	// turn loses image attachments — they go upstream as plain markdown
+	// text and the model sees `![alt](url)` literal instead of the
+	// image. Regen / swipe / continue paths already do this (lines 130,
+	// 774, 903); the main streamChat path was the missing one.
+	up = ApplyMultimodal(up, DecideMultimodal(model, in.Bundle))
+
 	req := wuapi.ChatCompletionRequest{
 		Model:             model,
 		Messages:          up,
@@ -574,9 +589,10 @@ func (h *Handler) streamChat(
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
+		"model":         model, // M53 — see initial-stream done above.
 	})
 	// M44 — auto-summary async hook (swipe path).
-	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn)
+	h.fireAutoSummariseFromSSE(ctx, placeholder.ChatID, tokensIn, model)
 }
 
 // finalizeError writes a minimal error record to the assistant placeholder so
@@ -1078,9 +1094,10 @@ func (h *Handler) pipeStreamContinue(
 		"tokens_in":     tokensIn,
 		"tokens_out":    tokensOut,
 		"usage_total":   usageTotal,
+		"model":         model, // M53 — see initial-stream done above.
 	})
 	// M44 — auto-summary async hook (continue path).
-	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn)
+	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn, model)
 }
 
 // pipeStreamSwipe is the swipe-aware twin of pipeStream: on done it also
@@ -1223,9 +1240,10 @@ func (h *Handler) pipeStreamSwipe(
 		"latency_ms":    extras.LatencyMs,
 		"finish_reason": finishReason,
 		"usage_total":   usageTotal,
+		"model":         model, // M53 — see initial-stream done above.
 	})
 	// M44 — auto-summary async hook (swipe-variant path).
-	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn)
+	h.fireAutoSummariseFromSSE(ctx, chatID, tokensIn, model)
 }
 
 // loadAttachedWorlds fetches lorebooks attached to a character, tolerating

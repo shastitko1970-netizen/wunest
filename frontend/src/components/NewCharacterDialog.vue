@@ -37,6 +37,16 @@ const store = useCharactersStore()
 
 const isEdit = computed(() => !!props.character)
 
+// M53 — tag autocomplete: bridge `form.tags` (string, kept for save
+// compat) to/from string[] for `<v-combobox multiple chips>`. Items
+// fed from store.allTags (frequency-sorted across all user's chars)
+// so user gets autocomplete from their existing taxonomy.
+const tagSuggestions = computed(() => store.allTags.map(t => t.tag))
+const tagsArray = computed<string[]>({
+  get: () => form.tags.split(',').map(t => t.trim()).filter(Boolean),
+  set: (v) => { form.tags = v.map(t => String(t).trim()).filter(Boolean).join(', ') },
+})
+
 // Everything in one reactive bag → single-line reset. Fields mirror the
 // SillyTavern V2/V3 character-card spec so imports round-trip through the
 // form unchanged. Less-common fields (mes_example, system_prompt,
@@ -367,8 +377,13 @@ async function save() {
               autofocus
               class="nest-create-field-wide"
             />
-            <v-text-field
-              v-model="form.tags"
+            <!-- M53 — tag autocomplete via combobox. Suggestions from
+                 user's existing tag taxonomy (allTags, freq-sorted).
+                 Free-form values still allowed (combobox accepts any
+                 typed input). -->
+            <v-combobox
+              v-model="tagsArray"
+              :items="tagSuggestions"
               :label="t('library.create.tags')"
               :placeholder="t('library.create.tagsPlaceholder')"
               :hint="t('library.create.tagsHint')"
@@ -376,6 +391,9 @@ async function save() {
               variant="outlined"
               hide-details="auto"
               persistent-hint
+              multiple
+              chips
+              closable-chips
             />
             <!-- Avatar editor: preview + upload button + hand-editable URL.
                  Upload writes to MinIO (POST /api/uploads/avatar) and

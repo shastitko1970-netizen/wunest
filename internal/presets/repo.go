@@ -60,6 +60,22 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID, typ PresetType)
 	return out, rows.Err()
 }
 
+// CountByUserID returns the total number of presets owned by the user
+// across all types (sampler/instruct/context/sysprompt/reasoning). The
+// limit is per-user-total, not per-type — matches the user-facing
+// "presets" slot count in the pricing UI.
+func (r *Repository) CountByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := r.pg.QueryRow(ctx,
+		`SELECT COUNT(*) FROM nest_presets WHERE user_id = $1`,
+		userID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count presets: %w", err)
+	}
+	return n, nil
+}
+
 func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Preset, error) {
 	const q = `
 		SELECT id, type, name, data, created_at, updated_at

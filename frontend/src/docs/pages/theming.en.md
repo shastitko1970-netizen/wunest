@@ -31,15 +31,44 @@ Quick **light ↔ dark** toggle lives in **Settings → Theme** (top section). P
 
 **Settings → Appearance**:
 
-- Font size (0.75× — 1.4×)
+### Size and shape
+- Chat font scale (0.7× — 1.5×) — affects messages only, not the shell
 - Chat width (40–100%)
-- Avatar shape (round / square)
+- Avatar shape (round / square / portrait)
 - Message style (bubbles / flat / document)
-- Accent color, background, text, borders
-- Background image + blur
-- Shadows, reduced motion, HTML rendering in messages
+- **Corner roundness** (0.5× — 2×) — multiplier for all `--nest-radius-*` (sm / base / lg). Pills (badges) are not scaled — their semantics are "always max-round"
 
-Everything here writes CSS custom properties to `:root` inline — applies instantly, no reload.
+### Palette — surfaces & text (M51)
+- Page background (`--nest-bg`)
+- Cards & panels (`--nest-surface` + `--nest-bg-elevated`) — one control covers both; the design system pairs them visually
+- Main text (`--nest-text`)
+- Secondary text (`--nest-text-secondary`) — without an override it's auto-derived via `color-mix(text 70% + bg 30%)`
+- Muted text (`--nest-text-muted`) — without an override `color-mix(text 45% + bg 55%)`
+- Borders (`--nest-border`)
+- **Icon colour** (`--nest-icon-color`, M52.3) — single control for all decorative Material Design icons (topbar, drawers, dialogs). **Semantic icons are exempt**: red `error`, green `success`, yellow `warning` keep their meaning through Vuetify colour classes. Without an override, icons inherit `currentColor` from their parent context as before
+
+Every colour control is a native color picker + text-field + a ✕ button to clear the override and let the active preset's cascade win again.
+
+### Typography (M51)
+A single picker that drives both body and display fonts:
+- **Default (preset)** — the active preset's bundled font stack
+- **System UI** — your OS-native UI font (SF / Segoe / Roboto)
+- **Sans (Outfit)** — the current default sans
+- **Serif (Fraunces)** — for long-form reading
+- **Mono (JetBrains Mono)** — code-vibe across the whole UI
+- **Custom** — opens a text field for an arbitrary CSS font-family stack
+
+Mono blocks (code, kbd) are intentionally unaffected — code blocks shouldn't suddenly become serif.
+
+### Accent and background
+- Accent color (`--nest-accent`)
+- Background image + blur (0–30)
+
+### Behaviour
+- Shadows, reduced motion, HTML rendering in messages
+- **Follow system theme (M51)** — when the OS dark/light setting changes (macOS, Windows, GNOME) we auto-flip between paired presets. Pair logic: `cyber-neon ↔ minimal-reader`, `nest-default-dark ↔ nest-default-light`; `tavern-warm` has no light sibling so it falls back to `nest-default-light`. A manual preset pick (picker or gallery) turns this off — your explicit choice always wins. Default off — opt-in, to avoid jarring first-paint flips.
+
+Everything here writes CSS custom properties to `:root` inline — applies instantly, no reload. Persisted to the server with a 400 ms debounce — syncs across devices via the Appearance store.
 
 ---
 
@@ -55,6 +84,43 @@ Everything here writes CSS custom properties to `:root` inline — applies insta
 - **`custom_css`** — applied as your custom CSS
 
 Scope auto-sets to `chat` — the ST theme's CSS won't break the menu. If the theme contains rules for broad elements (`body`, `textarea`, `input`), we show an info notice.
+
+**Behaviour worth knowing:**
+
+- `border_color` is auto-promoted to `accent` on import (themes need a default accent).
+- `blur_tint_color` is currently **not imported** — we don't have a matching Appearance field. Survives a re-export round-trip but isn't applied. (Backlog M51.)
+- `avatar_style: 2` (portrait) round-trips through ST-export correctly (`toST` preserves the round/square/portrait → 0/1/2 mapping).
+
+#### JSON schema (what you can put in the file)
+
+```jsonc
+{
+  "name": "My Theme",                       // string, optional, UI label
+  "main_text_color": "#e6e8ee",             // CSS color string
+  "italics_text_color": "#9fb3c8",          // CSS color string
+  "quote_text_color": "#c9a86b",            // CSS color string
+  "border_color": "#2a3140",                // CSS color string (also promoted to accent)
+  "blur_tint_color": "#0f1217",             // ⚠️ accepted but not applied (backlog)
+
+  "font_scale": 1.0,                        // 0.7…1.5, anything outside is clamped
+  "chat_width": 80,                         // 40…100 (% of viewport)
+  "blur_strength": 6,                       // 0…30 (px)
+
+  "avatar_style":  0,                       // 0=round, 1=square, 2=portrait
+  "chat_display":  1,                       // 0=flat, 1=bubbles, 2=document
+
+  "noShadows": false,                       // boolean, true = disable shadows
+  "reduced_motion": false,                  // boolean, true = disable animations
+
+  "custom_css": "..."                       // string, up to ~256 KiB. Applied as your custom CSS.
+}
+```
+
+All fields are optional — missing ones inherit from the active theme. Out-of-range numbers **silently clamp** (they don't reject the import). Invalid colors are dropped by the browser at parse time.
+
+#### `custom_css` size limit
+
+The server stores the entire Appearance blob (including `custom_css` + `bg_image_url` + other fields) as one JSON object, **shared 256 KiB cap**. In practice that's ~3000 lines of CSS. If you hit the wall, `@import` from a CSS textarea also works.
 
 ### Raw CSS (.css)
 
@@ -535,6 +601,19 @@ Same for `.css` import. The parser checks syntax and warns about problems.
 | `[style*="...."]` attribute selectors | `window.extension_settings.*` (no such API) |
 
 Import/export ST themes — via **Appearance → Import / Export** (ST JSON format).
+
+### LLM converter ST → WuNest
+
+If an ST theme uses selectors that don't exist in WuNest (e.g. `#expression-image`, `.drawer-content`), feed it to **/convert** — an LLM rewrites the selectors into WuNest-native ones (`.nest-msg`, `#chat`).
+
+What the converter does (M51 Sprint 2):
+
+- **File** OR **pasted text** — both share the 500 KB cap
+- **`.json`** (ST envelope) or **`.css`** (raw CSS) — auto-detected
+- **CSS preview** before apply — first 30 lines + a count of rewritten selectors
+- **Retry with another model** — "Try another model" button on the result and on each history row. No re-upload — input is kept for 24h
+- Limit: **3 conversions per hour** per user (retries count)
+- Spends tokens from **your key** (BYOK or WuApi pool)
 
 ---
 

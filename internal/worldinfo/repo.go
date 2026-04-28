@@ -47,6 +47,20 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Summary, err
 	return out, rows.Err()
 }
 
+// CountByUserID returns the number of lorebooks owned by the user. Used
+// by the limits package (M54) to gate creation under Free/Plus tiers.
+func (r *Repository) CountByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := r.pg.QueryRow(ctx,
+		`SELECT COUNT(*) FROM nest_worlds WHERE user_id = $1`,
+		userID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count worlds: %w", err)
+	}
+	return n, nil
+}
+
 // Get fetches a full world with entries (ownership-checked).
 func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*World, error) {
 	const q = `

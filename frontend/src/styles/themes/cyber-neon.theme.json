@@ -1,0 +1,18 @@
+{
+  "id": "cyber-neon",
+  "label": "Cyber neon",
+  "description": "Тёмный фиолет, магента-акцент, свечение.",
+  "kind": "dark",
+  "pair": "minimal-reader",
+  "accent": "#c485ff",
+  "order": 30,
+  "css": "cyber-neon.css",
+  "swatches": {
+    "bg": "#0a0612",
+    "surface": "#150a20",
+    "border": "#3c1e50",
+    "text": "#f1d1ff",
+    "accent": "#c485ff",
+    "accentOn": "#1a0a24"
+  }
+}

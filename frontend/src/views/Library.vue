@@ -15,6 +15,7 @@ import WorldsPanel from '@/components/WorldsPanel.vue'
 import CharacterWorldsDialog from '@/components/CharacterWorldsDialog.vue'
 import PersonasPanel from '@/components/PersonasPanel.vue'
 import PresetsPanel from '@/components/PresetsPanel.vue'
+import UsageHintChip from '@/components/UsageHintChip.vue'
 
 const { t } = useI18n()
 const store = useCharactersStore()
@@ -185,6 +186,9 @@ async function confirmDelete() {
          flipping the whole tab on mobile. Tap-only now. -->
     <v-window v-model="activeTab" class="mt-4" :touch="false">
       <v-window-item value="characters">
+        <!-- M54.3 — slot usage hint. Routes to /subscription on click. -->
+        <UsageHintChip :used="store.items.length" class="mb-3" />
+
         <!-- Filter bar -->
         <div class="nest-filterbar">
           <v-text-field

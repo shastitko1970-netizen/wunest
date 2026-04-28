@@ -30,11 +30,17 @@ export const useAuthStore = defineStore('auth', () => {
   const loginUrl = ref<string | null>(null)
   const profile = ref<UserProfile | null>(null)
 
-  // Derived helper: convenience accessor for gates elsewhere. Falls back
-  // to `false` when profile isn't loaded yet (pre-/api/me), so the app
-  // defaults to "not activated" during the boot flicker — the locked
-  // state is the safer wrong state to show briefly.
-  const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
+  // Derived helper: convenience accessor for the closed-beta gate.
+  // Disabled 2026-04-25 — public access is on, so this always reports
+  // `true` for any authenticated user. Originally this read
+  // `profile.value?.nest_access_granted === true` and gated chat /
+  // library / generation endpoints; the original logic is kept in a
+  // comment so re-enabling a closed beta is a single-line revert.
+  //
+  // Real access: `nest_access_granted` is still surfaced from /api/me
+  // (it stays useful as user state for UI hints if we ever want them);
+  // we just don't gate features on it any more.
+  const nestAccessGranted = computed(() => authenticated.value)
 
   async function check() {
     loading.value = true

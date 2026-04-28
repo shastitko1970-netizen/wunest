@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { appearanceApi, type Appearance } from '@/api/appearance'
 import { scopeCSS, globalGuardCSS } from '@/lib/cssScope'
+import { applyCSPNonce } from '@/lib/cspNonce'
 
 /**
  * Appearance store — user-authored theming.
@@ -71,6 +72,32 @@ export const useAppearanceStore = defineStore('appearance', () => {
       // settings unless the server has real content.
       if (server && Object.keys(server).length > 0) {
         appearance.value = server
+        // M51 Sprint 1 wave 3 — if the server-stored preset differs
+        // from whatever theme.ts loaded from localStorage on cold-boot,
+        // switch to it now. Lazy-import to avoid circular dep at module
+        // init (theme.ts already lazy-imports us). Wrapped in try because
+        // a stale id from a removed preset is non-fatal — theme.apply()
+        // surfaces the error and falls back to nest-default-dark.
+        if (server.themePreset) {
+          try {
+            const { useThemeStore } = await import('@/stores/theme')
+            const theme = useThemeStore()
+            if (theme.currentId !== server.themePreset) {
+              await theme.apply(server.themePreset as never)
+            }
+          } catch { /* non-fatal — preset stays as cold-loaded */ }
+        }
+        // M51 Sprint 2 wave 3 — wire the system-prefers-color-scheme
+        // listener AFTER the themePreset switch above, so the listener
+        // attaches with the user's anchor preset already current. The
+        // listener will immediately re-evaluate and flip to the pair
+        // if system kind differs from anchor kind.
+        if (server.followSystemTheme === true) {
+          try {
+            const { useThemeStore } = await import('@/stores/theme')
+            useThemeStore().syncSystemPrefListener(true)
+          } catch { /* non-fatal */ }
+        }
       }
       loaded.value = true
     } catch {
@@ -79,17 +106,74 @@ export const useAppearanceStore = defineStore('appearance', () => {
   }
 
   // Debounced save: collect rapid edits (slider drag) into one PUT.
+  //
+  // M52.6 — also tracks `dirty` flag so a pending unsaved change can be
+  // flushed via `flushPendingSave()` on tab unload. Without that flush,
+  // closing the tab inside the 400ms debounce window dropped the edit
+  // (PUT never fired) → on next load, fetchFromServer overwrote LS with
+  // stale server state → user saw "settings reset themselves".
   let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let dirty = false
   function save() {
+    dirty = true
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(async () => {
       saving.value = true
       try {
         await appearanceApi.put(appearance.value)
+        dirty = false
       } finally {
         saving.value = false
       }
     }, 400)
+  }
+
+  /**
+   * flushPendingSave — fires the pending PUT immediately, bypassing the
+   * 400ms debounce. Used by:
+   *
+   *   - `beforeunload` window listener (registered below) so tab-close
+   *     inside the debounce window doesn't drop the edit.
+   *   - Future call sites that want a hard guarantee the server got
+   *     the latest state before navigating somewhere risky.
+   *
+   * Uses `fetch(... keepalive: true)` so the request survives page
+   * unload — supported in all modern browsers (Chrome 66+, Firefox 65+,
+   * Safari 15+). Limit 64 KB; our Appearance blobs are usually well
+   * under 1 KB unless customCss is huge (256 KB cap on server).
+   */
+  function flushPendingSave() {
+    if (!dirty) return
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    try {
+      // Direct fetch with keepalive — bypassing apiFetch wrapper which
+      // doesn't expose the keepalive flag. Same payload shape as
+      // appearanceApi.put.
+      void fetch('/api/me/appearance', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appearance.value),
+        keepalive: true,
+      })
+      dirty = false
+    } catch {
+      // Best-effort. If the browser refused keepalive (rare), the LS
+      // copy still has the change — next session will see stale-server
+      // overwrite (existing behaviour, not worse).
+    }
+  }
+
+  // Wire the beforeunload listener once at store init. `pagehide` is
+  // the more modern equivalent that fires on bfcache too; we listen on
+  // both for max coverage.
+  if (typeof window !== 'undefined') {
+    const flush = () => flushPendingSave()
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
   }
 
   /** Mutate + auto-save. Callers pass the full Appearance (or a patch merged in). */
@@ -98,13 +182,49 @@ export const useAppearanceStore = defineStore('appearance', () => {
     save()
   }
 
+  /**
+   * saveNow — fire a normal PUT immediately, bypassing the 400ms
+   * debounce. Unlike `flushPendingSave` (which uses `fetch keepalive`
+   * for unload paths and has tight Safari support), this is the right
+   * tool for **discrete UI picks** like switching theme or font:
+   *
+   *   - Awaits the response so we can show a toast / error banner.
+   *   - No keepalive — full normal fetch, reliable on every browser.
+   *   - Cancels any pending debounce so the change isn't double-PUT.
+   *
+   * Slider-driven mutations (color picker, font scale) keep using
+   * `update()` because their high-frequency edits benefit from the
+   * 400ms coalescing.
+   */
+  async function saveNow(patch: Partial<Appearance>) {
+    appearance.value = { ...appearance.value, ...patch }
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    dirty = false
+    saving.value = true
+    try {
+      await appearanceApi.put(appearance.value)
+    } catch (e) {
+      // Surface in console; UI doesn't need to halt — the mutation is
+      // still applied locally and persisted to localStorage by the
+      // watcher above. Worst case the change is lost on next cold-load
+      // from server (which is the existing behaviour for any save
+      // failure), but the user's session keeps the picked theme.
+      console.warn('appearance.saveNow', e)
+    } finally {
+      saving.value = false
+    }
+  }
+
   /** Reset to empty — falls back to the Vuetify theme's defaults. */
   function reset() {
     appearance.value = {}
     save()
   }
 
-  return { appearance, loaded, saving, safeMode, fetchFromServer, update, reset }
+  return { appearance, loaded, saving, safeMode, fetchFromServer, update, saveNow, reset, flushPendingSave }
 })
 
 // ─── CSS applier ──────────────────────────────────────────────────────
@@ -125,6 +245,61 @@ function applyAppearance(a: Appearance) {
   set('--nest-accent', a.accent)
   set('--nest-text', a.mainTextColor)
   set('--nest-border', a.borderColor)
+  // M51 Sprint 1 wave 2 — wire previously-stored-but-not-applied fields.
+  // `italicsColor` and `quoteColor` were imported from ST and persisted
+  // for ages but the applier never read them, so users who imported a
+  // tavern-style ST theme and then noticed quotes weren't tinted had no
+  // recourse short of writing custom CSS. The variables are consumed by
+  // chat-content stylesheets (MessageContent for em/i, blockquote).
+  set('--nest-text-italic', a.italicsColor)
+  set('--nest-text-quote', a.quoteColor)
+
+  // M51 Sprint 2 wave 1 — first-class background + text-hierarchy
+  // controls. Previously these tokens were derived (for text-secondary
+  // /muted via color-mix) or only reachable via custom CSS (for bg /
+  // surface). When the user explicitly sets a value here we write it
+  // inline; clearing falls back to the preset cascade.
+  set('--nest-bg', a.bgColor)
+  // surfaceColor pumps both --nest-surface and --nest-bg-elevated.
+  // The two are sibling tokens used for cards/sidebar/elevated chrome
+  // and cohabit visually — a single user-control prevents them
+  // drifting apart. If a future user wants them split, we'll add a
+  // separate `bgElevatedColor` field; for now one knob keeps the UI
+  // honest.
+  set('--nest-surface', a.surfaceColor)
+  set('--nest-bg-elevated', a.surfaceColor)
+  set('--nest-text-secondary', a.textSecondaryColor)
+  set('--nest-text-muted', a.textMutedColor)
+  // M52.3 — uniform icon colour. Consumed by global rule on .mdi
+  // (см. tokens/customization.css). Semantic Vuetify-coloured icons
+  // (color="error" etc.) исключены через :not([class*="text-"]).
+  set('--nest-icon-color', a.iconColor)
+
+  // M51 Sprint 2 wave 1 — typography family. Maps the picker enum
+  // onto a CSS font-family stack. 'custom' = pass user's literal
+  // string verbatim. Browsers gracefully ignore stacks pointing at
+  // unloaded fonts — we never fail-loud here.
+  if (a.fontFamily) {
+    const stack = resolveFontStack(a.fontFamily)
+    if (stack) {
+      root.style.setProperty('--nest-font-body', stack)
+      // Display (h1..h4) follows body by default — single decision.
+      // Mono is intentionally untouched.
+      root.style.setProperty('--nest-font-display', stack)
+    }
+  } else {
+    root.style.removeProperty('--nest-font-body')
+    root.style.removeProperty('--nest-font-display')
+  }
+
+  // M51 Sprint 2 wave 1 — radius scale multiplier. Just writes the
+  // multiplier; tokens/colors_and_type.css consumes it via calc()
+  // for sm / base / lg radii. Pill is unaffected.
+  if (typeof a.radiusScale === 'number' && a.radiusScale > 0) {
+    root.style.setProperty('--nest-radius-scale', String(a.radiusScale))
+  } else {
+    root.style.removeProperty('--nest-radius-scale')
+  }
 
   // Font scale — expose as a CSS variable consumed by chat-content
   // stylesheets (MessageBubble/MessageContent) via calc(). We intentionally
@@ -200,16 +375,36 @@ function applyAppearance(a: Appearance) {
 
   // Background image. Skipped in safe mode so an unreachable / oversized
   // remote image can't be the reason the page won't paint.
+  //
+  // M52.4 — also flip a `data-nest-bg` attribute on <body> so Vuetify's
+  // own `.v-application { background: rgb(var(--v-theme-background)) }`
+  // can be made transparent (see customization.css). Without that
+  // override, Vuetify's root container sits on top of the body's
+  // background-image и закрывает его — юзер видит сплошной theme-bg.
+  // Background image — M52.8 scoped to chat only.
+  //
+  // Previous approach put `body.style.backgroundImage = url(...)` which
+  // bled into Library/Settings/Account/Docs (anywhere body is visible).
+  // Now: write `--nest-bg-image` CSS var on :root, consumed by
+  // `.nest-chat-main` rule (Chat.vue). Only the chat view renders the
+  // image; other routes are unaffected. The `data-nest-bg` attribute
+  // on body still flips so the translucent-chrome rules know to apply.
   if (typeof document !== 'undefined') {
     const body = document.body
     if (a.bgImageUrl && !SAFE_MODE) {
-      body.style.backgroundImage = `url("${cssEscape(a.bgImageUrl)}")`
-      body.style.backgroundSize = 'cover'
-      body.style.backgroundPosition = 'center'
-      body.style.backgroundAttachment = 'fixed'
+      root.style.setProperty('--nest-bg-image', `url("${cssEscape(a.bgImageUrl)}")`)
+      body.setAttribute('data-nest-bg', '1')
     } else {
-      body.style.backgroundImage = ''
+      root.style.removeProperty('--nest-bg-image')
+      body.removeAttribute('data-nest-bg')
     }
+    // Clean up any legacy inline body bg-image left from previous
+    // sessions (M52.4-M52.7 wrote to body.style — clear it once on
+    // upgrade so users don't see leftover bg outside chat).
+    body.style.backgroundImage = ''
+    body.style.backgroundSize = ''
+    body.style.backgroundPosition = ''
+    body.style.backgroundAttachment = ''
   }
 
   // Blur strength (used by surfaces with backdrop-filter when bg image is set).
@@ -240,6 +435,8 @@ function applyAppearance(a: Appearance) {
     if (!styleEl) {
       styleEl = document.createElement('style')
       styleEl.id = CUSTOM_STYLE_ID
+      // M51 Sprint 3 wave 3 — CSP nonce wiring (no-op until CSP enabled).
+      applyCSPNonce(styleEl)
       document.head.appendChild(styleEl)
     }
     const scope = resolveScope(a)
@@ -284,6 +481,8 @@ function applyAppearance(a: Appearance) {
     if (!guardEl) {
       guardEl = document.createElement('style')
       guardEl.id = GUARD_ID
+      // M51 Sprint 3 wave 3 — CSP nonce wiring (no-op until CSP enabled).
+      applyCSPNonce(guardEl)
       document.head.appendChild(guardEl)
     }
     guardEl.textContent = `
@@ -342,4 +541,33 @@ export function resolveScope(a: Appearance): 'chat' | 'global' {
 // the DOMPurify dependency for such a targeted use.
 function cssEscape(s: string): string {
   return s.replace(/"/g, '\\"').replace(/\n/g, '')
+}
+
+// M51 Sprint 2 wave 1 — map fontFamily picker enum onto a real CSS
+// font-family stack. The four named presets reuse Google Fonts that
+// are already preloaded by `tokens/colors_and_type.css` (via the
+// @import on first paint), so picking them is a zero-network change.
+// 'custom' = user wrote their own stack; we pass it through verbatim
+// (the browser silently ignores unknown families and walks the stack).
+function resolveFontStack(family: string): string | null {
+  switch (family) {
+    case 'system':
+      // OS-native — fastest, most familiar look for utilitarian users.
+      // Order mirrors common system-font advice: SF on macOS/iOS, Segoe
+      // on Windows, Roboto on Android, generic sans-serif fallback.
+      return 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+    case 'sans':
+      // Modern, clean — current default Outfit + system fallback.
+      return '"Outfit", system-ui, -apple-system, "Segoe UI", sans-serif'
+    case 'serif':
+      // Reading-focused — Fraunces is preloaded for h1/h2 already.
+      return '"Fraunces", "Source Serif 4", Georgia, serif'
+    case 'mono':
+      // For users who genuinely want everything monospaced — code-vibe.
+      return '"JetBrains Mono", "Fira Code", Consolas, monospace'
+    default:
+      // Anything else = literal user string. Trim to avoid empty/space.
+      const trimmed = family.trim()
+      return trimmed.length > 0 ? trimmed : null
+  }
 }

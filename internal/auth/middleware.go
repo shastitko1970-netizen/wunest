@@ -154,6 +154,16 @@ func Middleware(cfg *config.Config, pg *db.Postgres, wu *wuapi.Client, require b
 				},
 			}
 
+			// M54.2 — WuNest subscription. Nil for free-tier users (no
+			// active subscription on WuApi side). Limits package consumes
+			// CurrentNestLevel() to gate per-resource creates.
+			if sub := profile.NestSubscription; sub != nil {
+				sessionUser.WuApi.NestSubscription = &models.NestSubscription{
+					Level:     models.NestLevel(sub.Level),
+					ExpiresAt: sub.ExpiresAt,
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), userKey, sessionUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -167,25 +177,29 @@ func FromContext(ctx context.Context) *models.SessionUser {
 	return u
 }
 
-// RequireNestAccess is a middleware that enforces the WuNest beta gate at
-// the HTTP layer. Must be composed inside (i.e. wrapped by) the auth
-// Middleware so there is always a SessionUser on the context; missing or
-// un-redeemed users are rejected with 403 and a machine-readable JSON
-// body that the SPA can special-case if it wants to.
+// RequireNestAccess used to enforce the WuNest beta gate at the HTTP
+// layer (M29). Disabled 2026-04-25 — we opened public access, so every
+// authenticated user is allowed through. The middleware itself is
+// kept (and still wired in chats handler etc.) so the gate can be
+// re-enabled by flipping `gateEnabled` to true if we ever want a
+// closed beta again.
 //
-// Usage:
+// History:
 //
 //	mux.Handle("POST /api/chats/{id}/messages",
 //	    authRequired(auth.RequireNestAccess(http.HandlerFunc(h.sendMessage))))
 //
-// Without this the disabled-nav + router-guard UI is still fully
-// bypassable via dev-tools or curl — anyone with a session cookie can
-// POST to generation endpoints and spend upstream gold. This middleware
-// closes that path.
+// During the closed beta this checked `su.WuApi.NestAccessGranted`
+// and returned 403 + `{error:"nest_access_required"}` for un-redeemed
+// users. With public access the middleware is a transparent
+// pass-through that still requires authentication (the auth check
+// guards against `su == nil`).
+const gateEnabled = false
+
 func RequireNestAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		su := FromContext(r.Context())
-		if su == nil || !su.WuApi.NestAccessGranted {
+		if gateEnabled && (su == nil || !su.WuApi.NestAccessGranted) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusForbidden)
 			// Tagged error body — SPA can key off `error` to show a

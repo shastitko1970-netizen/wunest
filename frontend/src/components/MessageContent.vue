@@ -438,7 +438,11 @@ function runAction(action: PlateAction) {
   // weight/style alone, which is enough visual signal without fighting
   // the author's palette.
   :deep(strong), :deep(b) { font-weight: 600; color: inherit; }
-  :deep(em), :deep(i)     { font-style: italic; color: inherit; }
+  // M51 — Italics honour --nest-text-italic when set (imported from
+  // ST `italics_text_color` or chosen in Appearance). Falls back to
+  // inherit, so the existing "no override" behaviour is preserved for
+  // anyone who never set the variable.
+  :deep(em), :deep(i)     { font-style: italic; color: var(--nest-text-italic, inherit); }
   :deep(u) { text-decoration: underline; text-underline-offset: 2px; }
   :deep(s), :deep(del), :deep(strike) { text-decoration: line-through; opacity: 0.7; }
   :deep(mark) {
@@ -453,7 +457,10 @@ function runAction(action: PlateAction) {
     margin: 6px 0;
     padding: 4px 10px;
     border-left: 3px solid var(--nest-accent);
-    color: var(--nest-text-secondary);
+    // M51 — Honour --nest-text-quote when set (ST `quote_text_color`
+    // or chosen in Appearance). Default keeps the muted-secondary look
+    // for users who never customised it.
+    color: var(--nest-text-quote, var(--nest-text-secondary));
     background: rgba(0, 0, 0, 0.08);
     border-radius: 4px;
   }

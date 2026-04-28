@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { byokApi, type BYOKKey, type BYOKProviderInfo, type BYOKTestResult } from '@/api/byok'
+import { isBlockedProvider, type BlockedProviderDetail } from '@/api/client'
 
 // BYOKPanel — manage "bring-your-own" provider API keys. Keys are
 // encrypted at rest server-side using AES-GCM and never round-trip
@@ -22,6 +23,13 @@ const items = ref<BYOKKey[]>([])
 const providers = ref<BYOKProviderInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+// Blocked-provider banner state. Server returns 403 + structured JSON
+// when the user tries to add a key for a fraudulent provider host
+// (see internal/byok/blocklist.go). We surface it as a closable warning
+// inside the add form rather than as a generic toast — the message is
+// long enough to deserve its own real estate.
+const blockedProvider = ref<BlockedProviderDetail | null>(null)
 
 // Add form state
 const formProvider = ref('openai')
@@ -83,6 +91,7 @@ async function save() {
   }
   saving.value = true
   error.value = null
+  blockedProvider.value = null
   try {
     const created = await byokApi.create({
       provider: formProvider.value,
@@ -97,7 +106,13 @@ async function save() {
     formBaseURL.value = ''
     addOpen.value = false
   } catch (e) {
-    error.value = (e as Error).message
+    // Special-case the structured 403 envelope so the user sees a
+    // standalone banner instead of the raw error text.
+    if (isBlockedProvider(e)) {
+      blockedProvider.value = e.detail
+    } else {
+      error.value = (e as Error).message
+    }
   } finally {
     saving.value = false
   }
@@ -148,9 +163,22 @@ const groupedByProvider = computed<Record<string, BYOKKey[]>>(() => {
   return g
 })
 
+// Brand-aware label — most providers PascalCase from their id, but a
+// few have non-trivial casing ("OpenAI", "DeepSeek", "LinkAPI") that
+// generic toUpperCase-on-first doesn't capture. The map handles those;
+// everything else falls through to PascalCase.
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  linkapi: 'LinkAPI',
+  deepseek: 'DeepSeek',
+  mistral: 'Mistral',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  custom: 'Custom',
+}
 function providerLabel(p: string): string {
-  // Keep it simple — no i18n for provider IDs, they're brand names.
-  return p.charAt(0).toUpperCase() + p.slice(1)
+  return PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1))
 }
 
 function formatDate(iso: string): string {
@@ -347,6 +375,27 @@ function formatDate(iso: string): string {
             class="mt-3 nest-hint"
           >
             {{ t('byok.form.compatNote') }}
+          </v-alert>
+
+          <!-- Blocked-provider banner (M55). Server returned 403 with a
+               kind=blocked_provider envelope: this URL is a fraudulent
+               service. Closable so the user can dismiss it after
+               picking a different provider. -->
+          <v-alert
+            v-if="blockedProvider"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mt-3"
+            closable
+            @click:close="blockedProvider = null"
+          >
+            <div class="nest-byok-blocked-title">
+              {{ t('byok.blocked.title', { provider: blockedProvider.provider_label }) }}
+            </div>
+            <div class="nest-byok-blocked-body">
+              {{ blockedProvider.message }}
+            </div>
           </v-alert>
         </v-card-text>
         <v-card-actions class="px-6 pb-4">
@@ -599,5 +648,17 @@ function formatDate(iso: string): string {
     padding: 14px 14px 6px;
     font-size: 16px;
   }
+}
+
+// Blocked-provider banner inside the add form (M55). Two-row layout
+// so the title is scannable and the longer explanation reads as body.
+.nest-byok-blocked-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+.nest-byok-blocked-body {
+  font-size: 13px;
+  line-height: 1.5;
 }
 </style>

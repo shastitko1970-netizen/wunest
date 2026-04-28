@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,10 +82,24 @@ func (h *Handler) maybeFireAutoSummarise(
 	userID, chatID uuid.UUID,
 	wuapiKey string,
 	lastPromptTokens int,
+	model string,
 ) {
 	// Off-hot-path — copy the params and spin up a goroutine right
 	// away. Heavy work (config read, mutex grab, LLM call) is async.
-	go h.runAutoSummariseIfNeeded(userID, chatID, wuapiKey, lastPromptTokens)
+	go h.runAutoSummariseIfNeeded(userID, chatID, wuapiKey, lastPromptTokens, model)
+}
+
+// ecoSummaryThreshold is the input-token threshold at which we trigger
+// auto-summary on `:lite` chats (M55.3). Picked to match the eco-mode
+// 30k input cap with a comfortable buffer — the pipeline starts
+// compressing well before the cap fires server-side.
+const ecoSummaryThreshold = 4000
+
+// isEcoModel returns true when the model id ends with `:lite`. The
+// cheap suffix check stays in sync with WuApi's catalog without us
+// having to refetch the catalog from this hot path.
+func isEcoModel(model string) bool {
+	return strings.HasSuffix(model, ":lite")
 }
 
 // fireAutoSummariseFromSSE — convenience wrapper called by the four
@@ -92,10 +107,17 @@ func (h *Handler) maybeFireAutoSummarise(
 // Pulls userID + wuapiKey from the session on the context. When the
 // session is missing (shouldn't happen for an authenticated SSE but
 // possible during teardown), no-op.
+//
+// `model` is the model id used for the request that just finished
+// streaming. M55.3 — when it's a `:lite` (eco-mode) variant, the
+// summary trigger threshold is clamped down to 4000 tokens so the
+// pipeline keeps eco chats compact without forcing the user to
+// reconfigure their per-chat auto-summary setting.
 func (h *Handler) fireAutoSummariseFromSSE(
 	ctx context.Context,
 	chatID uuid.UUID,
 	lastPromptTokens int,
+	model string,
 ) {
 	session := auth.FromContext(ctx)
 	if session == nil {
@@ -105,13 +127,14 @@ func (h *Handler) fireAutoSummariseFromSSE(
 	if err != nil {
 		return
 	}
-	h.maybeFireAutoSummarise(user.ID, chatID, session.WuApi.APIKey, lastPromptTokens)
+	h.maybeFireAutoSummarise(user.ID, chatID, session.WuApi.APIKey, lastPromptTokens, model)
 }
 
 func (h *Handler) runAutoSummariseIfNeeded(
 	userID, chatID uuid.UUID,
 	wuapiKey string,
 	lastPromptTokens int,
+	model string,
 ) {
 	// Fresh context — triggering HTTP call may have finished already.
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -127,9 +150,19 @@ func (h *Handler) runAutoSummariseIfNeeded(
 	if cfg == nil || !cfg.Enabled {
 		return
 	}
+	// M55.3 — eco-mode threshold clamp. When the active model is a
+	// `:lite` variant, force the trigger threshold down to 4k so the
+	// pipeline keeps the input small enough to fit eco-mode's 30k
+	// server-side cap. Users can still set their own threshold lower
+	// than 4k via the chat-settings drawer; we just refuse to go
+	// HIGHER on eco chats.
+	threshold := cfg.ThresholdTokens
+	if isEcoModel(model) && threshold > ecoSummaryThreshold {
+		threshold = ecoSummaryThreshold
+	}
 	// Zero / negative threshold is treated as "every turn" — respects
 	// user intent, even if unusual.
-	if lastPromptTokens < cfg.ThresholdTokens {
+	if lastPromptTokens < threshold {
 		return
 	}
 

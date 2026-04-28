@@ -18,6 +18,54 @@ const (
 	TierMax     Tier = "max"
 )
 
+// NestLevel is the WuNest-specific subscription axis (independent from
+// the LLM-tier `Tier` above). A user can simultaneously have
+// `Tier=prem` (LLM access) AND `NestLevel=pro` (WuNest unlimited slots).
+//
+// Free is the absence of an active subscription, so the enum has only
+// the two paid levels — code that wants "current level or free" should
+// use *NestLevel and treat nil as free.
+type NestLevel string
+
+const (
+	NestLevelPlus NestLevel = "plus"
+	NestLevelPro  NestLevel = "pro"
+)
+
+// NestSubscription is the active subscription view attached to the
+// session. Nil = free tier. Source of truth is WuApi's nest_subscriptions
+// table; we read it through /api/me on every authenticated request.
+type NestSubscription struct {
+	Level     NestLevel
+	ExpiresAt time.Time
+}
+
+// Per-category slot caps. -1 = unlimited (Pro). These mirror WuApi's
+// constants of the same names — they have to match because both sides
+// independently enforce. WuApi pricing endpoint also surfaces these so
+// the SPA can render usage hints without hardcoding.
+const (
+	NestFreeLimit int = 3
+	NestPlusLimit int = 10
+	NestProLimit  int = -1
+)
+
+// NestLimitFor returns the per-category slot limit for the given level.
+// Nil (no active subscription) returns the free-tier limit.
+func NestLimitFor(level *NestLevel) int {
+	if level == nil {
+		return NestFreeLimit
+	}
+	switch *level {
+	case NestLevelPlus:
+		return NestPlusLimit
+	case NestLevelPro:
+		return NestProLimit
+	default:
+		return NestFreeLimit
+	}
+}
+
 // NestUser is a WuNest-local shadow of a WuApi user. One row per user who has
 // ever logged into WuNest. Links to the WuApi user via WuApiUserID (no FK —
 // the WuApi DB is a separate schema; source of truth is WuApi's /api/me).
@@ -64,4 +112,17 @@ type WuApiProfile struct {
 	CreatedAt         time.Time
 	Blocked           bool
 	NestAccessGranted bool
+	// WuNest subscription. nil for free-tier (no active subscription).
+	// Drives per-resource slot limits in the limits package.
+	NestSubscription *NestSubscription
+}
+
+// CurrentNestLevel returns the user's active WuNest level, or nil if
+// they are on the free tier (no active subscription).
+func (p WuApiProfile) CurrentNestLevel() *NestLevel {
+	if p.NestSubscription == nil {
+		return nil
+	}
+	level := p.NestSubscription.Level
+	return &level
 }

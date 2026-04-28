@@ -6,7 +6,7 @@ BYOK (Bring Your Own Key) lets you use your own OpenAI / Anthropic / OpenRouter 
 
 - You already pay for ChatGPT Plus / Claude Pro and want to use that key
 - You need a provider WuApi doesn't proxy
-- Self-hosted LiteLLM / Ollama — works as a custom OpenAI-compat endpoint
+- Self-hosted (LiteLLM, Ollama, llama.cpp with OpenAI-compat) — works as a custom endpoint
 - You want your requests to skip WuApi entirely (privacy)
 
 ## Adding a key
@@ -43,7 +43,7 @@ The icon gets a primary-color tint when the chat is pinned, so you can see at a 
 | Google      | `generativelanguage.googleapis.com/v1beta/openai`| Compat layer        |
 | Custom      | you provide                                      | Must expose `/chat/completions` in OpenAI format |
 
-Anthropic's native API (`/v1/messages`) and Google Gemini's native format differ from OpenAI. The default URL points at their OpenAI-compat layer — may work, may need a proxy like OpenRouter instead.
+Anthropic and Google native APIs differ from OpenAI (Anthropic `/v1/messages`, Google Gemini format). Our default URL points at their **OpenAI-compat** layer — `api.anthropic.com/v1` (Anthropic Compat) and `generativelanguage.googleapis.com/v1beta/openai` (Google). Both work with streaming + usage tokens; no proxy through OpenRouter needed. Custom providers must expose `/chat/completions` with OpenAI-style payload.
 
 ## Security
 
@@ -55,4 +55,6 @@ Anthropic's native API (`/v1/messages`) and Google Gemini's native format differ
 
 ## Billing
 
-BYOK chats don't draw wu-gold — billing is entirely provider-side. The WuApi balance widget in the header doesn't know about BYOK pins yet, so it might show usage that didn't happen. TODO.
+BYOK chats **don't draw wu-gold** — billing is entirely provider-side, charged at your key's rates. The Account → Gold history view only shows wu-gold transactions (i.e. WuApi-pool chats). BYOK token usage lives in your provider dashboard (OpenAI usage, Anthropic console, etc.).
+
+**Known limitation:** the balance widget in the topbar doesn't separate BYOK vs WuApi calls — if all your chats are BYOK and wu-gold isn't moving, the widget can look like "there's activity but balance isn't dropping". That's not a bug, just an aggregate counter.

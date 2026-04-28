@@ -277,6 +277,27 @@ const reasoningOptions = computed(() => [
   { value: false, label: t('chat.sampler.reasoning.off') },
 ])
 
+// Slider-friendly proxies for `number | null` fields. The slider always
+// needs a concrete number, but the field's "unset" state (placeholder
+// text) must round-trip null. Strategy:
+//   - getter returns 0 when null so the slider shows the "neutral" pos
+//   - setter clears to null when value === 0 (only for max_tokens — for
+//     penalties 0 is a valid explicit value, so the slider always writes
+//     a concrete number; clearing to null still works via the input's
+//     clearable button)
+const maxTokensSlider = computed<number>({
+  get: () => form.value.max_tokens ?? 0,
+  set: v => { form.value.max_tokens = v > 0 ? v : null },
+})
+const freqPenaltySlider = computed<number>({
+  get: () => form.value.frequency_penalty ?? 0,
+  set: v => { form.value.frequency_penalty = v },
+})
+const presPenaltySlider = computed<number>({
+  get: () => form.value.presence_penalty ?? 0,
+  set: v => { form.value.presence_penalty = v },
+})
+
 // Comma-separated text ↔ string[] for the stop-strings input.
 const stopText = computed<string>({
   get: () => form.value.stop.join(', '),
@@ -349,57 +370,96 @@ function close() {
         </div>
       </div>
 
-      <!-- Core knobs -->
+      <!-- Core knobs.
+           Each numeric field exposes BOTH a slider (intuition for the
+           scale) AND a numeric input (precision when the user knows the
+           value). Both bind to the same source — drag the slider, type
+           in the box, edits round-trip in either direction. -->
       <div class="nest-field">
-        <div class="nest-slider-header">
-          <label class="nest-field-label">{{ t('chat.sampler.temperature') }}</label>
-          <span class="nest-mono nest-field-value">{{ form.temperature.toFixed(2) }}</span>
+        <label class="nest-field-label">{{ t('chat.sampler.temperature') }}</label>
+        <div class="nest-slider-row">
+          <v-slider
+            v-model="form.temperature"
+            :min="0" :max="2" :step="0.05"
+            hide-details density="compact" color="primary"
+          />
+          <v-text-field
+            v-model.number="form.temperature"
+            type="number" :min="0" :max="2" :step="0.05"
+            hide-details density="compact"
+            class="nest-slider-num"
+          />
         </div>
-        <v-slider
-          v-model="form.temperature"
-          :min="0" :max="2" :step="0.05"
-          hide-details density="compact" color="primary"
-        />
       </div>
 
       <div class="nest-field">
-        <div class="nest-slider-header">
-          <label class="nest-field-label">{{ t('chat.sampler.topP') }}</label>
-          <span class="nest-mono nest-field-value">{{ form.top_p.toFixed(2) }}</span>
+        <label class="nest-field-label">{{ t('chat.sampler.topP') }}</label>
+        <div class="nest-slider-row">
+          <v-slider
+            v-model="form.top_p"
+            :min="0" :max="1" :step="0.05"
+            hide-details density="compact" color="primary"
+          />
+          <v-text-field
+            v-model.number="form.top_p"
+            type="number" :min="0" :max="1" :step="0.05"
+            hide-details density="compact"
+            class="nest-slider-num"
+          />
         </div>
-        <v-slider
-          v-model="form.top_p"
-          :min="0" :max="1" :step="0.05"
-          hide-details density="compact" color="primary"
-        />
       </div>
 
       <div class="nest-field">
         <label class="nest-field-label">{{ t('chat.sampler.maxTokens') }}</label>
-        <v-text-field
-          v-model.number="form.max_tokens"
-          type="number" :min="0"
-          :placeholder="t('chat.sampler.maxTokensPlaceholder')"
-          hide-details density="compact" clearable
-        />
+        <div class="nest-slider-row">
+          <!-- Slider 0..8000. 0 = "не ограничивать" (round-trips null). -->
+          <v-slider
+            v-model="maxTokensSlider"
+            :min="0" :max="8000" :step="100"
+            hide-details density="compact" color="primary"
+          />
+          <v-text-field
+            v-model.number="form.max_tokens"
+            type="number" :min="0"
+            :placeholder="t('chat.sampler.maxTokensPlaceholder')"
+            hide-details density="compact" clearable
+            class="nest-slider-num nest-slider-num--wide"
+          />
+        </div>
       </div>
 
       <div class="nest-field-row">
         <div class="nest-field nest-field-half">
           <label class="nest-field-label">{{ t('chat.sampler.freqPenalty') }}</label>
-          <v-text-field
-            v-model.number="form.frequency_penalty"
-            type="number" :min="-2" :max="2" :step="0.1"
-            hide-details density="compact" clearable
-          />
+          <div class="nest-slider-row">
+            <v-slider
+              v-model="freqPenaltySlider"
+              :min="-2" :max="2" :step="0.1"
+              hide-details density="compact" color="primary"
+            />
+            <v-text-field
+              v-model.number="form.frequency_penalty"
+              type="number" :min="-2" :max="2" :step="0.1"
+              hide-details density="compact" clearable
+              class="nest-slider-num"
+            />
+          </div>
         </div>
         <div class="nest-field nest-field-half">
           <label class="nest-field-label">{{ t('chat.sampler.presPenalty') }}</label>
-          <v-text-field
-            v-model.number="form.presence_penalty"
-            type="number" :min="-2" :max="2" :step="0.1"
-            hide-details density="compact" clearable
-          />
+          <div class="nest-slider-row">
+            <v-slider
+              v-model="presPenaltySlider"
+              :min="-2" :max="2" :step="0.1"
+              hide-details density="compact" color="primary"
+            />
+            <v-text-field
+              v-model.number="form.presence_penalty"
+              type="number" :min="-2" :max="2" :step="0.1"
+              hide-details density="compact" clearable
+              class="nest-slider-num"
+            />
+          </div>
         </div>
       </div>
 
@@ -693,6 +753,34 @@ function close() {
   align-items: baseline;
 }
 
+// Slider + numeric input on one line.
+// Slider takes the remaining width, input is fixed-width on the right.
+// The user can drag for intuition, type for precision — both bind to
+// the same source so edits round-trip in either direction.
+.nest-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nest-slider-row :deep(.v-slider) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.nest-slider-num {
+  flex: 0 0 76px;
+  max-width: 76px;
+}
+.nest-slider-num--wide {
+  flex: 0 0 96px;
+  max-width: 96px;
+}
+// In a half-row (penalty pair) the input must shrink so the slider
+// still has room. 60px fits "-2.0" / "1.20" comfortably.
+.nest-field-half .nest-slider-num {
+  flex: 0 0 60px;
+  max-width: 60px;
+}
+
 .nest-advanced {
   margin-top: 4px;
   border-top: 1px dashed var(--nest-border-subtle);
@@ -760,5 +848,20 @@ function close() {
   .nest-sampler-head { padding: 12px 14px; }
   .nest-sampler-foot { padding: 8px 10px; flex-wrap: wrap; gap: 4px; }
   .nest-authors-note { padding: 10px; gap: 10px; }
+
+  // Slider + input stack vertically on phones — both take full width so
+  // the slider has room to drag accurately and the input shows numbers
+  // without truncation. On desktop they stay side-by-side.
+  .nest-slider-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .nest-slider-num,
+  .nest-slider-num--wide,
+  .nest-field-half .nest-slider-num {
+    flex: 1 1 auto;
+    max-width: none;
+  }
 }
 </style>

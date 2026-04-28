@@ -2,9 +2,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
-import { chatsApi, type AutoSummariseConfig, type Chat, type ChatStats, type Summary } from '@/api/chats'
+import { chatsApi, type AuthorsNote, type AutoSummariseConfig, type Chat, type ChatStats, type Summary } from '@/api/chats'
 import { useModelsStore } from '@/stores/models'
 import { byokApi, type BYOKKey } from '@/api/byok'
+// M51 Sprint 3 wave 2 — per-chat theme override picker.
+import { useThemeStore, THEME_PRESETS } from '@/stores/theme'
 
 // Per-chat settings drawer. Three tabs:
 //   - Tags    — user-authored organisation. Edit inline; filter in
@@ -96,6 +98,48 @@ function onTagEnter() {
   if (tagInput.value.trim()) addTag(tagInput.value)
 }
 
+// ─── Per-chat theme override (M51 Sprint 3 wave 2) ─────────────────
+//
+// Picker with the 5 built-in presets + a "use default" sentinel value.
+// Saving is fire-and-forget — the watcher in Chat.vue applies the new
+// preset reactively when chat_metadata.theme_preset updates.
+//
+// Empty-string sentinel for "use default" because `<v-select>` v-model
+// doesn't tolerate `null` cleanly across all densities.
+const themeStore = useThemeStore()
+const themePresetItems = computed(() => [
+  { value: '', title: t('chat.settings.theme.useDefault') },
+  ...THEME_PRESETS.map(p => ({ value: p.id, title: p.label })),
+])
+const themePresetDraft = computed({
+  get: (): string => props.chat?.chat_metadata?.theme_preset ?? '',
+  set: (v: string) => { void saveThemePreset(v) },
+})
+async function saveThemePreset(preset: string) {
+  if (!props.chat) return
+  try {
+    // Server expects null to clear, string to set.
+    await chatsApi.setThemePreset(props.chat.id, preset || null)
+    // Optimistically mutate the local chat metadata so the watcher in
+    // Chat.vue applies the preset without waiting for a refetch.
+    if (props.chat.chat_metadata) {
+      const meta = { ...(props.chat.chat_metadata as Record<string, unknown>) }
+      if (preset) meta.theme_preset = preset
+      else delete meta.theme_preset
+      props.chat.chat_metadata = meta as Chat['chat_metadata']
+    }
+  } catch (e) {
+    console.warn('set chat theme preset:', e)
+  }
+}
+
+// Apply the active preset reactively for a small swatch shown next to
+// the picker — uses the same data-driven swatches the gallery does.
+const themePresetSwatch = computed(() => {
+  const id = themePresetDraft.value || themeStore.currentId
+  return THEME_PRESETS.find(p => p.id === id)?.swatches ?? null
+})
+
 // ─── Stats ─────────────────────────────────────────────────────────
 const stats = ref<ChatStats | null>(null)
 const statsLoading = ref(false)
@@ -123,6 +167,50 @@ function compactNum(n: number): string {
 }
 
 // ─── Memory ────────────────────────────────────────────────────────
+
+// M53 — Author's Note in Memory tab. Previously only in
+// GenerationSettings drawer; users associate AN with chat memory, not
+// sampler config, so duplicating the editor here improves
+// discoverability. State source-of-truth остаётся `chat.chat_metadata.
+// authors_note` — мы локальная draft + save через chatsApi.setAuthorsNote.
+const noteDraft = ref<AuthorsNote>({ content: '', depth: 4, role: 'system' })
+const noteSaving = ref(false)
+const noteSavedHint = ref(false)
+function hydrateNoteFromChat(c: Chat | null) {
+  const an = c?.chat_metadata?.authors_note
+  noteDraft.value = an
+    ? { content: an.content || '', depth: an.depth ?? 4, role: an.role ?? 'system' }
+    : { content: '', depth: 4, role: 'system' }
+}
+async function saveNote() {
+  if (!props.chat) return
+  noteSaving.value = true
+  try {
+    const payload = noteDraft.value.content.trim()
+      ? noteDraft.value
+      : null
+    await chatsApi.setAuthorsNote(props.chat.id, payload)
+    // Mirror locally so other components (GenerationSettings, prompt
+    // builder) see the change without a refetch.
+    if (props.chat.chat_metadata) {
+      const meta = { ...(props.chat.chat_metadata as Record<string, unknown>) }
+      if (payload) meta.authors_note = payload
+      else delete meta.authors_note
+      props.chat.chat_metadata = meta as Chat['chat_metadata']
+    }
+    noteSavedHint.value = true
+    setTimeout(() => (noteSavedHint.value = false), 1500)
+  } catch (e) {
+    console.warn('save authors note:', e)
+  } finally {
+    noteSaving.value = false
+  }
+}
+async function clearNote() {
+  noteDraft.value = { content: '', depth: 4, role: 'system' }
+  await saveNote()
+}
+
 const summaries = ref<Summary[]>([])
 const summariesLoading = ref(false)
 const summarizing = ref(false)
@@ -265,7 +353,10 @@ function hydrateAutoFromChat(c: Chat | null) {
   }
 }
 
-watch(() => props.chat?.id, () => hydrateAutoFromChat(props.chat), { immediate: true })
+watch(() => props.chat?.id, () => {
+  hydrateAutoFromChat(props.chat)
+  hydrateNoteFromChat(props.chat)
+}, { immediate: true })
 watch(() => props.modelValue, (open) => {
   if (open && props.chat) hydrateAutoFromChat(props.chat)
 })
@@ -486,6 +577,33 @@ function close() { emit('update:modelValue', false) }
               @click="addTag(s)"
             >{{ s }}</v-chip>
           </div>
+
+          <!-- Per-chat theme override (M51 Sprint 3 wave 2) -->
+          <v-divider class="my-4" />
+          <div class="nest-eyebrow mb-1">{{ t('chat.settings.theme.title') }}</div>
+          <div class="nest-hint mb-2">{{ t('chat.settings.theme.hint') }}</div>
+          <div class="d-flex align-center ga-2">
+            <div
+              v-if="themePresetSwatch"
+              class="nest-chat-theme-swatch"
+              :style="{
+                background: themePresetSwatch.bg,
+                borderColor: themePresetSwatch.border,
+              }"
+            >
+              <span :style="{ background: themePresetSwatch.accent }" class="nest-chat-theme-swatch-dot" />
+            </div>
+            <v-select
+              v-model="themePresetDraft"
+              :items="themePresetItems"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="flex: 1"
+            />
+          </div>
         </div>
 
         <!-- ── Stats tab ──────────────────────────────────────── -->
@@ -532,6 +650,68 @@ function close() { emit('update:modelValue', false) }
 
         <!-- ── Memory tab ─────────────────────────────────────── -->
         <div v-else-if="tab === 'memory'">
+          <!-- Author's Note (M53) — было только в GenerationSettings,
+               пользователи искали в Memory. Дублируем editor сюда; state
+               sync через chat.chat_metadata.authors_note + setAuthorsNote
+               API. Свернуто в `<details>` чтобы не конкурировать с
+               summary controls. -->
+          <details class="nest-an-block mb-3" open>
+            <summary class="nest-eyebrow nest-an-summary">
+              <v-icon size="14" class="mr-1">mdi-note-edit-outline</v-icon>
+              {{ t('chat.authorsNote.label') }}
+              <span v-if="noteSavedHint" class="nest-mono nest-saving-hint ml-2">
+                {{ t('chat.authorsNote.saved') }}
+              </span>
+            </summary>
+            <div class="nest-an-body mt-2">
+              <v-textarea
+                v-model="noteDraft.content"
+                :placeholder="t('chat.authorsNote.placeholder')"
+                rows="3"
+                auto-grow
+                hide-details
+                density="compact"
+                variant="outlined"
+              />
+              <div class="nest-an-fields mt-2">
+                <v-text-field
+                  v-model.number="noteDraft.depth"
+                  :label="t('chat.authorsNote.depth')"
+                  type="number" :min="0" :max="20"
+                  density="compact" variant="outlined" hide-details
+                  style="max-width: 110px"
+                />
+                <v-select
+                  v-model="noteDraft.role"
+                  :label="t('chat.authorsNote.role')"
+                  :items="[
+                    { value: 'system', title: t('chat.authorsNote.roleSystem') },
+                    { value: 'user', title: t('chat.authorsNote.roleUser') },
+                    { value: 'assistant', title: t('chat.authorsNote.roleAssistant') },
+                  ]"
+                  density="compact" variant="outlined" hide-details
+                  style="max-width: 200px"
+                />
+              </div>
+              <div class="nest-an-hint nest-hint mt-1">{{ t('chat.authorsNote.hint') }}</div>
+              <div class="d-flex ga-2 justify-end mt-2">
+                <v-btn size="x-small" variant="text" @click="clearNote">
+                  {{ t('chat.authorsNote.clear') }}
+                </v-btn>
+                <v-btn
+                  size="x-small" color="primary" variant="flat"
+                  :loading="noteSaving"
+                  prepend-icon="mdi-content-save"
+                  @click="saveNote"
+                >
+                  {{ t('common.save') }}
+                </v-btn>
+              </div>
+            </div>
+          </details>
+
+          <v-divider class="mb-3" />
+
           <div class="d-flex align-center mb-3">
             <div class="nest-hint flex-grow-1">{{ t('chat.settings.memory.hint') }}</div>
             <v-btn
@@ -805,6 +985,52 @@ function close() { emit('update:modelValue', false) }
   flex-wrap: wrap;
   gap: 4px;
   min-height: 24px;
+}
+
+// M53 — Author's Note in Memory tab.
+.nest-an-block {
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-sm);
+  padding: 10px 12px;
+
+  & > .nest-an-summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    list-style: none;
+    &::-webkit-details-marker { display: none; }
+  }
+  &[open] > .nest-an-summary { color: var(--nest-text); }
+}
+.nest-an-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.nest-saving-hint {
+  font-size: 10px;
+  color: var(--nest-text-muted);
+}
+
+// M51 Sprint 3 wave 2 — tiny preview swatch next to the theme picker.
+// Reuses the same swatch data the gallery does (manifest.swatches), so
+// the small chip in the drawer stays in sync without a second source
+// of truth.
+.nest-chat-theme-swatch {
+  position: relative;
+  flex: 0 0 32px;
+  height: 32px;
+  border-radius: var(--nest-radius-sm);
+  border: 1px solid var(--nest-border);
+}
+.nest-chat-theme-swatch-dot {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
 .nest-tag-sugg {
   display: flex;

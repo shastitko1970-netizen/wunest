@@ -33,7 +33,12 @@ export interface ConvertResponse {
 }
 
 export interface ConvertParams {
-  file: File
+  // M51 Sprint 2 wave 2 — instead of `file: File` we accept a Blob +
+  // filename pair. This lets paste-text and CSS-wrap callers synthesise
+  // a Blob without faking a File object. A real File extends Blob, so
+  // `file` upload still works: pass `{ blob: file, filename: file.name }`.
+  blob: Blob
+  filename: string
   model: string
   byokId?: string    // empty/undefined → use WuApi pool
   signal?: AbortSignal
@@ -50,7 +55,7 @@ export interface ConvertParams {
  */
 export async function convertTheme(p: ConvertParams): Promise<ConvertResponse> {
   const fd = new FormData()
-  fd.append('file', p.file, p.file.name)
+  fd.append('file', p.blob, p.filename)
   fd.append('model', p.model)
   if (p.byokId) fd.append('byok_id', p.byokId)
 
@@ -61,9 +66,38 @@ export async function convertTheme(p: ConvertParams): Promise<ConvertResponse> {
     signal: p.signal,
   })
 
+  return parseConvertResponse(res)
+}
+
+/**
+ * retryJob — re-runs an existing job's input through a different
+ * model/source (M51 Sprint 2 wave 2). The server reads the original
+ * bytes from `nest_converter_jobs.input_data` so the user doesn't
+ * need to re-upload.
+ *
+ * On 410 the source job either expired or predates the retry feature
+ * (input bytes weren't persisted). Caller should fall back to "upload
+ * the file again" UX.
+ */
+export async function retryJob(
+  id: string,
+  model: string,
+  byokId?: string,
+): Promise<ConvertResponse> {
+  const res = await fetch(`/api/convert/${id}/retry`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, byok_id: byokId || null }),
+  })
+  return parseConvertResponse(res)
+}
+
+// Shared response parser — used by both convertTheme and retryJob.
+// Handles the 429 rate-limit body shape uniformly so the SPA's error
+// surface gets `rate_limited|<ISO-8601>` for either entry point.
+async function parseConvertResponse(res: Response): Promise<ConvertResponse> {
   if (!res.ok) {
-    // 429 carries a JSON body with resets_at hint — preserve the whole
-    // blob in the message so the UI can render a countdown if desired.
     let message = res.statusText
     try {
       const body = await res.json()
@@ -75,12 +109,10 @@ export async function convertTheme(p: ConvertParams): Promise<ConvertResponse> {
         message = body.message
       }
     } catch {
-      // Not JSON — grab plain text for context.
       try { message = (await res.text()) || res.statusText } catch { /* noop */ }
     }
     throw new ApiError(res.status, message)
   }
-
   return (await res.json()) as ConvertResponse
 }
 

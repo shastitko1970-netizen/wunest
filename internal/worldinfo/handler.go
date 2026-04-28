@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
@@ -83,6 +84,17 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+
+	// M54.2 — slot-cap enforcement (Free=3 / Plus=10 / Pro=∞).
+	if err := h.enforceCreateLimit(r, user.ID); err != nil {
+		if le, ok := limits.IsLimitReached(err); ok {
+			limits.WriteError(w, le)
+			return
+		}
+		h.writeErr(w, err)
+		return
+	}
+
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -193,6 +205,16 @@ type stEntry struct {
 func (h *Handler) importST(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	// M54.2 — imports count the same as creates against the slot cap.
+	if err := h.enforceCreateLimit(r, user.ID); err != nil {
+		if le, ok := limits.IsLimitReached(err); ok {
+			limits.WriteError(w, le)
+			return
+		}
 		h.writeErr(w, err)
 		return
 	}
@@ -432,6 +454,23 @@ func (h *Handler) currentUser(ctx context.Context, r *http.Request) (*models.Nes
 		return nil, errUnauthorized
 	}
 	return h.Users.Resolve(ctx, session.WuApi.ID)
+}
+
+// enforceCreateLimit returns nil if the user can create another lorebook,
+// *limits.ErrLimitReached when they've hit their slot cap. Reused by
+// both `create` and `importST` so PNG-extracted books, ST imports and
+// fresh creations all share the same gate.
+func (h *Handler) enforceCreateLimit(r *http.Request, userID uuid.UUID) error {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		return errUnauthorized
+	}
+	level := session.WuApi.CurrentNestLevel()
+	count, err := h.Repo.CountByUserID(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+	return limits.Check(level, limits.ResourceLorebook, count)
 }
 
 var errUnauthorized = errors.New("unauthorized")

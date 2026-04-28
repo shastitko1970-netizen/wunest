@@ -77,18 +77,23 @@ type CreateInput struct {
 	BYOKID      *uuid.UUID
 	InputSHA256 string
 	InputSize   int
+	// M51 Sprint 2 wave 2 — raw input bytes persisted for retry. Sent
+	// verbatim by retryHandler when user picks a different model. Set
+	// to nil only by legacy code-paths or pre-migration rows; new
+	// records always include it.
+	InputData []byte
 }
 
 // Create inserts a pending row. The LLM call follows and the handler
 // mutates the row to running → done/error via UpdateStatus / Finish.
 func (r *Repository) Create(ctx context.Context, in CreateInput) (*Job, error) {
 	const q = `
-		INSERT INTO nest_converter_jobs (user_id, status, model, byok_id, input_sha256, input_size)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO nest_converter_jobs (user_id, status, model, byok_id, input_sha256, input_size, input_data)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, user_id, status, model, byok_id, input_sha256, input_size,
 		          tokens_in, tokens_out, created_at, expires_at, finished_at
 	`
-	row := r.pg.QueryRow(ctx, q, in.UserID, StatusPending, in.Model, in.BYOKID, in.InputSHA256, in.InputSize)
+	row := r.pg.QueryRow(ctx, q, in.UserID, StatusPending, in.Model, in.BYOKID, in.InputSHA256, in.InputSize, in.InputData)
 	var j Job
 	if err := row.Scan(
 		&j.ID, &j.UserID, &j.Status, &j.Model, &j.BYOKID,
@@ -98,6 +103,40 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Job, error) {
 		return nil, fmt.Errorf("insert converter job: %w", err)
 	}
 	return &j, nil
+}
+
+// GetWithInput fetches a job AND its raw input bytes. Used by the
+// retry endpoint exclusively — regular Get / ListForUser skip the
+// column to keep payload sizes small for the common case.
+//
+// Returns ErrNotFound when the row is missing OR expired (matches Get).
+// `input` is nil for legacy rows created before migration 013; callers
+// should treat that as "retry not supported for this row" and surface
+// a friendly 410 to the user.
+func (r *Repository) GetWithInput(ctx context.Context, id uuid.UUID) (*Job, []byte, error) {
+	const q = `
+		SELECT id, user_id, status, model, byok_id, input_sha256, input_size,
+		       output_json, error_message, tokens_in, tokens_out,
+		       created_at, expires_at, finished_at, input_data
+		  FROM nest_converter_jobs
+		 WHERE id = $1
+		   AND expires_at > NOW()
+	`
+	row := r.pg.QueryRow(ctx, q, id)
+	var j Job
+	var input []byte
+	if err := row.Scan(
+		&j.ID, &j.UserID, &j.Status, &j.Model, &j.BYOKID,
+		&j.InputSHA256, &j.InputSize, &j.OutputJSON, &j.ErrorMessage,
+		&j.TokensIn, &j.TokensOut, &j.CreatedAt, &j.ExpiresAt, &j.FinishedAt,
+		&input,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, fmt.Errorf("get converter job with input: %w", err)
+	}
+	return &j, input, nil
 }
 
 // MarkRunning flips status → running. Separate call so the handler can

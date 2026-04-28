@@ -78,8 +78,13 @@ func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) h
 	mux.Handle("PATCH /api/chats/{id}", authRequired(http.HandlerFunc(h.rename)))
 	mux.Handle("PUT /api/chats/{id}/sampler", authRequired(http.HandlerFunc(h.setSampler)))
 	mux.Handle("PUT /api/chats/{id}/persona", authRequired(http.HandlerFunc(h.setPersona)))
+	// M51 Sprint 3 wave 2 — per-chat theme override. Body:
+	//   {"theme_preset": "cyber-neon"}  → set
+	//   {"theme_preset": null}          → clear
+	mux.Handle("PUT /api/chats/{id}/theme-preset", authRequired(http.HandlerFunc(h.setThemePreset)))
 	mux.Handle("PUT /api/chats/{id}/authors-note", authRequired(http.HandlerFunc(h.setAuthorsNote)))
 	mux.Handle("PUT /api/chats/{id}/byok", authRequired(http.HandlerFunc(h.setBYOK)))
+	mux.Handle("PUT /api/chats/{id}/eco-mode", authRequired(http.HandlerFunc(h.setEcoMode)))
 	// M44 — per-chat auto-summary config. PUT rewrites the whole
 	// `auto_summarise` block (enabled, threshold, model, byok_id); DELETE
 	// removes the key entirely (distinct from `{enabled:false}` which
@@ -367,6 +372,50 @@ func (h *Handler) setPersona(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// setThemePreset writes (or clears) chat_metadata.theme_preset.
+// Body: {"theme_preset": "cyber-neon" | null}.
+//
+// M51 Sprint 3 wave 2 — when set, the SPA applies the named preset on
+// chat-mount (Chat.vue) and reverts to user-default on unmount. The
+// preset id isn't validated server-side — the registry is a frontend
+// concern, and an unknown id surfaces a friendly fallback in the
+// theme store rather than corrupting state. Body validation only
+// checks JSON shape.
+func (h *Handler) setThemePreset(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		ThemePreset *string `json:"theme_preset"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	preset := ""
+	if req.ThemePreset != nil {
+		preset = *req.ThemePreset
+	}
+	// Soft length cap (preset ids are ≤ ~32 chars; refuse anything
+	// pathologically large to keep chat_metadata blobs sane).
+	if len(preset) > 64 {
+		http.Error(w, "theme_preset too long", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetThemePreset(r.Context(), user.ID, id, preset); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // setAuthorsNote writes (or clears) chat_metadata.authors_note. Body is the
 // AuthorsNote JSON; an explicit null clears the key.
 func (h *Handler) setAuthorsNote(w http.ResponseWriter, r *http.Request) {
@@ -437,6 +486,37 @@ func (h *Handler) setBYOK(w http.ResponseWriter, r *http.Request) {
 		target = *req.BYOKID
 	}
 	if err := h.Repo.SetBYOK(r.Context(), user.ID, id, target); err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setEcoMode writes chat_metadata.eco_mode (M55 — WuEco virtual provider).
+// Body: {"enabled": bool}. The SPA flips this when the user picks "WuEco"
+// in the provider picker; persistence lets the picker remember it on
+// chat reopen. Backend stream paths don't read this flag — the model
+// id arriving from the SPA with `:lite` suffix is what triggers the
+// server-side caps.
+func (h *Handler) setEcoMode(w http.ResponseWriter, r *http.Request) {
+	user, err := h.currentUser(r.Context(), r)
+	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.SetEcoMode(r.Context(), user.ID, id, req.Enabled); err != nil {
 		h.writeErr(w, err)
 		return
 	}

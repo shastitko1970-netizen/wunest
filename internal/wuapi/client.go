@@ -93,6 +93,17 @@ type MeResponse struct {
 	// Blocked isn't exposed by /api/me today — if WuApi ever adds it here
 	// as `blocked`, update the tag.
 	Blocked bool `json:"blocked,omitempty"`
+	// WuNest subscription summary (M54). nil for free-tier users (omitempty
+	// on the WuApi side too). Drives per-resource limit enforcement.
+	NestSubscription *NestSubscriptionSummary `json:"nestSubscription,omitempty"`
+}
+
+// NestSubscriptionSummary is the compact subscription block embedded in
+// /api/me. The full state — including monthly discount-cap usage — lives
+// at /api/me/subscription, fetched lazily by the SPA.
+type NestSubscriptionSummary struct {
+	Level     string    `json:"level"`     // "plus" | "pro"
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // Me resolves a session cookie (the wu-API-key that WuApi stores in the

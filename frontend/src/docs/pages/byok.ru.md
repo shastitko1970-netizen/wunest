@@ -6,7 +6,7 @@ BYOK (Bring Your Own Key) — использовать свой API-ключ у 
 
 - У тебя уже оплачен план ChatGPT Plus / Claude Pro — хочется использовать тот же ключ
 - Нужен провайдер которого нет в нашем каталоге
-- Self-hosted llama.cpp / LiteLLM — работают как custom OpenAI-compat endpoint
+- Self-hosted (LiteLLM, Ollama, llama.cpp с OpenAI-compat) — работают как custom endpoint
 - Хочется чтобы запросы не проходили через WuApi (приватность)
 
 ## Добавление ключа
@@ -43,7 +43,7 @@ BYOK (Bring Your Own Key) — использовать свой API-ключ у 
 | Google      | `generativelanguage.googleapis.com/v1beta/openai` | Compat endpoint |
 | Custom      | ты указываешь                                    | OpenAI-compat endpoint требуется |
 
-Для Anthropic / Google нативные API отличаются (Anthropic `/v1/messages`, Google Gemini format). Дефолтный URL ведёт на их OpenAI-compat слой — может работать, может потребовать proxy через OpenRouter. Для custom провайдера ожидается `/chat/completions` с OpenAI-style payload.
+Для Anthropic и Google нативные API отличаются (Anthropic `/v1/messages`, Google Gemini format). Дефолтный URL у нас ведёт на их **OpenAI-compat** слой — `api.anthropic.com/v1` (Anthropic Compat) и `generativelanguage.googleapis.com/v1beta/openai` (Google). Оба работают со стримом и usage-токенами, без прокси через OpenRouter. Для custom провайдера ожидается `/chat/completions` с OpenAI-style payload.
 
 ## Безопасность
 
@@ -55,4 +55,6 @@ BYOK (Bring Your Own Key) — использовать свой API-ключ у 
 
 ## Биллинг
 
-BYOK-чаты НЕ расходуют твой wu-gold — биллинг полностью на стороне провайдера. WuApi balance-widget в шапке сейчас не знает о BYOK пинах и может показывать usage который не происходил. TODO.
+BYOK-чаты **не расходуют wu-gold** — биллинг полностью на стороне провайдера, по тарифам твоего ключа. История запросов в Account → История золота показывает только wu-gold-расход (т.е. чаты на WuApi-пуле). BYOK-токены считаются у самого провайдера в его dashboard (OpenAI usage, Anthropic console и т.д.).
+
+**Известное ограничение:** widget баланса в топбаре не отделяет BYOK-вызовы — если все чаты у тебя BYOK, а wu-gold не двигается, виджет может показывать стайл «активность есть, баланс не падает». Это нормально, не баг — просто widget агрегирует общую активность, не различая источники.

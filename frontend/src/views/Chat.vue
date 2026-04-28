@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
@@ -8,6 +8,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useModelsStore } from '@/stores/models'
 import { useCharactersStore } from '@/stores/characters'
 import { usePreferencesStore } from '@/stores/preferences'
+// M51 Sprint 3 wave 2 — per-chat theme override.
+import { useThemeStore } from '@/stores/theme'
+import { useAppearanceStore } from '@/stores/appearance'
 import { tryDispatch } from '@/lib/slashCommands'
 import { detectEmotion } from '@/lib/emotions'
 import type { Message } from '@/api/chats'
@@ -36,6 +39,14 @@ const models = useModelsStore()
 const { currentChat, messages, messagesLoading, streaming, streamError } = storeToRefs(chats)
 const { profile } = storeToRefs(auth)
 const { selected: selectedModel } = storeToRefs(models)
+
+// M55 — true when the chat is on the WuEco virtual provider. The
+// flag lives on chat_metadata.eco_mode; the provider picker writes
+// it through `chatsApi.setEcoMode`. We don't sniff `selectedModel`
+// for `:lite` suffix because the user could in principle pick a
+// non-lite model name that happens to end with `:lite` — flag is
+// the unambiguous signal.
+const ecoActive = computed(() => currentChat.value?.chat_metadata?.eco_mode === true)
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
@@ -160,6 +171,76 @@ watch(
     void models.setForChat(currentChat.value)
   },
 )
+
+// ── M51 Sprint 3 wave 2 — per-chat theme override ─────────────────
+//
+// Chat metadata may carry `theme_preset` (set via the chat-settings
+// drawer). When it's set we apply that preset on chat enter; on chat
+// exit (or switch to a chat without an override) we revert to the
+// user-default `appearance.themePreset`.
+//
+// We use `theme.apply()` (not `userPick`) because the chat override is
+// contextual, not a manual user pick — it shouldn't disable the
+// system-prefers-color-scheme listener. The listener stays active and
+// can flip the chat-override preset to its pair if the OS theme
+// changes mid-session, which is consistent with the global behaviour.
+//
+// Watcher fires on every `chat_metadata.theme_preset` change AND on
+// chat switch — both cases want the same "compute target preset and
+// apply" flow, so they share one watcher.
+const themeStore = useThemeStore()
+const appearance = useAppearanceStore()
+
+// M52.9 — chat-list sidebar collapsible. State owned here (the grid
+// container's parent) so we can adjust grid-template-columns when
+// the user collapses. Persisted in localStorage — preference is
+// per-device (some users want compact on laptop, full on desktop).
+const CHAT_LIST_COLLAPSED_LS = 'nest:chat-list-collapsed'
+const chatListCollapsed = ref(localStorage.getItem(CHAT_LIST_COLLAPSED_LS) === '1')
+watch(chatListCollapsed, (v) => {
+  if (v) localStorage.setItem(CHAT_LIST_COLLAPSED_LS, '1')
+  else localStorage.removeItem(CHAT_LIST_COLLAPSED_LS)
+})
+
+watch(
+  () => [
+    currentChat.value?.id,
+    currentChat.value?.chat_metadata?.theme_preset,
+  ] as const,
+  (next, prev) => {
+    const [nextChatID, nextPreset] = next
+    // First-tick skip — `prev` is undefined on the immediate-fire run.
+    // We only want to act when there's a chat OR the chat was just
+    // closed (covered by the explicit override-vs-default branch below).
+    if (nextChatID === undefined && (prev === undefined || prev[0] === undefined)) return
+
+    // Determine target preset:
+    //   - Chat has explicit override → use it (contextual apply).
+    //   - No override OR chat closed → use user-default themePreset.
+    //   - User has no themePreset stored → fall back to current
+    //     theme.currentId (the bundled default loaded at boot).
+    const target = (typeof nextPreset === 'string' && nextPreset.length > 0)
+      ? nextPreset
+      : (appearance.appearance.themePreset || themeStore.currentId)
+
+    if (target && target !== themeStore.currentId) {
+      void themeStore.apply(target as never)
+    }
+  },
+  { immediate: true },
+)
+
+// On leaving the chat view (Library / Settings / Account / Docs etc.)
+// revert to the user-default preset so chat overrides don't leak across
+// the rest of the app. If the user goes Chat → Settings → Back, Vue
+// re-mounts Chat.vue and the watcher above (immediate: true) re-applies
+// the override — minor flicker is the trade-off for clean isolation.
+onBeforeUnmount(() => {
+  const userDefault = appearance.appearance.themePreset
+  if (userDefault && userDefault !== themeStore.currentId) {
+    void themeStore.apply(userDefault as never)
+  }
+})
 
 // Auto-scroll to bottom — but only when the user is already near the
 // bottom. If they've scrolled up (e.g. to re-read earlier content
@@ -918,10 +999,13 @@ async function requestReplyFromLastUser() {
 </script>
 
 <template>
-  <div class="nest-chat-layout">
+  <div
+    class="nest-chat-layout"
+    :class="{ 'is-list-collapsed': chatListCollapsed }"
+  >
     <!-- Sidebar with chat list -->
     <aside class="nest-chat-sidebar">
-      <ChatList />
+      <ChatList v-model:collapsed="chatListCollapsed" />
     </aside>
 
     <!-- Main chat panel -->
@@ -967,7 +1051,21 @@ async function requestReplyFromLastUser() {
             @click="chatListDrawerOpen = true"
           />
           <div class="nest-chat-title">
-            <div class="nest-chat-name">{{ currentChat!.name }}</div>
+            <div class="nest-chat-name">
+              {{ currentChat!.name }}
+              <!-- M55.4 — ECO indicator next to the chat name. Visible
+                   whenever the active model is a `:lite` variant; the
+                   tooltip explains the caps so users don't need to dig
+                   through docs to understand "why is this cheap?". -->
+              <span
+                v-if="ecoActive"
+                class="nest-eco-chip nest-mono"
+                :title="t('chat.input.modelEcoBadgeHint')"
+              >
+                <v-icon size="11" class="mr-1">mdi-leaf-circle-outline</v-icon>
+                ECO
+              </span>
+            </div>
             <div v-if="characterName" class="nest-mono nest-chat-char">
               {{ t('chat.with', { name: characterName }) }}
             </div>
@@ -1148,20 +1246,27 @@ async function requestReplyFromLastUser() {
           </div>
         </div>
 
-        <!-- Jump-to-bottom pill. Only shown when the user has scrolled
-             up AND new content has landed below — removes the "why
-             isn't it scrolling?!" panic without forcibly yanking the
-             viewport during a long stream the user is reading above. -->
+        <!-- Jump-to-bottom button.
+             Shown whenever the user is not stuck-bottom — this covers
+             both "new content landed off-screen" and "I opened the chat
+             and it didn't auto-scroll" (the original tester complaint).
+             When new messages have actually arrived below, we expand
+             the button into a labelled pill with accent color so the
+             "why isn't it scrolling?!" affordance still pops; otherwise
+             a compact circular icon stays out of the way. -->
         <transition name="nest-fade">
           <button
-            v-if="hasNewBelow && !autoStickBottom"
+            v-if="!autoStickBottom"
             class="nest-jump-bottom"
+            :class="{ 'has-new': hasNewBelow }"
             type="button"
             :title="t('chat.jumpToBottom')"
             @click="jumpToBottom"
           >
-            <v-icon size="16">mdi-arrow-down</v-icon>
-            <span>{{ t('chat.jumpToBottom') }}</span>
+            <v-icon size="18">mdi-arrow-down</v-icon>
+            <span v-if="hasNewBelow" class="nest-jump-bottom-label">
+              {{ t('chat.jumpToBottom') }}
+            </span>
           </button>
         </transition>
 
@@ -1384,6 +1489,13 @@ async function requestReplyFromLastUser() {
   background: var(--nest-bg);
   overflow: hidden;
   min-height: 0;
+  transition: grid-template-columns var(--nest-transition-base);
+}
+// M52.9 — collapsed sidebar shrinks the grid track to 44px (just enough
+// for the chevron toggle). User clicks chevron again to expand back to
+// 280px.
+.nest-chat-layout.is-list-collapsed {
+  grid-template-columns: 44px 1fr;
 }
 
 .nest-chat-sidebar {
@@ -1401,6 +1513,30 @@ async function requestReplyFromLastUser() {
   min-width: 0;
   min-height: 0;
   height: 100%;                  // anchor the flex container to the grid cell
+  overflow: hidden;              // clip the blurred bg-image pseudo edges
+
+  // M52.8 → M52.11 — chat background image lives on a ::before pseudo
+  // so we can apply `filter: blur()` to ONLY the image without blurring
+  // the chat content. The slider in Appearance ("Размытие фона") drives
+  // `--nest-blur`; before this the slider was wired but no CSS consumed
+  // it — moved decoration only.
+  //
+  // `inset: -24px` extends the pseudo past the container so the blur's
+  // soft edges don't cut at the borders. The parent's `overflow: hidden`
+  // crops the overflow back to the visible area.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -24px;
+    z-index: -1;
+    background-image: var(--nest-bg-image, none);
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    filter: blur(var(--nest-blur, 0));
+    pointer-events: none;
+  }
 }
 
 .nest-chat-empty {
@@ -1411,6 +1547,42 @@ async function requestReplyFromLastUser() {
   padding: 40px;
   text-align: center;
   color: var(--nest-text-muted);
+}
+// M52.11 — when bg-image is active, the empty-state text + icon were
+// nearly invisible against the busy image. Wrap the inner content in
+// a frosted-glass card so it pops. Pure CSS via :is() pseudo on body
+// data-attr — empty-state styling is only adjusted while a bg-image
+// is set, default look unchanged.
+body[data-nest-bg] .nest-chat-empty {
+  > * {
+    /* Each direct child (icon, h2, subtitle, button) is centered already
+       by the parent's grid; we just want the visual card around them all. */
+  }
+  /* Use a contained box rather than full-width: keeps the card tidy on
+     wide viewports where the whole empty-area would be a giant glass
+     panel covering all the bg-image. */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: min(420px, 80%);
+    height: 220px;
+    background: color-mix(in srgb, var(--nest-bg-elevated) 70%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--nest-border);
+    border-radius: var(--nest-radius);
+    z-index: 0;
+  }
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+/* Empty-state must be position-relative for the ::after positioning above. */
+.nest-chat-empty {
+  position: relative;
 }
 
 .nest-chat-header {
@@ -1496,6 +1668,23 @@ async function requestReplyFromLastUser() {
   font-size: 18px;
   font-weight: 500;
   color: var(--nest-text);
+}
+
+// M55.4 — ECO chip next to the chat name. Same green palette as
+// the picker badge so users associate the indicator across surfaces.
+.nest-eco-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  border-radius: var(--nest-radius-pill);
+  color: rgb(46, 134, 52);
+  background: rgba(46, 134, 52, 0.12);
+  border: 1px solid rgba(46, 134, 52, 0.4);
+  vertical-align: middle;
+  cursor: help;
 }
 .nest-chat-char {
   font-size: 11px;
@@ -1697,6 +1886,9 @@ async function requestReplyFromLastUser() {
 
 // Jump-to-bottom pill — floats above the input, only when the user
 // has scrolled up AND new content arrived below.
+// Default = compact circular icon-only button. Always visible while
+// the user isn't stuck-bottom. Becomes a labelled accent pill when
+// `.has-new` is added (something actually arrived below).
 .nest-jump-bottom {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 88px);
@@ -1704,25 +1896,42 @@ async function requestReplyFromLastUser() {
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 14px 6px 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   font-size: 12.5px;
   line-height: 1;
-  // Keyword fallback — DS contract forbids hex in components. `white`
-  // is a CSS keyword, portable across themes; authors override via
-  // --nest-text-on-accent when they want brand-specific contrast.
-  color: var(--nest-text-on-accent, white);
-  background: var(--nest-accent);
-  border: 0;
-  // Token instead of hardcoded 999 — both yield a pill.
+  color: var(--nest-text);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border);
   border-radius: var(--nest-radius-pill);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   z-index: 5;
-  transition: transform var(--nest-transition-fast), box-shadow var(--nest-transition-fast);
+  transition:
+    transform var(--nest-transition-fast),
+    box-shadow var(--nest-transition-fast),
+    background var(--nest-transition-fast),
+    color var(--nest-transition-fast),
+    width var(--nest-transition-fast);
 
   &:hover { transform: translateX(-50%) translateY(-1px); }
   &:active { transform: translateX(-50%) scale(0.97); }
+
+  // Labelled state: there's actually new content below. Pop the accent
+  // colour and expand to fit the label so it nags the user.
+  &.has-new {
+    width: auto;
+    padding: 6px 14px 6px 10px;
+    color: var(--nest-text-on-accent, white);
+    background: var(--nest-accent);
+    border-color: transparent;
+  }
+}
+.nest-jump-bottom-label {
+  white-space: nowrap;
 }
 .nest-fade-enter-active, .nest-fade-leave-active {
   transition: opacity 0.15s ease, transform 0.15s ease;

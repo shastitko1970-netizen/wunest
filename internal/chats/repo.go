@@ -436,6 +436,52 @@ func (r *Repository) SetPersona(ctx context.Context, userID, id uuid.UUID, perso
 	return nil
 }
 
+// SetThemePreset writes (or clears) chat_metadata.theme_preset.
+//
+// M51 Sprint 3 wave 2 — per-chat theme override. When a chat has a
+// theme_preset set, the SPA applies that preset on chat-mount and
+// reverts to the user-default appearance.themePreset on unmount.
+// We don't validate the preset id at SQL layer — the registry is a
+// frontend concern; sending an unknown id at most surfaces a friendly
+// fallback ("unknown theme: ...") at apply time, no DB corruption.
+//
+// Pattern mirrors SetPersona: empty string clears, non-empty stores.
+// Sibling metadata (sampler, authors_note, etc.) is preserved.
+func (r *Repository) SetThemePreset(ctx context.Context, userID, id uuid.UUID, preset string) error {
+	preset = strings.TrimSpace(preset)
+	if preset == "" {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'theme_preset',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear theme preset: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+	// to_jsonb($3) wraps the text id as a JSON string value.
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{theme_preset}', to_jsonb($3::text), true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id, preset)
+	if err != nil {
+		return fmt.Errorf("set theme preset: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // SetAuthorsNote writes or clears chat_metadata.authors_note. Pass nil to
 // remove the key entirely. Sibling metadata (sampler, persona_id) stays put.
 func (r *Repository) SetAuthorsNote(ctx context.Context, userID, id uuid.UUID, note *AuthorsNote) error {
@@ -615,6 +661,47 @@ func (r *Repository) SetBYOK(ctx context.Context, userID, id, byokID uuid.UUID) 
 	tag, err := r.pg.Exec(ctx, q, userID, id, byokID.String())
 	if err != nil {
 		return fmt.Errorf("set byok_id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetEcoMode writes chat_metadata.eco_mode (M55 — WuEco virtual provider).
+//
+// When true, the SPA prefers the eco-mode (`:lite`) variant of any
+// model the user picks for this chat, and `ecoActive` indicators
+// surface in the chat header. Backend doesn't gate on this flag —
+// the model id arriving with `:lite` suffix is what triggers the
+// server-side caps (see internal/proxy/eco.go on the WuApi side).
+// We just persist the SPA's preference here so chat reopens remember it.
+func (r *Repository) SetEcoMode(ctx context.Context, userID, id uuid.UUID, enabled bool) error {
+	if !enabled {
+		const clear = `
+			UPDATE nest_chats
+			   SET chat_metadata = chat_metadata - 'eco_mode',
+			       updated_at = NOW()
+			 WHERE user_id = $1 AND id = $2
+		`
+		tag, err := r.pg.Exec(ctx, clear, userID, id)
+		if err != nil {
+			return fmt.Errorf("clear eco_mode: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	}
+	const q = `
+		UPDATE nest_chats
+		   SET chat_metadata = jsonb_set(COALESCE(chat_metadata, '{}'::jsonb), '{eco_mode}', 'true'::jsonb, true),
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND id = $2
+	`
+	tag, err := r.pg.Exec(ctx, q, userID, id)
+	if err != nil {
+		return fmt.Errorf("set eco_mode: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

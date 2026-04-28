@@ -1,0 +1,18 @@
+{
+  "id": "nest-default-dark",
+  "label": "Nest — dark",
+  "description": "Фирменная тёмная тема. Серый-угольный фон, coral-акцент.",
+  "kind": "dark",
+  "pair": "nest-default-light",
+  "accent": "#ef4444",
+  "order": 10,
+  "css": "nest-default-dark.css",
+  "swatches": {
+    "bg": "#080808",
+    "surface": "#141414",
+    "border": "#222222",
+    "text": "#f0f0f0",
+    "accent": "#ef4444",
+    "accentOn": "#ffffff"
+  }
+}

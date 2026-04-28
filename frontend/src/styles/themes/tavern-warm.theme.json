@@ -1,0 +1,17 @@
+{
+  "id": "tavern-warm",
+  "label": "Tavern warm",
+  "description": "Теплый янтарный. Роудтрип-эстетика старой корчмы.",
+  "kind": "dark",
+  "accent": "#d4904a",
+  "order": 50,
+  "css": "tavern-warm.css",
+  "swatches": {
+    "bg": "#1a130a",
+    "surface": "#2a1f12",
+    "border": "#6b4a2a",
+    "text": "#f4e4c1",
+    "accent": "#d4904a",
+    "accentOn": "#1a130a"
+  }
+}

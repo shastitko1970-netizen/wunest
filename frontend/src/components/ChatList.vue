@@ -12,6 +12,11 @@ const router = useRouter()
 const store = useChatsStore()
 const { list, currentId, listLoading, listError } = storeToRefs(store)
 
+// M52.9 — collapsible state lifted to parent (Chat.vue) via v-model.
+// Chat.vue persists to localStorage and adjusts the grid-template-columns
+// of `.nest-chat-layout` when collapsed=true.
+const collapsed = defineModel<boolean>('collapsed', { default: false })
+
 const importInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
 const importNotice = ref<string | null>(null)
@@ -92,10 +97,20 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <div class="nest-chatlist">
+  <div class="nest-chatlist" :class="{ 'is-collapsed': collapsed }">
     <div class="nest-chatlist-header">
-      <span class="nest-eyebrow">{{ t('chat.list.title') }}</span>
-      <div class="d-flex ga-1 align-center">
+      <span v-if="!collapsed" class="nest-eyebrow">{{ t('chat.list.title') }}</span>
+      <!-- Collapse toggle (M52.9). Single chevron, persistent state.
+           Flips to mdi-chevron-right when collapsed so the icon's
+           direction matches the action it'll take next. -->
+      <v-btn
+        size="x-small"
+        variant="text"
+        :icon="collapsed ? 'mdi-chevron-right' : 'mdi-chevron-left'"
+        :title="collapsed ? t('chat.list.expand') : t('chat.list.collapse')"
+        @click="collapsed = !collapsed"
+      />
+      <div v-if="!collapsed" class="d-flex ga-1 align-center">
         <v-btn
           size="x-small"
           variant="text"
@@ -120,6 +135,11 @@ async function confirmDelete() {
       </div>
     </div>
 
+    <!-- M52.9 — Everything below header hidden when collapsed.
+         The `.is-collapsed` class on root ALSO sets `overflow: hidden`
+         so any leftover content from running animations is clipped
+         while the sidebar shrinks. -->
+    <template v-if="!collapsed">
     <v-alert
       v-if="importError"
       type="error"
@@ -198,6 +218,7 @@ async function confirmDelete() {
         </div>
       </div>
     </template>
+    </template>
 
     <!-- Confirm-delete dialog. Message-count + chat name surface so a user
          who's drunk/tired (their words) has one last chance to bail on
@@ -256,6 +277,18 @@ function groupByDay(chats: Chat[]): Record<'today' | 'yesterday' | 'week' | 'old
   flex-direction: column;
   padding: 12px 8px;
   overflow-y: auto;
+  transition: padding var(--nest-transition-base);
+}
+// M52.9 — Collapsed state: narrow icon-strip showing only the toggle.
+// Width is also pinned to ~36px (full collapse) — parent grid in Chat.vue
+// reads this state via v-model to also shrink the grid track.
+.nest-chatlist.is-collapsed {
+  padding: 12px 4px;
+  align-items: center;
+  overflow: hidden;
+  .nest-chatlist-header {
+    justify-content: center;
+  }
 }
 .nest-chatitem-tags {
   display: flex;

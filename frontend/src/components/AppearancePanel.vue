@@ -25,7 +25,11 @@ const { appearance, saving } = storeToRefs(store)
 const themeStore = useThemeStore()
 const { currentId: currentThemeId, loading: themeLoading } = storeToRefs(themeStore)
 async function pickTheme(id: ThemePreset) {
-  await themeStore.apply(id)
+  // M51 Sprint 2 wave 3 — userPick (not apply) so an explicit
+  // manual selection disables `followSystemTheme`. Otherwise a user
+  // who toggled "follow system" then picked a preset would fight
+  // with the listener on the next OS-flip.
+  await themeStore.userPick(id)
 }
 
 // Bind sliders to writable refs so we can patch the store on change without
@@ -46,6 +50,111 @@ const accent = computed<string>({
   get: () => appearance.value.accent ?? '',
   set: v => store.update({ accent: v || undefined }),
 })
+
+// M51 Sprint 2 wave 1 — main text + border colors got first-class
+// controls too. Previously they only entered via ST import (`fromST`
+// writes them) — no manual edit path.
+const mainTextColor = computed<string>({
+  get: () => appearance.value.mainTextColor ?? '',
+  set: v => store.update({ mainTextColor: v || undefined }),
+})
+const borderColor = computed<string>({
+  get: () => appearance.value.borderColor ?? '',
+  set: v => store.update({ borderColor: v || undefined }),
+})
+
+// M51 Sprint 2 wave 1 — first-class background + text-hierarchy
+// controls. Same pattern as accent: native <input type="color"> for
+// pick + a v-text-field for paste/clear. Empty string clears the
+// override and lets the active preset's CSS cascade win again.
+const bgColor = computed<string>({
+  get: () => appearance.value.bgColor ?? '',
+  set: v => store.update({ bgColor: v || undefined }),
+})
+const surfaceColor = computed<string>({
+  get: () => appearance.value.surfaceColor ?? '',
+  set: v => store.update({ surfaceColor: v || undefined }),
+})
+const textSecondaryColor = computed<string>({
+  get: () => appearance.value.textSecondaryColor ?? '',
+  set: v => store.update({ textSecondaryColor: v || undefined }),
+})
+const textMutedColor = computed<string>({
+  get: () => appearance.value.textMutedColor ?? '',
+  set: v => store.update({ textMutedColor: v || undefined }),
+})
+
+// M52.3 — uniform icon colour. Drives --nest-icon-color, applied to
+// all decorative .mdi icons (topbar nav, drawer chrome, dialog actions
+// etc.). Vuetify-coloured semantic icons (color="error/success/...")
+// stay intact via the :not([class*="text-"]) exclusion in CSS.
+const iconColor = computed<string>({
+  get: () => appearance.value.iconColor ?? '',
+  set: v => store.update({ iconColor: v || undefined }),
+})
+
+// M51 Sprint 2 wave 1 — typography family picker. Five named presets
+// + 'custom'. When custom is selected the text-field becomes the
+// canonical value (literal CSS font-family stack). Picking another
+// preset writes the enum and the text-field clears.
+const fontFamilyOptions: Array<{ value: string; label: string }> = [
+  { value: '',       label: 'Default (preset)' },
+  { value: 'system', label: 'System UI' },
+  { value: 'sans',   label: 'Sans (Outfit)' },
+  { value: 'serif',  label: 'Serif (Fraunces)' },
+  { value: 'mono',   label: 'Mono (JetBrains Mono)' },
+  { value: 'custom', label: 'Custom stack…' },
+]
+const fontFamilyPick = computed<string>({
+  get: () => {
+    const v = appearance.value.fontFamily
+    if (!v) return ''
+    if (['system', 'sans', 'serif', 'mono'].includes(v)) return v
+    return 'custom'
+  },
+  set: v => {
+    if (v === '') store.update({ fontFamily: undefined })
+    else if (v === 'custom') {
+      // No-op until user types something — keep current custom value
+      // if it was already there. Otherwise seed with empty so the
+      // text-field shows up.
+      if (!appearance.value.fontFamily || ['system', 'sans', 'serif', 'mono'].includes(appearance.value.fontFamily)) {
+        store.update({ fontFamily: ' ' })  // sentinel; user replaces
+      }
+    } else store.update({ fontFamily: v })
+  },
+})
+const fontFamilyCustom = computed<string>({
+  get: () => {
+    const v = appearance.value.fontFamily
+    if (!v || ['system', 'sans', 'serif', 'mono'].includes(v)) return ''
+    return v.trim()
+  },
+  set: v => store.update({ fontFamily: v.trim() || undefined }),
+})
+
+// M51 Sprint 2 wave 1 — radius scale slider. Just writes the
+// multiplier; tokens consume via calc(). 1 = stock; below = sharper;
+// above = rounder. Snap to 0.05 for predictable feel.
+const radiusScale = computed<number>({
+  get: () => appearance.value.radiusScale ?? 1,
+  set: v => store.update({ radiusScale: Math.round(v * 20) / 20 }),
+})
+
+// M51 Sprint 2 wave 3 — follow OS dark/light setting. Toggling on
+// also synchronously kicks the matchMedia listener; toggling off
+// detaches it. The current preset stays as-is on detach (we don't
+// auto-revert to themePreset — surprising behaviour).
+const followSystemTheme = computed<boolean>({
+  get: () => appearance.value.followSystemTheme === true,
+  set: v => {
+    store.update({ followSystemTheme: v })
+    // Sync the listener immediately rather than waiting for a fetch
+    // round-trip. The store already has the new flag from update().
+    themeStore.syncSystemPrefListener(v)
+  },
+})
+
 const bgImage = computed<string>({
   get: () => appearance.value.bgImageUrl ?? '',
   set: v => store.update({ bgImageUrl: v || undefined }),
@@ -323,9 +432,21 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           @click="pickTheme(p.id)"
         >
           <!-- Mini-preview: accent stripe + background + two bubble chips.
-               Uses CSS variables the theme defines, so the preview
-               updates automatically if tokens change. -->
-          <div class="nest-theme-preview" :data-theme-id="p.id">
+               M51 Sprint 3 wave 1 — colours come from the manifest's
+               `swatches` block, set inline as CSS custom properties so
+               the preview is faithful to each preset before the user
+               picks it. Adding a 6th theme is one manifest, no SCSS
+               edits here. User-bubble derived via color-mix to get a
+               consistent accent-tinted bubble without needing extra
+               manifest fields. -->
+          <div
+            class="nest-theme-preview"
+            :style="{
+              '--sw-bg':     p.swatches.bg,
+              '--sw-msg':    p.swatches.surface,
+              '--sw-accent': p.swatches.accent,
+            }"
+          >
             <div class="nest-theme-preview-bg" />
             <div class="nest-theme-preview-msg" />
             <div class="nest-theme-preview-msg user" />
@@ -415,7 +536,260 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
       </div>
     </div>
 
-    <!-- Colors -->
+    <!-- M51 Sprint 2 wave 1 — Surfaces & text palette.
+         Six color tokens that previously required raw CSS or an ST
+         import. Inline color picker + text-field; clear ⇒ preset
+         cascade wins again. Grouped logically: backgrounds row,
+         text-hierarchy row, and accent/border below. -->
+    <div class="nest-eyebrow nest-section-eyebrow">{{ t('appearance.palette.surfaces') }}</div>
+    <div class="nest-grid">
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.bg') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="bgColor || '#080808'"
+            @input="e => bgColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="bgColor"
+            placeholder="#080808"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="bgColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="bgColor = ''"
+          />
+        </div>
+      </div>
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.surface') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="surfaceColor || '#141414'"
+            @input="e => surfaceColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="surfaceColor"
+            placeholder="#141414"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="surfaceColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="surfaceColor = ''"
+          />
+        </div>
+      </div>
+    </div>
+    <div class="nest-grid">
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.mainText') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="mainTextColor || '#f0f0f0'"
+            @input="e => mainTextColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="mainTextColor"
+            placeholder="#f0f0f0"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="mainTextColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="mainTextColor = ''"
+          />
+        </div>
+      </div>
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.textSecondary') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="textSecondaryColor || '#a8a8a8'"
+            @input="e => textSecondaryColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="textSecondaryColor"
+            placeholder="auto"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="textSecondaryColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="textSecondaryColor = ''"
+          />
+        </div>
+      </div>
+    </div>
+    <div class="nest-grid">
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.textMuted') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="textMutedColor || '#727272'"
+            @input="e => textMutedColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="textMutedColor"
+            placeholder="auto"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="textMutedColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="textMutedColor = ''"
+          />
+        </div>
+      </div>
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.border') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="borderColor || '#222222'"
+            @input="e => borderColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="borderColor"
+            placeholder="#222222"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="borderColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="borderColor = ''"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Icon colour (M52.3) — single field, не делит grid с другим
+         цветом потому что концептуально стоит отдельно: «цвет всех
+         декоративных иконок в апе». Vuetify-coloured semantic icons
+         (error/success/warning) сохраняют свой цвет. -->
+    <div class="nest-grid">
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.icons') }}</label>
+        <div class="d-flex align-center ga-2">
+          <input
+            type="color"
+            class="nest-color-swatch"
+            :value="iconColor || '#888888'"
+            @input="e => iconColor = (e.target as HTMLInputElement).value"
+          />
+          <v-text-field
+            v-model="iconColor"
+            placeholder="auto"
+            density="compact"
+            hide-details
+            style="flex: 1"
+          />
+          <v-btn
+            v-if="iconColor"
+            size="small"
+            variant="text"
+            icon="mdi-close"
+            :title="t('appearance.palette.clearOverride')"
+            @click="iconColor = ''"
+          />
+        </div>
+        <div class="nest-hint nest-hint--md mt-1">
+          {{ t('appearance.palette.iconsHint') }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Typography (M51 Sprint 2 wave 1) — single picker that drives
+         both --nest-font-body and --nest-font-display. Custom value
+         opens a text field for a literal CSS font-family stack. -->
+    <div class="nest-eyebrow nest-section-eyebrow mt-4">{{ t('appearance.palette.typography') }}</div>
+    <div class="nest-grid">
+      <div class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.fontFamily') }}</label>
+        <v-select
+          :model-value="fontFamilyPick"
+          @update:model-value="v => fontFamilyPick = v"
+          :items="fontFamilyOptions"
+          item-title="label"
+          item-value="value"
+          density="compact"
+          hide-details
+        />
+      </div>
+      <div v-if="fontFamilyPick === 'custom'" class="nest-field">
+        <label class="nest-field-label">{{ t('appearance.palette.fontFamilyCustom') }}</label>
+        <v-text-field
+          v-model="fontFamilyCustom"
+          placeholder='"Inter", system-ui, sans-serif'
+          density="compact"
+          hide-details
+        />
+      </div>
+    </div>
+
+    <!-- Radius scale (M51 Sprint 2 wave 1) — single slider that
+         multiplies sm/base/lg radii via --nest-radius-scale. -->
+    <div class="nest-field mt-4">
+      <label class="nest-field-label">
+        {{ t('appearance.palette.radiusScale') }}
+        <span class="nest-mono">{{ radiusScale.toFixed(2) }}×</span>
+      </label>
+      <v-slider
+        v-model="radiusScale"
+        :min="0.5"
+        :max="2"
+        :step="0.05"
+        thumb-label
+        hide-details
+        color="primary"
+      />
+    </div>
+
+    <!-- Accent + bg image — kept in their own grid (visual + asset
+         pickers, not raw color tokens). -->
+    <div class="nest-eyebrow nest-section-eyebrow mt-4">{{ t('appearance.palette.accentAndBg') }}</div>
     <div class="nest-grid">
       <div class="nest-field">
         <label class="nest-field-label">{{ t('appearance.accent') }}</label>
@@ -465,7 +839,6 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
             v-if="bgImage"
             size="small"
             variant="text"
-            color="error"
             icon="mdi-close"
             :title="t('appearance.bgClear')"
             @click="bgImage = ''"
@@ -525,8 +898,20 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         color="primary"
         inset
       />
+      <!-- M51 Sprint 2 wave 3 — follow OS dark/light. Disabled by
+           default (opt-in). Toggling on attaches the matchMedia
+           listener and immediately re-evaluates the system pref.
+           Manual preset picks afterwards turn this back off. -->
+      <v-switch
+        v-model="followSystemTheme"
+        :label="t('appearance.followSystem')"
+        hide-details
+        color="primary"
+        inset
+      />
     </div>
     <p class="nest-subtitle nest-html-hint">{{ t('appearance.htmlRenderingHint') }}</p>
+    <p class="nest-subtitle nest-html-hint">{{ t('appearance.followSystemHint') }}</p>
 
     <!-- Custom CSS — collapsed by default, summary shows theme name + line count -->
     <div class="nest-field nest-css-block">
@@ -872,15 +1257,11 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   aspect-ratio: 1 / 1;
   border-radius: var(--nest-radius-sm);
   overflow: hidden;
-  // Per-preview theme colours. Uses the `data-theme-id` attribute so we
-  // can show a faithful mini of each preset even before the user picks
-  // it — no live CSS var inheritance from global (which would show the
-  // SAME palette for every card).
-  &[data-theme-id="nest-default-dark"]    { background: #080808; --sw-accent: #ef4444; --sw-msg: #141414; --sw-user: #2a1818; }
-  &[data-theme-id="nest-default-light"]   { background: #fafaf7; --sw-accent: #ef4444; --sw-msg: #ffffff; --sw-user: #fff0f0; }
-  &[data-theme-id="cyber-neon"]           { background: #0a0612; --sw-accent: #c485ff; --sw-msg: #150a20; --sw-user: #2a1740; }
-  &[data-theme-id="minimal-reader"]       { background: #fbfaf5; --sw-accent: #6b5c4a; --sw-msg: transparent; --sw-user: #f0ece0; }
-  &[data-theme-id="tavern-warm"]          { background: #1a0f07; --sw-accent: #e0a96d; --sw-msg: #2a1a10; --sw-user: #3a2418; }
+  // M51 Sprint 3 wave 1 — colours come from inline CSS vars set on the
+  // element from the manifest's swatches. No more per-id selectors.
+  // `--sw-bg` paints the canvas; `--sw-msg` is the bot bubble fill;
+  // `--sw-accent` is the brand stripe.
+  background: var(--sw-bg, #080808);
 }
 .nest-theme-preview-bg {
   position: absolute; inset: 0;
@@ -891,13 +1272,16 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   top: 16px;
   height: 10px;
   border-radius: 3px;
-  background: var(--sw-msg);
+  background: var(--sw-msg, #141414);
   border: 1px solid rgba(255, 255, 255, 0.08);
 
+  // User bubble — derived from --sw-msg + --sw-accent via color-mix
+  // so it picks up an accent tint without needing a 7th manifest field.
+  // Browsers without color-mix (legacy) get the unmixed --sw-msg fallback.
   &.user {
     top: 34px;
     left: 20px; right: 8px;
-    background: var(--sw-user);
+    background: color-mix(in srgb, var(--sw-msg, #141414) 70%, var(--sw-accent, #ef4444) 30%);
   }
 }
 .nest-theme-preview-accent {
@@ -985,6 +1369,13 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
+}
+
+// M51 Sprint 2 wave 1 — eyebrow above each new palette sub-section
+// (Surfaces / Typography / Accent+BG). Same color/font as the global
+// .nest-eyebrow but with a tiny top margin so the sections breathe.
+.nest-section-eyebrow {
+  margin: 12px 0 6px;
 }
 .nest-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .nest-field-row {

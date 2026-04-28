@@ -3,6 +3,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -205,9 +207,29 @@ func (s *Server) Router() http.Handler {
 	// "can't sign in on mobile" report. Called by the SPA's Sign-In button
 	// instead of pointing directly at api.wusphere.ru.
 	mux.HandleFunc("GET /auth/start", s.handleAuthStart)
+	// /auth/logout — clears the wu_session cookie (Domain=.wusphere.ru so
+	// the same Set-Cookie header wipes it for nest, api and the marketing
+	// site at once) and best-effort POSTs WuApi's /auth/logout so any
+	// upstream session bookkeeping is also reset. Public — even a stale
+	// or forged cookie should be removable, and we don't want a logout
+	// click to 401-loop the user.
+	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
 	mux.Handle("GET /api/me", authRequired(http.HandlerFunc(s.handleMe)))
 	mux.Handle("GET /api/me/stats", authRequired(http.HandlerFunc(s.handleMeStats)))
 	mux.Handle("GET /api/me/gold/transactions", authRequired(http.HandlerFunc(s.handleGoldTransactions)))
+	// M54.2 — proxy WuApi's subscription detail endpoint so the SPA can
+	// fetch from same-origin without dealing with cross-domain cookies.
+	mux.Handle("GET /api/me/subscription", authRequired(http.HandlerFunc(s.handleMeSubscription)))
+	// M54.4 — proxy WuApi's payment-create to start a Yookassa checkout
+	// for a WuNest subscription. Body shape mirrors WuApi's
+	// createPaymentRequest (passed through verbatim) so the SPA only
+	// needs to hit one origin and follow the returned `payment_url`.
+	mux.Handle("POST /api/pay/create", authRequired(http.HandlerFunc(s.handlePayCreate)))
+	// M54.5 hotfix — proxy WuApi's public pricing catalog so the SPA
+	// hits a same-origin endpoint and avoids CORS preflight against
+	// api.wusphere.ru. Same payload shape; auth not required (catalog
+	// is public on the WuApi side too).
+	mux.HandleFunc("GET /api/pricing", s.handlePricing)
 	mux.Handle("POST /api/me/nest-access/redeem", authRequired(http.HandlerFunc(s.handleNestRedeem)))
 	mux.Handle("GET /api/me/defaults", authRequired(http.HandlerFunc(s.handleGetDefaults)))
 	mux.Handle("PUT /api/me/defaults", authRequired(http.HandlerFunc(s.handleSetDefault)))
@@ -234,6 +256,9 @@ func (s *Server) Router() http.Handler {
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
+	// M55.2 — wu-gold catalog with eco-mode variants. Authed; SPA pulls
+	// here to render the picker's separate "Эко-режим" section.
+	mux.Handle("GET /api/models/catalog", authRequired(http.HandlerFunc(s.handleModelsCatalog)))
 
 	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
 	// routes above take priority. Vue Router handles client-side history.
@@ -304,6 +329,89 @@ func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 	// unchanged — WuApi handles URL-encoding its own way.
 	wuapiLogin := "https://api.wusphere.ru/auth/refresh?return_to=" + url.QueryEscape(returnTo)
 	http.Redirect(w, r, wuapiLogin, http.StatusFound)
+}
+
+// handleAuthLogout clears the wu_session cookie locally and best-effort
+// notifies WuApi so its `/auth/logout` (which also clears the same cookie
+// with Domain=.wusphere.ru) runs upstream. Both clears are belt-and-
+// suspenders: WuApi's response carries a Set-Cookie that wipes the cookie
+// across .wusphere.ru subdomains, but if WuApi is unreachable we still
+// drop the local copy so the user isn't stuck.
+//
+// Always returns 204 — logout must be idempotent. A missing cookie, a
+// 4xx from WuApi, even a network error: all map to "you are now signed
+// out". The SPA redirects to / after this and AppShell's auth-check
+// re-runs on the next paint.
+func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	ua := r.UserAgent()
+	if len(ua) > 140 {
+		ua = ua[:140]
+	}
+
+	// Forward the user's session key to WuApi so it can invalidate any
+	// server-side state and emit its own clearing Set-Cookie. We use a
+	// short detached context so a slow/down WuApi can't stall the user's
+	// click — 3s ceiling, then we just drop the local cookie ourselves.
+	cookie, _ := r.Cookie(s.deps.Config.SessionCookieName)
+	sessFp := ""
+	if cookie != nil && cookie.Value != "" {
+		sessFp = sessionFingerprintShort(cookie.Value)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		body, resp, err := s.deps.WuApi.ProxyPOST(ctx, "/auth/logout", cookie.Value, http.NoBody)
+		if err != nil {
+			slog.Warn("auth_logout",
+				"outcome", "wuapi_unreachable",
+				"sess_fp", sessFp,
+				"err", err.Error(),
+			)
+		} else {
+			// Forward WuApi's Set-Cookie headers — they carry the
+			// canonical Domain=.wusphere.ru clearing instruction. If WuApi
+			// happens to also clear other auxiliary cookies (oauth_state
+			// etc.), we propagate those too.
+			for _, sc := range resp.Header.Values("Set-Cookie") {
+				w.Header().Add("Set-Cookie", sc)
+			}
+			body.Close()
+			slog.Info("auth_logout",
+				"outcome", "wuapi_ok",
+				"sess_fp", sessFp,
+				"upstream_status", resp.StatusCode,
+			)
+		}
+	}
+
+	// Local clear — defensive in case WuApi was down or didn't include a
+	// Set-Cookie. Same Domain/Path/SameSite as setSessionCookie on WuApi
+	// so the browser overwrites the existing cookie with this expired one.
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.deps.Config.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   s.deps.Config.SessionCookieDomain,
+		HttpOnly: true,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	slog.Info("auth_logout",
+		"outcome", "ok",
+		"sess_fp", sessFp,
+		"ua", ua,
+		"remote", r.RemoteAddr,
+	)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sessionFingerprintShort returns the same 8-hex-char sha256 prefix used by
+// the auth middleware so logout events line up with login events in the log
+// stream. Inlined here rather than exported from auth/ because router.go is
+// the only other place that needs it; if a third caller appears, promote.
+func sessionFingerprintShort(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:4])
 }
 
 // handleAuthCheck reports whether the caller is logged in. Used by the SPA
@@ -420,6 +528,84 @@ func (s *Server) handleMeStats(w http.ResponseWriter, r *http.Request) {
 	body, resp, err := s.deps.WuApi.Proxy(r.Context(), "/api/me/stats", u.WuApi.APIKey)
 	if err != nil {
 		slog.Error("wuapi stats proxy", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
+}
+
+// handlePricing proxies GET /api/pay/prices from WuApi as a same-origin
+// endpoint (M54.5 hotfix).
+//
+// The WuApi catalog itself is public, but cross-origin browser fetches
+// to api.wusphere.ru fail without CORS headers — and we don't want to
+// open up CORS on WuApi just for this one path. Proxying through
+// WuNest keeps the SPA's network requests same-origin and the WuApi
+// CORS surface unchanged.
+//
+// No auth here: pricing is the same regardless of who's looking.
+func (s *Server) handlePricing(w http.ResponseWriter, r *http.Request) {
+	body, resp, err := s.deps.WuApi.Proxy(r.Context(), "/api/pay/prices", "")
+	if err != nil {
+		slog.Error("wuapi pricing proxy", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
+}
+
+// handlePayCreate proxies POST /api/pay/create to WuApi (M54.4).
+//
+// The SPA POSTs the same body it would send directly to WuApi
+// ({type, nest_level, ...}); we just attach the user's WuApi API key
+// as Bearer and forward. WuApi creates the YooKassa payment and
+// returns {payment_url} which the SPA uses to redirect.
+//
+// Why proxy at all: WuNest cookies are scoped to nest.wusphere.ru,
+// not api.wusphere.ru directly. POSTing to api.wusphere.ru from the
+// SPA would either rely on cross-origin cookies (Domain=.wusphere.ru,
+// works but couples WuNest's auth to WuApi's session model) or
+// require the SPA to ferry the API key in headers (leaks it into the
+// SPA bundle). Proxying keeps both authentication and origin tidy.
+func (s *Server) handlePayCreate(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	if u.WuApi.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	body, resp, err := s.deps.WuApi.ProxyPOST(r.Context(), "/api/pay/create", u.WuApi.APIKey, r.Body)
+	if err != nil {
+		slog.Error("wuapi pay/create proxy", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
+}
+
+// handleMeSubscription proxies GET /api/me/subscription from WuApi.
+// Surfaces the user's WuNest subscription state (level, expiry, monthly
+// gold-discount cap usage). The SPA calls this from the subscription
+// store on demand; the compact summary in /api/me already covers the
+// common case (does the user have plus/pro?), so this path is only hit
+// when a screen needs the discount-usage detail.
+func (s *Server) handleMeSubscription(w http.ResponseWriter, r *http.Request) {
+	u := auth.FromContext(r.Context())
+	if u.WuApi.APIKey == "" {
+		http.Error(w, "no api key", http.StatusPreconditionFailed)
+		return
+	}
+	body, resp, err := s.deps.WuApi.Proxy(r.Context(), "/api/me/subscription", u.WuApi.APIKey)
+	if err != nil {
+		slog.Error("wuapi subscription proxy", "err", err)
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
 	}
@@ -608,6 +794,31 @@ func (s *Server) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleModelsCatalog proxies GET /api/models/catalog →
+// WuApi GET /api/catalog/gold?app=wunest&secret=$WUNEST_API_SECRET (M55.2).
+//
+// Catalog itself is public, but only WuNest-authenticated calls
+// receive the `:lite` eco-mode variants — the secret is held
+// server-side and never sent to the SPA. The SPA cannot construct
+// the WuApi URL on its own, so this is the only surface where lite
+// models are fetchable from the browser.
+func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
+	body, resp, err := s.deps.WuApi.GetGoldCatalog(r.Context(), s.deps.Config.WuNestAPISecret)
+	if err != nil {
+		slog.Error("wuapi gold catalog", "err", err)
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	// Cache shorter than the public side (60s) — eco metadata can
+	// change between deploys and we don't want stale caps lingering
+	// in the SPA's memory.
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, body)
 }
 
 // handleModels proxies GET /api/models → WuApi GET /v1/models using the

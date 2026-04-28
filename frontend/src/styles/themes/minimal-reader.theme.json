@@ -1,0 +1,18 @@
+{
+  "id": "minimal-reader",
+  "label": "Minimal reader",
+  "description": "Максимальная плотность текста без декора — для длинных чтений.",
+  "kind": "light",
+  "pair": "cyber-neon",
+  "accent": "#555555",
+  "order": 40,
+  "css": "minimal-reader.css",
+  "swatches": {
+    "bg": "#fafafa",
+    "surface": "#ffffff",
+    "border": "#eaeaea",
+    "text": "#1a1a1a",
+    "accent": "#555555",
+    "accentOn": "#ffffff"
+  }
+}

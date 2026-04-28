@@ -115,6 +115,20 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "base_url required for custom provider", http.StatusBadRequest)
 		return
 	}
+	// Provider blocklist — refuse to host BYOK keys for known bad-actor
+	// services. Independent of `provider` (custom/openai/etc) since users
+	// can put any host into base_url; we match on the URL's host.
+	if reason, ok := isBlockedProvider(req.BaseURL); ok {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"kind":            "blocked_provider",
+			"provider_host":   reason.Host,
+			"provider_label":  reason.Label,
+			"message":         reason.Message,
+		})
+		return
+	}
 	created, err := h.Repo.Create(r.Context(), CreateInput{
 		UserID:   user.ID,
 		Provider: req.Provider,

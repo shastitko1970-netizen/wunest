@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { charactersApi, type Character } from '@/api/characters'
+import { isLimitReached } from '@/api/client'
+import { useSubscriptionStore } from '@/stores/subscription'
 
 export const useCharactersStore = defineStore('characters', () => {
   const items = ref<Character[]>([])
@@ -27,15 +29,32 @@ export const useCharactersStore = defineStore('characters', () => {
 
   // Accepts PNG or JSON — backend sniffs the magic bytes.
   async function importCard(file: File): Promise<Character> {
-    const created = await charactersApi.importCard(file)
-    items.value = [created, ...items.value]
-    return created
+    try {
+      const created = await charactersApi.importCard(file)
+      items.value = [created, ...items.value]
+      return created
+    } catch (e) {
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
   }
 
   async function create(input: Partial<Character>): Promise<Character> {
-    const created = await charactersApi.create(input)
-    items.value = [created, ...items.value]
-    return created
+    try {
+      const created = await charactersApi.create(input)
+      items.value = [created, ...items.value]
+      return created
+    } catch (e) {
+      // M54.2 — slot cap from server. Surface global dialog (CharacterCard,
+      // NewCharacterDialog and BrowseLibrary all flow through here, one
+      // catch covers them all).
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
   }
 
   async function update(id: string, patch: Partial<Character>): Promise<Character> {
@@ -66,12 +85,21 @@ export const useCharactersStore = defineStore('characters', () => {
   })
 
   // Derived: filtered view.
+  // M53 — search now matches name + description + tags. Previously only
+  // name, which was misleading when 100+ characters share generic names
+  // (e.g. "Alice") but distinct descriptions. Tags also searchable for
+  // quick lookup without picking a tag chip.
   const filtered = computed(() => {
     const q = query.value.trim().toLowerCase()
     return items.value.filter(c => {
       if (favoriteOnly.value && !c.favorite) return false
       if (activeTag.value && !c.tags.includes(activeTag.value)) return false
-      if (q && !c.name.toLowerCase().includes(q)) return false
+      if (q) {
+        const nameHit = c.name.toLowerCase().includes(q)
+        const descHit = c.data?.description?.toLowerCase().includes(q) ?? false
+        const tagHit = c.tags.some(t => t.toLowerCase().includes(q))
+        if (!nameHit && !descHit && !tagHit) return false
+      }
       return true
     })
   })

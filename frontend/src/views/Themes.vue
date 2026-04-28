@@ -38,72 +38,14 @@ const { authenticated } = storeToRefs(auth)
 const themeStore = useThemeStore()
 const { currentId, presets } = storeToRefs(themeStore)
 
-// Swatch data is NOT read from the live DOM — this page must render
-// correctly under any active preset (including user's choice). Colours
-// are hard-coded from the preset `.css` files; if we add a preset we
-// add a swatch-strip entry here. Keeping this manual is a deliberate
-// trade-off — the alternative (parsing the preset CSS at runtime) is
-// fragile and adds build-time weight for a 5-item gallery.
-interface PresetSwatch {
-  id: ThemePreset
-  bg: string
-  surface: string
-  border: string
-  text: string
-  accent: string
-  accentOn: string  // safe text colour over accent (bubble CTA)
-}
-const SWATCHES: Record<ThemePreset, PresetSwatch> = {
-  'nest-default-dark': {
-    id: 'nest-default-dark',
-    bg:      '#080808',
-    surface: '#141414',
-    border:  '#222222',
-    text:    '#f0f0f0',
-    accent:  '#ef4444',
-    accentOn:'#ffffff',
-  },
-  'nest-default-light': {
-    id: 'nest-default-light',
-    bg:      '#FAFAF7',
-    surface: '#FFFFFF',
-    border:  '#E2DFD6',
-    text:    '#141412',
-    accent:  '#ef4444',
-    accentOn:'#ffffff',
-  },
-  'cyber-neon': {
-    id: 'cyber-neon',
-    bg:      '#0a0612',
-    surface: '#150a20',
-    border:  '#3c1e50',
-    text:    '#f1d1ff',
-    accent:  '#c485ff',
-    accentOn:'#1a0a24',
-  },
-  'minimal-reader': {
-    id: 'minimal-reader',
-    bg:      '#fafafa',
-    surface: '#ffffff',
-    border:  '#eaeaea',
-    text:    '#1a1a1a',
-    accent:  '#555555',
-    accentOn:'#ffffff',
-  },
-  'tavern-warm': {
-    id: 'tavern-warm',
-    bg:      '#1a130a',
-    surface: '#2a1f12',
-    border:  '#6b4a2a',
-    text:    '#f4e4c1',
-    accent:  '#d4904a',
-    accentOn:'#1a130a',
-  },
-}
-
+// M51 Sprint 3 wave 1 — swatches now live in the per-preset
+// `*.theme.json` manifest (sibling of the CSS file). Single source
+// of truth: `meta.swatches` is the same data the AppearancePanel
+// uses for its mini-previews. Adding a 6th theme is one manifest +
+// one CSS file, no edit here.
 const cards = computed(() => presets.value.map((p: ThemePresetMeta) => ({
   meta: p,
-  swatch: SWATCHES[p.id],
+  swatch: p.swatches,
   pairMeta: p.pair ? presets.value.find(x => x.id === p.pair) : undefined,
 })))
 
@@ -113,7 +55,11 @@ async function apply(id: ThemePreset) {
     window.location.href = `/auth/start?return_to=${returnTo}`
     return
   }
-  await themeStore.apply(id)
+  // M51 Sprint 2 wave 3 — gallery click is a manual pick → userPick
+  // path which also disables follow-system. Otherwise the auto-flip
+  // listener would override the user's gallery selection on next
+  // OS theme change.
+  await themeStore.userPick(id)
 }
 
 function toDocs() {
@@ -164,7 +110,7 @@ function kindLabel(kind: 'dark' | 'light') {
               class="nest-themes-bubble-name"
               :style="{ color: card.swatch.accent }"
             >
-              {{ card.swatch.id === 'tavern-warm' ? 'Bard' : 'Rin' }}
+              {{ card.meta.id === 'tavern-warm' ? 'Bard' : 'Rin' }}
             </div>
             <div class="nest-themes-bubble-body">
               {{ t('themes.preview.sampleBody') }}

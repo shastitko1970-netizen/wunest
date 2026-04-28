@@ -33,6 +33,38 @@ func (c *Client) GetModels(ctx context.Context, apiKey string) (io.ReadCloser, *
 	return &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}, resp, nil
 }
 
+// GetGoldCatalog returns WuApi's gold-catalog response (M55.2). When
+// `wunestSecret` is non-empty the request includes the WuNest-private
+// query parameters that expand the response with `:lite` eco-mode
+// variants. Body is streamed back to the caller verbatim.
+//
+// Catalog is small and public-ish, so we set a short request timeout
+// and don't attach an Authorization header — the secret is the
+// gating mechanism for the lite expansion, not user auth.
+func (c *Client) GetGoldCatalog(ctx context.Context, wunestSecret string) (io.ReadCloser, *http.Response, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+
+	path := "/api/catalog/gold"
+	if wunestSecret != "" {
+		// Avoid full URL escaping for the known-safe values; the secret
+		// is hex from `openssl rand -hex 32`, so no special chars.
+		path += "?app=wunest&secret=" + wunestSecret
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, c.url(path), nil)
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("do request: %w", err)
+	}
+	return &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}, resp, nil
+}
+
 // cancelOnClose ties a context.CancelFunc to an io.Closer so consumers don't
 // need to plumb cancel manually.
 type cancelOnClose struct {

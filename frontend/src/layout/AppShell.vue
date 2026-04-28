@@ -6,8 +6,10 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useAccountStore } from '@/stores/account'
 import { useThemeStore } from '@/stores/theme'
+import { useAppearanceStore } from '@/stores/appearance'
 import { useI18n } from 'vue-i18n'
 import ChatSearchDialog from '@/components/ChatSearchDialog.vue'
+import LimitReachedDialog from '@/components/LimitReachedDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -86,16 +88,13 @@ const isProtectedRoute = computed(() =>
 )
 const showAuthPrompt = computed(() => !authenticated.value && isProtectedRoute.value)
 
-// Beta-access banner — authed user without an activated code. This
-// does NOT block the UI: the user can browse everywhere just like
-// before. Two thin lines at the top say "system locked until you
-// enter a code" with a link to Account. Actual generation endpoints
-// will hard-fail server-side once we wire per-request gating — the
-// banner is purely the "why doesn't anything work?" signpost.
-const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
-const showAccessBanner = computed(() =>
-  authenticated.value && !nestAccessGranted.value,
-)
+// Beta-access banner — disabled 2026-04-25 along with the gate. The
+// computed stays as a constant `false` so the template's v-if branch
+// degrades to dead code without churn — easy to revive if we ever
+// re-enable a closed beta. Originally:
+//   const nestAccessGranted = computed(() => profile.value?.nest_access_granted === true)
+//   const showAccessBanner   = computed(() => authenticated.value && !nestAccessGranted.value)
+const showAccessBanner = computed(() => false)
 
 const displayProfile = computed(() => accountProfile.value ?? profile.value)
 
@@ -106,11 +105,9 @@ interface NavItem {
   disabled?: boolean
 }
 
-// Chat and Library both require an activated beta code — the server
-// would reject any generation / library write anyway. Disable them
-// visibly in the nav so users understand why clicks do nothing, and
-// pass them through to the access banner's CTA (Account) for redemption.
-const gatedDisabled = computed(() => authenticated.value && !nestAccessGranted.value)
+// Chat / Library nav items used to grey out for un-activated users;
+// public access on, so they're always available to anyone signed in.
+const gatedDisabled = computed(() => false)
 
 const navItems = computed<NavItem[]>(() => [
   { to: '/chat',     icon: 'mdi-forum-outline',        label: t('nav.chat'),     disabled: gatedDisabled.value },
@@ -151,6 +148,8 @@ function isNavActive(to: string): boolean {
 // synced to whichever preset is currently active.
 const themeStore = useThemeStore()
 const { current: currentPreset } = storeToRefs(themeStore)
+const appearanceStore = useAppearanceStore()
+const { appearance: appearanceState } = storeToRefs(appearanceStore)
 
 // Keep Vuetify theme name mirrored to the preset's kind.
 //
@@ -168,13 +167,52 @@ const { current: currentPreset } = storeToRefs(themeStore)
 //
 // Writes `nest:theme` back to localStorage so the bootstrap step in
 // main.ts continues to resolve the right theme on next reload.
-watch(() => currentPreset.value.kind, (kind) => {
-  const wanted = kind === 'dark' ? 'nestDark' : 'nestLight'
-  if (vTheme.global.name.value !== wanted) {
-    vTheme.global.name.value = wanted
-    localStorage.setItem('nest:theme', wanted)
-  }
-}, { immediate: true })
+//
+// M51 Sprint 2 wave 1 — also bridge the preset's `accent` (mirroring
+// the CSS file's --SmartThemeQuoteColor) into Vuetify's `primary`
+// palette slot. Without this, `<v-btn color="primary">` stayed coral
+// even on Cyber-neon (magenta accent) — a visible desync the user
+// audit called out. We mutate Vuetify's reactive `themes.value.<n>
+// .colors.primary` directly; Vuetify's CSS-var pipeline observes the
+// reactive ref and re-emits the corresponding `--v-theme-primary`.
+//
+// M52.1 — extend the bridge to also listen to user-level
+// `Appearance.accent` override. Previously, picking a preset set
+// `vTheme.primary = preset.accent`, but writing accent in Appearance
+// only mutated `--nest-accent` inline on :root. CSS-var-driven
+// components honoured the override; Vuetify-driven components
+// (slider thumb, select arrow, focus rings) kept showing the preset
+// accent — visible desync when the user picked a monochrome accent
+// while their preset was cyber-neon.
+//
+// Resolution: user override wins, preset is fallback.
+//   appearance.accent (non-empty)  → vTheme.primary
+//   appearance.accent (empty/null) → preset.accent
+//
+// Watcher tracks both refs; either change recomputes.
+watch(
+  () => [currentPreset.value, appearanceState.value.accent] as const,
+  ([preset, userAccent]) => {
+    const wanted = preset.kind === 'dark' ? 'nestDark' : 'nestLight'
+    if (vTheme.global.name.value !== wanted) {
+      vTheme.global.name.value = wanted
+      localStorage.setItem('nest:theme', wanted)
+    }
+    // User override > preset.accent. We keep `error`/`warning`/
+    // `success`/`info` on the Vuetify defaults — they carry semantic
+    // meaning (success=green, error=red) that should stay stable.
+    // Reset/clear-overlay buttons across the SPA were updated in
+    // M52.1 to use neutral colour instead of `error`, so a chosen
+    // monochrome accent is no longer fighting an unrelated semantic
+    // slot.
+    const effectiveAccent = (userAccent && userAccent.trim()) || preset.accent
+    const targetTheme = vTheme.themes.value[wanted]
+    if (targetTheme && effectiveAccent) {
+      targetTheme.colors.primary = effectiveAccent
+    }
+  },
+  { immediate: true, deep: true },
+)
 
 // ─── Locale picker ──────────────────────────────────────────
 function setLocale(code: string) {
@@ -491,6 +529,11 @@ const localeLabel = (code: string) => {
 
     <!-- Global chat search — Ctrl/⌘+K anywhere in the app. -->
     <ChatSearchDialog v-model="searchOpen" />
+
+    <!-- Global "you hit your slot cap" dialog (M54.2). Opened by any
+         store/handler via subscription.showLimitReached(). One mount
+         here so every Create call site doesn't ship its own copy. -->
+    <LimitReachedDialog />
   </v-layout>
 </template>
 

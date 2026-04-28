@@ -104,7 +104,9 @@ WuNest понимает ST-темы «из коробки». Читаются с
 
 Всё, что ниже, — внутренняя ссылка на фронт. Читателю документа доступ к этим файлам **не нужен**; значения и правила перенесены в `tokens/` и `docs/`.
 
-- `frontend/src/styles/global.scss` — источник токенов
+- `frontend/src/styles/tokens/colors_and_type.css` — **canonical source** для всех `--nest-*` токенов (M51 Sprint 3 wave 1: data-driven theme registry)
+- `frontend/src/styles/global.scss` — base-стили; токены mirror'ятся из `tokens/`, источник истины — `tokens/`
+- `frontend/src/styles/themes/*.theme.json` — манифесты встроенных тем (см. [`themes-authoring.md`](./docs/themes-authoring.md))
 - `frontend/src/plugins/vuetify.ts` — Vuetify-темы `nestDark` / `nestLight`
 - `frontend/src/lib/cssScope.ts` — движок `@scope(#chat)` для пользовательского CSS
 - `frontend/src/stores/appearance.ts` — применение токенов + safe-mode
@@ -116,4 +118,6 @@ WuNest понимает ST-темы «из коробки». Читаются с
 
 ## Статус документа
 
-Эта дизайн-система — **контракт**, не рефакторинг. Часть якорей из `SELECTOR_CONTRACT.md` уже есть в коде, часть предложена к внедрению. Перед финализацией контракта пройдись по списку и отметь: "есть", "добавить", "не нужен". После этого замороженный список становится обещанием авторам тем.
+Эта дизайн-система — **контракт v1**. После M51 (theming sprints 1-3) большинство якорей из `SELECTOR_CONTRACT.md` shipped и используются в живом коде; что осталось aspirational — явно помечено блоком «⚠️ ASPIRATIONAL — не реализовано» в соответствующих секциях `CUSTOMIZATION_SURFACE.md`.
+
+Контракт обещает **public selectors** + **CSS-vars naming** не меняются между minor-версиями. Aspirational-разделы изменятся когда будут реализованы; используй на свой страх и риск.

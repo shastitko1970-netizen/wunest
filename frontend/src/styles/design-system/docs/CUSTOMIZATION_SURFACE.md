@@ -36,6 +36,8 @@
 
 ## 2. Единый язык кнопок
 
+> ⚠️ **ASPIRATIONAL — не реализовано (M51 audit, 2026-04-25)**: целевая форма `.nest-btn` системы. В коде сейчас используется `<v-btn>` от Vuetify. Этот раздел — design intent для будущего отдельного пакета `.nest-btn`, который заменит Vuetify-button'ы или сосуществует с ними. Не пиши тему опираясь на эти классы — их нет на DOM'е.
+
 Все кнопки в продукте — один класс-корень `.nest-btn` + модификаторы. Это закрывает сразу две проблемы: (а) пользователь меняет `--nest-btn-*` один раз, темизуется всё; (б) разработчик не изобретает новые стили в каждом компоненте.
 
 ```html
@@ -78,6 +80,8 @@
 ---
 
 ## 3. Единый toggle
+
+> ⚠️ **ASPIRATIONAL — не реализовано**: `.nest-toggle` пока не существует. Все toggle'ы в WuNest — `<v-switch>` Vuetify. Раздел оставлен как design intent.
 
 ```html
 <label class="nest-toggle">
@@ -124,6 +128,8 @@
 ---
 
 ## 5. Loading screen (инициализация)
+
+> ⚠️ **ASPIRATIONAL — не реализовано**: `<NestLoader>` компонента не существует. Сейчас при загрузке SPA Vue показывает пустой `<div id="app">` ~50ms пока mount'ится bundle, никакого custom loader'а. Раздел — design intent.
 
 Критически важно: экран загрузки **тоже кастомизируется**, потому что это первое, что видит пользователь. Компонент `<NestLoader>` живёт в `index.html` ДО монтирования Vue — поэтому на нём работает тот же набор CSS-переменных из `tokens/colors_and_type.css` (подключён первым ресурсом).
 
@@ -192,36 +198,42 @@ body          { background: var(--nest-bg) var(--nest-bg-image, none) center/cov
 
 ## 8. Профиль темы как JSON (ST-совместимость)
 
-Помимо прямого CSS, поддерживаем импорт **JSON-профилей**. При импорте конвертируем ST-поля в наши переменные:
+> ⚠️ **STATUS NOTE (M51, 2026-04-25)** — этот раздел частично описывает целевое состояние, не текущее. Актуальный mapping см. в [`frontend/src/docs/pages/theming.ru.md`](../../../docs/pages/theming.ru.md) ("JSON-схема"). Здесь — расширенная таблица, к которой стремимся.
+
+Помимо прямого CSS, поддерживаем импорт **JSON-профилей**. Цель — конвертировать ST-поля в наши переменные:
 
 ```
-main_text_color         → --nest-text
-italics_text_color      → --nest-text-italic
-underline_text_color    → --nest-text-underline
-quote_text_color        → --nest-accent
-blur_tint_color         → --nest-bg (rgba OK)
-chat_tint_color         → --nest-chat-bg
-user_mes_blur_tint_color → --nest-msg-user-bg
-bot_mes_blur_tint_color  → --nest-msg-bot-bg
-shadow_color            → --nest-shadow-color
-shadow_width            → --nest-shadow-width (px)
-border_color            → --nest-border
-blur_strength           → --nest-blur (px)
-font_scale              → --nest-font-scale
-avatar_style            → [data-nest-avatar-style] (0→round, 1→square, 2→portrait)
-chat_display            → [data-nest-chat-display] (0→flat, 1→bubbles, 2→document)
-chat_width              → --nest-chat-width (%)
-reduced_motion          → [data-nest-reduced-motion]
-custom_css              → inject в <style> через scope-engine
+main_text_color         → --nest-text                    [✅ M42.4]
+italics_text_color      → --nest-text-italic             [✅ M51 Sprint 1 wave 2 — wired в applyAppearance]
+underline_text_color    → --nest-text-underline          [❌ не реализовано]
+quote_text_color        → --nest-text-quote              [✅ M51 Sprint 1 wave 2 — wired (отдельное поле quoteColor, не italicsColor)]
+blur_tint_color         → --nest-bg (rgba OK)            [❌ дропается на импорт]
+chat_tint_color         → --nest-chat-bg                 [❌ не реализовано]
+user_mes_blur_tint_color → --nest-msg-user-bg            [❌ не реализовано]
+bot_mes_blur_tint_color  → --nest-msg-bot-bg             [❌ не реализовано]
+shadow_color            → --nest-shadow-color            [❌ не реализовано]
+shadow_width            → --nest-shadow-width (px)       [❌ не реализовано]
+border_color            → --nest-border + --nest-accent  [✅ M42.4 — auto-promote в accent]
+blur_strength           → --nest-blur (px)               [✅ M42.4]
+font_scale              → --nest-chat-font-scale         [✅ M42.4 — chat-only scope]
+avatar_style            → [data-nest-avatar-style]       [✅ M42.4 — 0=round, 1=square, 2=portrait]
+chat_display            → [data-nest-chat-display]       [✅ M42.4 — 0=flat, 1=bubbles, 2=document]
+chat_width              → --nest-chat-width (%)          [✅ M42.4]
+reduced_motion          → [data-nest-reduced-motion]     [✅ M42.4]
+custom_css              → inject в <style> через scope-engine  [✅ M42.4]
 ```
 
-Парсер живёт в `frontend/src/lib/stProfileImport.ts`. Неизвестные поля игнорируются, лог в devtools — mod автор видит, что не применилось.
+**Реальный парсер живёт в `frontend/src/api/appearance.ts`** — `fromST()` около строки 139, `toST()` около строки 184. НЕ в `frontend/src/lib/stProfileImport.ts` — этого файла не существует.
+
+Неизвестные поля игнорируются молча. Числа за пределами диапазона клампятся. Невалидные цвета браузер отбрасывает на парсинге.
 
 ---
 
 ## 9. Экспорт
 
-Кнопка "Export theme" в Settings → Appearance собирает все текущие значения CSS-переменных + custom_css в JSON. Профиль переносится на другое устройство или делится ссылкой. Схема — как у ST (для совместимости с чужими пиками), плюс наш блок `nest_ext`:
+> ⚠️ **STATUS NOTE (M51, 2026-04-25)** — `nest_ext` блок ниже сейчас НЕ эмитится `toST()` (`api/appearance.ts:136`). Целевое состояние, не текущее. Текущий экспорт — обычная ST-форма без расширений (для max совместимости).
+
+Кнопка "Export theme" в Settings → Appearance собирает все текущие значения CSS-переменных + custom_css в JSON. Профиль переносится на другое устройство или делится ссылкой. Целевая схема — как у ST (для совместимости с чужими пиками), плюс наш блок `nest_ext`:
 
 ```json
 {
@@ -236,6 +248,8 @@ custom_css              → inject в <style> через scope-engine
   }
 }
 ```
+
+(Будет реализовано когда введём настоящий WuNest theme registry — Sprint 3 в M51-плане.)
 
 ---
 
@@ -264,6 +278,8 @@ custom_css              → inject в <style> через scope-engine
 
 ## 11. Cursor
 
+> ⚠️ **ASPIRATIONAL — не реализовано**: `--nest-cursor-*` переменные на DOM не выставляются. Раздел — design intent.
+
 Курсор — сильный элемент темы (особенно в fantasy / cyber направлениях). Три роли, все переопределяются URL'ом:
 
 ```css
@@ -286,6 +302,8 @@ Fallback на системный курсор обязателен (вторым
 ---
 
 ## 12. Sounds
+
+> ⚠️ **ASPIRATIONAL — не реализовано**: ни `frontend/src/lib/sounds.ts`, ни события message-life-cycle для звуков не существуют. Раздел — design intent.
 
 Звуки — не CSS, но часть темы. Подход такой: в JSON-профиле декларируем URL'ы, фронт в `frontend/src/lib/sounds.ts` слушает события (`message:sent`, `message:received`, `notification`, `error`) и проигрывает `new Audio(url).play()`.
 

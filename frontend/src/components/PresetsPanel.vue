@@ -6,6 +6,7 @@ import { usePresetsStore } from '@/stores/presets'
 import { PRESET_TYPES, type Preset, type PresetType } from '@/api/presets'
 import ImportPresetDialog from '@/components/ImportPresetDialog.vue'
 import PresetEditorForm from '@/components/PresetEditorForm.vue'
+import UsageHintChip from '@/components/UsageHintChip.vue'
 
 /**
  * PresetsPanel — flat list of every preset the user has, with filter chips
@@ -246,6 +247,9 @@ function createForCurrentFilter() {
         </v-menu>
       </div>
     </div>
+
+    <!-- M54.3 — slot usage hint. Total across all preset types. -->
+    <UsageHintChip :used="items.length" class="mb-2" />
 
     <div v-if="loading && !items.length" class="nest-state">
       <v-progress-circular indeterminate color="primary" size="28" />

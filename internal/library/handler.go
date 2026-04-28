@@ -11,6 +11,7 @@ import (
 
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
+	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
@@ -81,6 +82,25 @@ func (h *Handler) chubImport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.writeErr(w, err)
 		return
+	}
+
+	// M54.2 — character slot-cap enforcement. CHUB pulls count the same
+	// as direct creates; otherwise a Free user could amass arbitrary
+	// characters by browsing the public library.
+	session := auth.FromContext(r.Context())
+	if session != nil {
+		count, cerr := h.CharactersRepo.CountByUserID(r.Context(), user.ID)
+		if cerr != nil {
+			slog.Error("chub import: count characters", "err", cerr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if le := limits.Check(session.WuApi.CurrentNestLevel(), limits.ResourceCharacter, count); le != nil {
+			if e, ok := limits.IsLimitReached(le); ok {
+				limits.WriteError(w, e)
+				return
+			}
+		}
 	}
 
 	var req chubImportReq

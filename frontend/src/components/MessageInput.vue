@@ -9,6 +9,7 @@ import { countTokens } from '@/lib/tokens'  // sync; see lib/tokens.ts
 import { uploadAttachment } from '@/api/uploads'
 import { useQuickRepliesStore } from '@/stores/quickReplies'
 import { byokApi, type BYOKKey } from '@/api/byok'
+import { chatsApi } from '@/api/chats'
 
 const { t } = useI18n()
 
@@ -71,6 +72,12 @@ function applyQuickReply(qr: { text: string; send_now: boolean }) {
 const models = useModelsStore()
 const { items: modelOptions, selected: selectedModel, loading: modelsLoading, error: modelsError } = storeToRefs(models)
 
+// M55 — preload the gold catalog once per session. Source-of-truth for
+// `:lite` variant metadata; the WuEco virtual provider's list comes
+// from this. Failure is non-fatal (provider picker still works, just
+// without the WuEco fallback list).
+onMounted(() => { void models.fetchCatalog() })
+
 // Chats store provides the active chat — we need it so the provider picker
 // can pin a BYOK onto the right row, and so we know which pin (if any) is
 // currently active. The initial model-list fetch is owned by Chat.vue's
@@ -118,36 +125,72 @@ const activeByokID = computed<string | null>(() => {
   return typeof id === 'string' && id.length > 0 ? id : null
 })
 
+const ecoModeActive = computed<boolean>(() =>
+  currentChat.value?.chat_metadata?.eco_mode === true,
+)
+
 const activeProviderLabel = computed(() => {
-  if (!activeByokID.value) return 'WuApi'
-  const k = byokKeys.value.find(x => x.id === activeByokID.value)
-  if (!k) return 'BYOK'
-  const p = k.provider.charAt(0).toUpperCase() + k.provider.slice(1)
-  return k.label ? `${p} · ${k.label}` : p
+  if (activeByokID.value) {
+    const k = byokKeys.value.find(x => x.id === activeByokID.value)
+    if (!k) return 'BYOK'
+    const p = k.provider.charAt(0).toUpperCase() + k.provider.slice(1)
+    return k.label ? `${p} · ${k.label}` : p
+  }
+  if (ecoModeActive.value) return 'WuEco'
+  return 'WuApi'
 })
 
-async function pickProvider(byokID: string | null) {
+// M55 — provider picker now has three "buckets": WuApi (default),
+// WuEco (virtual eco-mode), or one of the BYOK keys. We use a
+// discriminated union for the pick action so the call site stays
+// simple: pickProvider({type: 'wuapi'}), {type: 'wueco'}, or
+// {type: 'byok', id}.
+type ProviderPick =
+  | { type: 'wuapi' }
+  | { type: 'wueco' }
+  | { type: 'byok', id: string }
+
+async function pickProvider(pick: ProviderPick) {
   if (!currentChat.value || providerBusy.value) return
   providerBusy.value = true
   try {
-    await byokApi.setForChat(currentChat.value.id, byokID)
-    // Mirror the change in the cached chat — the watcher in Chat.vue will
-    // then trigger the models-store refresh. Keeping this in one place means
-    // the BYOKPickerDialog in the header doesn't need its own copy of the
-    // update logic; both paths go through the store's shared cache.
+    // BYOK and eco-mode are independent flags on chat_metadata, but
+    // mutually exclusive in this UI — picking one clears the other.
+    // Reflect that at both the API and the cached-chat level.
+    const targetByok = pick.type === 'byok' ? pick.id : null
+    const targetEco = pick.type === 'wueco'
+
+    // Sync to server. Order matters slightly: clear eco BEFORE setting
+    // a new BYOK so a transient state (both set) never lands in DB.
+    if (!targetEco && ecoModeActive.value) {
+      await chatsApi.setEcoMode(currentChat.value.id, false)
+    }
+    if (activeByokID.value !== targetByok) {
+      await byokApi.setForChat(currentChat.value.id, targetByok)
+    }
+    if (targetEco && !ecoModeActive.value) {
+      await chatsApi.setEcoMode(currentChat.value.id, true)
+    }
+
+    // Mirror to the cached chat so the watcher in Chat.vue picks up
+    // the change and the model picker refreshes against the new
+    // source. Keeping this in one place means BYOKPickerDialog
+    // doesn't need its own copy of the update logic.
     const cur = currentChat.value
     if (cur) {
-      cur.chat_metadata = { ...(cur.chat_metadata ?? {}), byok_id: byokID }
+      const meta = { ...(cur.chat_metadata ?? {}) }
+      if (targetByok) meta.byok_id = targetByok
+      else delete meta.byok_id
+      if (targetEco) meta.eco_mode = true
+      else delete meta.eco_mode
+      cur.chat_metadata = meta
       const idx = chats.list.findIndex((c: { id: string }) => c.id === cur.id)
       if (idx >= 0) {
-        chats.list[idx] = {
-          ...chats.list[idx],
-          chat_metadata: { ...(chats.list[idx].chat_metadata ?? {}), byok_id: byokID },
-        }
+        chats.list[idx] = { ...chats.list[idx], chat_metadata: meta }
       }
     }
   } catch (e) {
-    console.error('BYOK switch failed', e)
+    console.error('provider switch failed', e)
   } finally {
     providerBusy.value = false
   }
@@ -188,6 +231,15 @@ function autosize() {
 watch(() => props.modelValue, () => nextTick(autosize))
 
 function onKeydown(e: KeyboardEvent) {
+  // M53 critical fix — IME composition guard. CJK users (Japanese,
+  // Chinese, Korean) commit candidate words by pressing Enter mid-
+  // composition. Without this guard the keystroke fires `emit('send')`
+  // with the half-composed text, breaking input completely. Mandated
+  // by ADR (`design-system/docs/ADAPTIVE_RULES.md:151`); AppShell.vue
+  // already does it for its own Cmd+K handler. keyCode 229 is the
+  // legacy fallback some browsers use during IME composition where
+  // `isComposing` flag isn't reliably set (older Firefox).
+  if (e.isComposing || e.keyCode === 229) return
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault()
     if (canSend.value) emit('send')
@@ -434,9 +486,9 @@ function insertMarkdownImage(alt: string, url: string) {
         </template>
         <v-list density="compact" class="nest-model-list">
           <v-list-item
-            :active="!activeByokID"
+            :active="!activeByokID && !ecoModeActive"
             :disabled="providerBusy"
-            @click="pickProvider(null)"
+            @click="pickProvider({ type: 'wuapi' })"
           >
             <template #prepend>
               <v-icon size="16">mdi-cloud-outline</v-icon>
@@ -444,6 +496,22 @@ function insertMarkdownImage(alt: string, url: string) {
             <v-list-item-title>WuApi</v-list-item-title>
             <v-list-item-subtitle class="nest-mini-hint">
               {{ t('byok.picker.useDefaultHint') }}
+            </v-list-item-subtitle>
+          </v-list-item>
+          <!-- M55 — virtual WuEco provider: same models as WuApi, but
+               eco-capped (input 30k, output 1500, reasoning off). No
+               extra fetch — list comes from the gold catalog filter. -->
+          <v-list-item
+            :active="ecoModeActive"
+            :disabled="providerBusy"
+            @click="pickProvider({ type: 'wueco' })"
+          >
+            <template #prepend>
+              <v-icon size="16">mdi-leaf-circle-outline</v-icon>
+            </template>
+            <v-list-item-title>WuEco</v-list-item-title>
+            <v-list-item-subtitle class="nest-mini-hint">
+              {{ t('byok.picker.useEcoHint') }}
             </v-list-item-subtitle>
           </v-list-item>
           <template v-if="byokKeys.length">
@@ -457,7 +525,7 @@ function insertMarkdownImage(alt: string, url: string) {
                 :key="k.id"
                 :active="activeByokID === k.id"
                 :disabled="providerBusy"
-                @click="pickProvider(k.id)"
+                @click="pickProvider({ type: 'byok', id: k.id })"
               >
                 <template #prepend>
                   <v-icon size="16">mdi-key-variant</v-icon>
@@ -511,6 +579,11 @@ function insertMarkdownImage(alt: string, url: string) {
             <v-icon size="14" color="error">mdi-alert-circle</v-icon>
             <span class="nest-mono">{{ modelsError }}</span>
           </div>
+
+          <!-- M55: model list is now single-source. WuEco is selected
+               via the provider picker, not the model picker — when
+               WuEco is active the list contains only `:lite` ids
+               already, no need to dual-render. -->
           <v-list-item
             v-for="m in modelOptions"
             :key="m.id"
@@ -519,6 +592,7 @@ function insertMarkdownImage(alt: string, url: string) {
           >
             <v-list-item-title class="nest-mono">{{ m.id }}</v-list-item-title>
           </v-list-item>
+
           <v-list-item v-if="!modelOptions.length && !modelsLoading && !modelsError" disabled>
             <v-list-item-title class="nest-mini-hint">
               {{ t('chat.input.modelEmpty') }}
@@ -700,6 +774,26 @@ function insertMarkdownImage(alt: string, url: string) {
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
+// iOS Safari auto-zooms into any text input whose computed font-size is
+// below 16px. Our 15px body type triggers it, and once Safari zooms the
+// viewport the user has to pinch-out manually after every tap to type.
+// Tester reported this as "увеличивает экран при нажатии на запись".
+//
+// Fix: ensure the composer textarea is exactly 16px on phones. We don't
+// touch the desktop size — 15px reads better in the chat layout, and
+// iOS auto-zoom doesn't apply to non-touch viewports.
+//
+// We deliberately don't set `maximum-scale=1` on the meta viewport — that
+// would block accessibility-driven pinch-zoom across the whole app. Per-
+// element font-size is the recommended fix.
+//
+// 640px breakpoint matches the rest of the chat-side mobile rules.
+@media (max-width: 640px) {
+  .nest-input {
+    font-size: 16px;
+  }
+}
+
 .nest-input-actions {
   display: flex;
   align-items: center;
@@ -762,6 +856,42 @@ function insertMarkdownImage(alt: string, url: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+// M55.2 — eco-mode picker styling.
+//
+// Section header sits above the lite list as a quiet uppercase label.
+// Keeps the eco group visually distinct without shouting — users who
+// don't care about it just see a small extra block at the bottom.
+.nest-model-section-head {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px 4px;
+  font-family: var(--nest-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
+}
+.nest-model-eco-caps {
+  font-family: var(--nest-font-mono);
+  font-size: 10.5px;
+  color: var(--nest-text-muted);
+}
+// Inline ECO pill on the picker button when the active model is lite.
+// Same accent shape as the rest of the button row, but warmer color
+// so the user catches "I'm in eco mode" at a glance from the chat tail.
+.nest-eco-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  border-radius: var(--nest-radius-pill);
+  color: rgb(46, 134, 52);
+  background: rgba(46, 134, 52, 0.12);
+  border: 1px solid rgba(46, 134, 52, 0.4);
 }
 
 // Inline provider-error surfaced inside the model-picker popover. Wraps to

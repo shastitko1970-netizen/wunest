@@ -1,14 +1,15 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { applyCSPNonce } from '@/lib/cspNonce'
 
-// ThemeManager (M42.1 foundation)
+// ThemeManager (M42.1 → M51 Sprint 3 wave 1: data-driven registry)
 //
 // WuNest ships with five built-in themes authored against the Design System
-// contract. Each theme is a plain CSS file that overrides the `--SmartTheme*`
-// family and optionally adds scoped tweaks to the ST alias selectors
-// (`.mes`, `#chat`, `#send_textarea`). Because our global.scss maps every
-// `--nest-*` variable through a `--SmartTheme*` fallback chain, the themes
-// propagate automatically across the app shell without per-component wiring.
+// contract. Each theme is a plain CSS file paired with a sibling
+// `*.theme.json` manifest. The manifest carries label, description, kind,
+// accent, swatches, pair-id, sort-order, and the css filename. Vite's
+// `import.meta.glob` discovers them at build time → THEME_PRESETS is
+// derived; no hardcoded list to drift.
 //
 // On top of the presets, a user can paste their own CSS into the Appearance
 // panel (M42.4). Custom CSS is stored server-side under
@@ -30,6 +31,26 @@ import { computed, ref } from 'vue'
 // the user CSS. Gives users an emergency bail-out when a broken theme has
 // hidden every interactive element of the app. See `src/main.ts` for wire-up.
 
+// ── Manifest schema ─────────────────────────────────────────────────
+// What `*.theme.json` files declare. Authors of new themes write this
+// JSON directly; the runtime parses + sorts via Vite glob below.
+
+/** A single 6-color palette used to render gallery card previews and
+ *  the AppearancePanel mini-swatches. Roles map roughly to:
+ *    - bg / surface — backgrounds (canvas, elevated cards)
+ *    - border — frame strokes
+ *    - text — primary readable color
+ *    - accent — brand color (matches Vuetify primary)
+ *    - accentOn — readable color used on accent backgrounds (e.g. CTA text) */
+export interface ThemeSwatches {
+  bg: string
+  surface: string
+  border: string
+  text: string
+  accent: string
+  accentOn: string
+}
+
 export type ThemePreset =
   | 'nest-default-dark'
   | 'nest-default-light'
@@ -42,72 +63,60 @@ export interface ThemePresetMeta {
   label: string
   description: string
   kind: 'dark' | 'light'
+  /** Brand color for this preset, mirrored from CSS `--SmartThemeQuoteColor`.
+   *  Used to keep Vuetify's `primary` palette aligned with the active
+   *  preset (so `<v-btn color="primary">` matches the visual brand). */
+  accent: string
   /** Id of the same-family theme in the opposite kind. Flipping dark↔light
-   *  from the Settings toggle prefers pair > last-picked > kind default.
-   *  Cyber-neon and minimal-reader pair with each other by design
+   *  prefers pair > kind default. Cyber-neon ↔ minimal-reader by design
    *  (both reader-focused narrow-margin vibes in their own kind).
-   *  Omitted when there's no honest sibling in the 5-preset set. */
+   *  Omitted when there's no honest sibling in the bundled set. */
   pair?: ThemePreset
+  /** Stable sort key for gallery / picker ordering. Lower goes first. */
+  order: number
+  /** 6-color palette for static previews — see ThemeSwatches doc. */
+  swatches: ThemeSwatches
+  /** CSS filename relative to `styles/themes/`. The loader resolves this
+   *  to a `?raw` dynamic import on first apply. */
+  css: string
 }
 
-// Metadata that surfaces in the Appearance picker — single source of truth
-// for preview labels, so we don't hard-code strings in the Vue template.
-export const THEME_PRESETS: ThemePresetMeta[] = [
-  {
-    id: 'nest-default-dark',
-    label: 'Nest — dark',
-    description: 'Фирменная тёмная тема. Серый-угольный фон, coral-акцент.',
-    kind: 'dark',
-    pair: 'nest-default-light',
-  },
-  {
-    id: 'nest-default-light',
-    label: 'Nest — light',
-    description: 'Бумажно-светлая. Инспирирована Dossier CRM.',
-    kind: 'light',
-    pair: 'nest-default-dark',
-  },
-  {
-    id: 'cyber-neon',
-    label: 'Cyber neon',
-    description: 'Тёмный фиолет, магента-акцент, свечение.',
-    kind: 'dark',
-    // Cyber-neon's reader-focused narrow column pairs best with
-    // minimal-reader on the light side; both prioritise text density
-    // over chrome. There's no dedicated "cyber-pastel" light twin yet.
-    pair: 'minimal-reader',
-  },
-  {
-    id: 'minimal-reader',
-    label: 'Minimal reader',
-    description: 'Максимальная плотность текста без декора — для длинных чтений.',
-    kind: 'light',
-    pair: 'cyber-neon',
-  },
-  {
-    id: 'tavern-warm',
-    label: 'Tavern warm',
-    description: 'Теплый янтарный. Роудтрип-эстетика старой корчмы.',
-    kind: 'dark',
-    // No warm-light sibling; defaults to nest-default-light on flip
-    // (no pair declared).
-  },
-]
+// Vite glob — eager so all manifests are bundled at build time and
+// available synchronously for THEME_PRESETS. Files matched: every
+// `*.theme.json` in `styles/themes/`. Runtime parses each into a
+// ThemePresetMeta; Vite throws on malformed JSON during build.
+const manifestModules = import.meta.glob<{ default: ThemePresetMeta }>(
+  '@/styles/themes/*.theme.json',
+  { eager: true },
+)
 
-// NOTE: был экспорт `resolvePairFor()` для Settings dark/light toggle'а
-// (M42.6). Сам toggle тестер попросил убрать — grid из 5 пресетов в
-// AppearancePanel делает ту же работу без дубля. Helper удалён как
-// dead code. `pair` поле на ThemePresetMeta оставлено — его использует
-// /themes галерея как "pair for flip" мета.
+// Build the registry once on module init. Sort by `order` (asc),
+// secondary by `id` for stable UI when two share the same order.
+export const THEME_PRESETS: ThemePresetMeta[] = Object.values(manifestModules)
+  .map(mod => mod.default)
+  .filter((m): m is ThemePresetMeta => !!m && typeof m.id === 'string')
+  .sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id))
 
-// Vite bundles each theme as its own chunk via `?raw` + dynamic import.
-// Type the function map so TS catches typos at compile time.
-const THEME_LOADERS: Record<ThemePreset, () => Promise<{ default: string }>> = {
-  'nest-default-dark':  () => import('@/styles/themes/nest-default-dark.css?raw'),
-  'nest-default-light': () => import('@/styles/themes/nest-default-light.css?raw'),
-  'cyber-neon':         () => import('@/styles/themes/cyber-neon.css?raw'),
-  'minimal-reader':     () => import('@/styles/themes/minimal-reader.css?raw'),
-  'tavern-warm':        () => import('@/styles/themes/tavern-warm.css?raw'),
+// CSS file loaders — dynamic per-preset chunks via `?raw`. Built from
+// the manifest's `css` field so adding a 6th theme is one file
+// (`my-theme.theme.json` + `my-theme.css`), not three changes here.
+//
+// Map keyed by preset id. We pre-build it once so apply() can look up
+// the loader synchronously without filtering THEME_PRESETS each time.
+const THEME_LOADERS: Record<string, () => Promise<{ default: string }>> = {
+  // Note: explicit `?raw` literal queries are required by Vite — it
+  // can't resolve a fully-dynamic glob for `?raw` imports. We list
+  // each `.css` once here. When adding a new theme, also add a line
+  // here so the chunk gets bundled.
+  'nest-default-dark.css':  () => import('@/styles/themes/nest-default-dark.css?raw'),
+  'nest-default-light.css': () => import('@/styles/themes/nest-default-light.css?raw'),
+  'cyber-neon.css':         () => import('@/styles/themes/cyber-neon.css?raw'),
+  'minimal-reader.css':     () => import('@/styles/themes/minimal-reader.css?raw'),
+  'tavern-warm.css':        () => import('@/styles/themes/tavern-warm.css?raw'),
+}
+
+function loaderForPreset(meta: ThemePresetMeta): (() => Promise<{ default: string }>) | null {
+  return THEME_LOADERS[meta.css] ?? null
 }
 
 // Stored separately from `nest:theme` (used by AppShell/Settings for the
@@ -134,6 +143,13 @@ function readStoredPreset(): ThemePreset {
   return 'nest-default-dark'
 }
 
+// M51 Sprint 2 wave 3 — module-scope state for the system-prefs
+// listener. Lives outside the store factory so the listener survives
+// HMR / re-instantiation gracefully — at most one MQL is attached at
+// any time, and `syncSystemPrefListener` toggles it idempotently.
+let systemMql: MediaQueryList | null = null
+let systemMqlHandler: ((e: MediaQueryListEvent) => void) | null = null
+
 export const useThemeStore = defineStore('theme', () => {
   // Current preset id. On first mount we hydrate from localStorage, falling
   // back to the dark default so brand-new users get a usable shell.
@@ -145,15 +161,29 @@ export const useThemeStore = defineStore('theme', () => {
     return THEME_PRESETS.find(t => t.id === currentId.value) ?? THEME_PRESETS[0]
   })
 
+  /**
+   * apply — low-level: load the preset CSS, swap the <style> tag,
+   * persist to localStorage + Appearance.themePreset.
+   *
+   * Does NOT touch `followSystemTheme`. Use `userPick(id)` for paths
+   * that should disable system-follow (gallery clicks, picker clicks).
+   * The boot path, server-sync path, and system-prefs flip path all
+   * call this directly so they don't accidentally turn off follow-mode.
+   */
   async function apply(id: ThemePreset) {
     // Safe mode bypass — keep shell pristine regardless of user picks.
     if (isSafeMode()) {
       error.value = 'safe mode: theme switch disabled'
       return
     }
-    const loader = THEME_LOADERS[id]
-    if (!loader) {
+    const meta = THEME_PRESETS.find(p => p.id === id)
+    if (!meta) {
       error.value = `unknown theme: ${id}`
+      return
+    }
+    const loader = loaderForPreset(meta)
+    if (!loader) {
+      error.value = `theme css not bundled: ${meta.css}`
       return
     }
     loading.value = true
@@ -165,6 +195,10 @@ export const useThemeStore = defineStore('theme', () => {
       if (!el) {
         el = document.createElement('style')
         el.id = STYLE_ID
+        // M51 Sprint 3 wave 3 — apply CSP nonce if a per-request meta
+        // is present. No-op when CSP is off (current state); ensures
+        // we don't break when CSP gets tightened.
+        applyCSPNonce(el)
         // Place BEFORE the user-css slot so user overrides win naturally by
         // DOM order. `nest-user-css` is injected in src/stores/appearance.ts
         // (M42.4 — custom CSS); linking here keeps the layering explicit.
@@ -178,20 +212,127 @@ export const useThemeStore = defineStore('theme', () => {
       // without fighting an inline :root override from Appearance.
       // Lazy-import so theme store doesn't hard-depend on appearance
       // store (keeps the store graph acyclic).
+      //
+      // M51 Sprint 1 wave 3 — also persist the picked preset into the
+      // appearance blob so it travels server-side with the rest of the
+      // user's settings. localStorage stays the cold-load cache, but
+      // server is source of truth on second device login.
       try {
         const { useAppearanceStore } = await import('@/stores/appearance')
         const appearance = useAppearanceStore()
-        if (appearance.appearance.accent) {
-          appearance.update({ accent: undefined })
+        const patch: Record<string, unknown> = {}
+        if (appearance.appearance.accent) patch.accent = undefined
+        if (appearance.appearance.themePreset !== id) patch.themePreset = id
+        if (Object.keys(patch).length > 0) {
+          // M53 — theme picks are DISCRETE (a tap, not a slider drag),
+          // so the 400ms debounce buys us nothing and risks the save
+          // being dropped if the user navigates away or backgrounds
+          // the tab before it fires. Mobile testers hit this regularly:
+          // Pick theme → close tab → reopen → "default theme again".
+          //
+          // `saveNow` issues a normal PUT immediately, awaiting the
+          // response. Reliable on all browsers (Safari included —
+          // unlike `keepalive` flushes which have tight support).
+          // Awaited so we don't return from `apply()` before the PUT
+          // is at least in flight; if the network is slow the user
+          // still gets the local-state update via the patch above.
+          await appearance.saveNow(patch as Partial<typeof appearance.appearance>)
         }
       } catch {
         // Non-fatal — worst case the old accent stays and the user
-        // can clear it manually from the Appearance color picker.
+        // can clear it manually from the Appearance color picker, and
+        // the preset is still in localStorage so this device remembers.
       }
     } catch (e) {
       error.value = (e as Error).message
     } finally {
       loading.value = false
+    }
+  }
+
+  /**
+   * userPick — manual preset pick from a UI control (gallery card,
+   * picker button). Differs from apply() in one way: it disables
+   * `followSystemTheme` because explicitly choosing a theme is a
+   * strong signal "I want this exact look", overriding the auto
+   * dark/light flipping.
+   *
+   * macOS-style: toggling Auto-mode in System Settings then picking
+   * Light manually disables Auto. Same idea here.
+   */
+  async function userPick(id: ThemePreset) {
+    await apply(id)
+    try {
+      const { useAppearanceStore } = await import('@/stores/appearance')
+      const appearance = useAppearanceStore()
+      if (appearance.appearance.followSystemTheme === true) {
+        appearance.update({ followSystemTheme: false })
+        // Also detach the listener so the next system-flip doesn't
+        // fight the user's explicit choice.
+        syncSystemPrefListener(false)
+      }
+    } catch {
+      // Non-fatal — store-graph acyclic constraint.
+    }
+  }
+
+  /**
+   * applyForSystemPref — picks the preset that best matches the
+   * supplied OS color-scheme, using the current preset as the anchor:
+   *
+   *   - If current already matches the system kind → noop (no flicker).
+   *   - Otherwise prefer current.pair if it's of the right kind.
+   *   - Else fallback to the bundled default of that kind.
+   *
+   * Goes through apply(), NOT userPick(), so an OS-driven flip doesn't
+   * disable followSystemTheme — that would defeat the feature.
+   */
+  function applyForSystemPref(systemKind: 'dark' | 'light') {
+    const cur = current.value
+    if (cur.kind === systemKind) return
+
+    let next: ThemePreset | null = null
+    if (cur.pair) {
+      const pair = THEME_PRESETS.find(p => p.id === cur.pair)
+      if (pair && pair.kind === systemKind) next = pair.id
+    }
+    if (!next) {
+      next = systemKind === 'dark' ? 'nest-default-dark' : 'nest-default-light'
+    }
+    if (next !== cur.id) {
+      void apply(next)
+    }
+  }
+
+  /**
+   * syncSystemPrefListener — idempotent toggle for the
+   * matchMedia('prefers-color-scheme: dark') subscription.
+   *
+   *   enabled=true   — attach listener if not already; immediately
+   *                    apply current system pref so the on-screen
+   *                    state reflects the toggle landing.
+   *   enabled=false  — detach listener if attached. Stays on the
+   *                    current preset (we don't auto-revert to
+   *                    themePreset; users would be surprised to see
+   *                    their theme jump after toggling Off).
+   *
+   * Safe to call repeatedly; the module-scope `systemMql` guard
+   * prevents stacking listeners.
+   */
+  function syncSystemPrefListener(enabled: boolean) {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    if (enabled && !systemMql) {
+      systemMql = window.matchMedia('(prefers-color-scheme: dark)')
+      systemMqlHandler = (e) => applyForSystemPref(e.matches ? 'dark' : 'light')
+      systemMql.addEventListener('change', systemMqlHandler)
+      // Apply current system state once — covers the case where the
+      // user just toggled the feature on and the current preset
+      // doesn't match the OS color-scheme.
+      applyForSystemPref(systemMql.matches ? 'dark' : 'light')
+    } else if (!enabled && systemMql) {
+      if (systemMqlHandler) systemMql.removeEventListener('change', systemMqlHandler)
+      systemMql = null
+      systemMqlHandler = null
     }
   }
 
@@ -201,5 +342,16 @@ export const useThemeStore = defineStore('theme', () => {
     await apply(currentId.value)
   }
 
-  return { currentId, current, loading, error, apply, init, presets: THEME_PRESETS }
+  return {
+    currentId,
+    current,
+    loading,
+    error,
+    apply,
+    userPick,
+    applyForSystemPref,
+    syncSystemPrefListener,
+    init,
+    presets: THEME_PRESETS,
+  }
 })

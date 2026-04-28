@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
+	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
@@ -121,6 +122,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// M54.2 — slot-cap enforcement. Free=3, Plus=10, Pro=∞. Done before
+	// JSON decode so a payload that would otherwise pass validation
+	// gets blocked early with a structured 402 the SPA can render as
+	// the upgrade prompt.
+	if err := h.enforceCreateLimit(r, user.ID); err != nil {
+		if le, ok := limits.IsLimitReached(err); ok {
+			limits.WriteError(w, le)
+			return
+		}
+		h.writeErr(w, err)
+		return
+	}
+
 	var req createRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -154,6 +168,27 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
+// enforceCreateLimit returns nil if the user can create another
+// character, *limits.ErrLimitReached if they've hit their slot cap, or
+// a generic error if the count query fails. PNG/JSON imports
+// (`importCard`) and CHUB pulls go through this same gate.
+//
+// Done as a method (not a free function) so future callers in the same
+// handler package — bulk import, restore from export — can reuse the
+// resolved level + count without retyping the auth.FromContext dance.
+func (h *Handler) enforceCreateLimit(r *http.Request, userID uuid.UUID) error {
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		return errUnauthorized
+	}
+	level := session.WuApi.CurrentNestLevel()
+	count, err := h.Repo.CountByUserID(r.Context(), userID)
+	if err != nil {
+		return err
+	}
+	return limits.Check(level, limits.ResourceCharacter, count)
+}
+
 // importCard accepts a multipart/form-data upload with a single "file" field
 // containing either a PNG character card (V2/V3 metadata in a tEXt chunk)
 // or a bare JSON export. Format is sniffed from the magic bytes — the
@@ -161,6 +196,18 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) importCard(w http.ResponseWriter, r *http.Request) {
 	user, err := h.currentUser(r.Context(), r)
 	if err != nil {
+		h.writeErr(w, err)
+		return
+	}
+
+	// M54.2 — slot-cap enforcement. Imports count the same as creates,
+	// so a user on Free with 3 characters can't bypass the cap by
+	// importing PNGs / JSON.
+	if err := h.enforceCreateLimit(r, user.ID); err != nil {
+		if le, ok := limits.IsLimitReached(err); ok {
+			limits.WriteError(w, le)
+			return
+		}
 		h.writeErr(w, err)
 		return
 	}

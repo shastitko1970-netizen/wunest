@@ -330,6 +330,14 @@ export const useChatsStore = defineStore('chats', () => {
               row.content = ev.data.content
               row.extras = {
                 ...(row.extras ?? {}),
+                // M53 — refresh model from the done event so swipes/regens
+                // don't leave a stale model name in the bubble's footer
+                // (the row was created with assistant_start.model, but on
+                // a SWIPE we reuse the existing row whose extras.model
+                // still points at the previous run; without this the UI
+                // showed e.g. "gemini" while the DB already had "opus",
+                // and reload "fixed" the badge — the symptom user reported).
+                model: ev.data.model ?? row.extras?.model,
                 reasoning: ev.data.reasoning,
                 tokens_in: ev.data.tokens_in,
                 tokens_out: ev.data.tokens_out,

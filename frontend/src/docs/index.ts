@@ -28,6 +28,17 @@ import mobileRu from './pages/mobile.ru.md?raw'
 import mobileEn from './pages/mobile.en.md?raw'
 import plateActionsRu from './pages/plate-actions.ru.md?raw'
 import plateActionsEn from './pages/plate-actions.en.md?raw'
+// M52 doc cleanup — new pages.
+import accountRu from './pages/account.ru.md?raw'
+import accountEn from './pages/account.en.md?raw'
+import converterRu from './pages/converter.ru.md?raw'
+import converterEn from './pages/converter.en.md?raw'
+import personasRu from './pages/personas.ru.md?raw'
+import personasEn from './pages/personas.en.md?raw'
+import groupChatsRu from './pages/group-chats.ru.md?raw'
+import groupChatsEn from './pages/group-chats.en.md?raw'
+import memoryRu from './pages/memory.ru.md?raw'
+import memoryEn from './pages/memory.en.md?raw'
 
 // ─── TOC ───────────────────────────────────────────────────────────
 
@@ -35,7 +46,7 @@ import plateActionsEn from './pages/plate-actions.en.md?raw'
  *  render the table of contents without a separate i18n file. */
 export interface DocTopic {
   slug: string
-  category: 'start' | 'content' | 'generation' | 'customization'
+  category: 'start' | 'content' | 'generation' | 'customization' | 'account'
   title: { ru: string; en: string }
   summary: { ru: string; en: string }
   content: { ru: string; en: string }
@@ -105,6 +116,42 @@ export const TOPICS: DocTopic[] = [
     summary: { ru: 'Кликабельные кнопки в сообщениях через data-nest-action.', en: 'Clickable buttons in messages via data-nest-action.' },
     content: { ru: plateActionsRu, en: plateActionsEn },
   },
+  // M52 — new pages.
+  {
+    slug: 'account',
+    category: 'account',
+    title:   { ru: 'Аккаунт и биллинг',                        en: 'Account & billing' },
+    summary: { ru: 'wu-gold баланс, тариф, история транзакций, sign-out.', en: 'wu-gold balance, tier, transactions, sign-out.' },
+    content: { ru: accountRu, en: accountEn },
+  },
+  {
+    slug: 'converter',
+    category: 'customization',
+    title:   { ru: 'Конвертер ST → WuNest',                     en: 'ST → WuNest converter' },
+    summary: { ru: 'LLM переписывает ST-тему в WuNest-формат.', en: 'LLM rewrites an ST theme into WuNest format.' },
+    content: { ru: converterRu, en: converterEn },
+  },
+  {
+    slug: 'personas',
+    category: 'content',
+    title:   { ru: 'Персоны',                              en: 'Personas' },
+    summary: { ru: 'Кто ты в чате — имя, аватар, описание.', en: 'Who you are in chat — name, avatar, description.' },
+    content: { ru: personasRu, en: personasEn },
+  },
+  {
+    slug: 'group-chats',
+    category: 'content',
+    title:   { ru: 'Групповые чаты',                          en: 'Group chats' },
+    summary: { ru: 'Несколько персонажей в одном диалоге.',    en: 'Multiple characters in one conversation.' },
+    content: { ru: groupChatsRu, en: groupChatsEn },
+  },
+  {
+    slug: 'memory',
+    category: 'generation',
+    title:   { ru: 'Память чата',                                  en: 'Chat memory' },
+    summary: { ru: 'Author\'s Note, автосаммари, ручные заметки.', en: "Author's Note, auto-summary, manual notes." },
+    content: { ru: memoryRu, en: memoryEn },
+  },
 ]
 
 export function findTopic(slug: string): DocTopic | null {
@@ -112,11 +159,12 @@ export function findTopic(slug: string): DocTopic | null {
 }
 
 export const CATEGORY_ORDER: Array<DocTopic['category']> = [
-  'start', 'content', 'generation', 'customization',
+  'start', 'account', 'content', 'generation', 'customization',
 ]
 
 export const CATEGORY_LABEL: Record<DocTopic['category'], { ru: string; en: string }> = {
   start:         { ru: 'Начало',         en: 'Start here' },
+  account:       { ru: 'Аккаунт',        en: 'Account' },
   content:       { ru: 'Контент',        en: 'Content' },
   generation:    { ru: 'Генерация',      en: 'Generation' },
   customization: { ru: 'Оформление',     en: 'Customization' },

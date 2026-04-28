@@ -1,0 +1,18 @@
+{
+  "id": "nest-default-light",
+  "label": "Nest — light",
+  "description": "Бумажно-светлая. Инспирирована Dossier CRM.",
+  "kind": "light",
+  "pair": "nest-default-dark",
+  "accent": "#ef4444",
+  "order": 20,
+  "css": "nest-default-light.css",
+  "swatches": {
+    "bg": "#FAFAF7",
+    "surface": "#FFFFFF",
+    "border": "#E2DFD6",
+    "text": "#141412",
+    "accent": "#ef4444",
+    "accentOn": "#ffffff"
+  }
+}

@@ -84,6 +84,22 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Character, e
 	return out, rows.Err()
 }
 
+// CountByUserID returns the number of characters owned by the user.
+// Used by the limits package (M54) to gate the create endpoint when the
+// caller is on a Free or Plus tier. Lightweight COUNT(*) — much cheaper
+// than List+len in scenarios where we don't need the rows themselves.
+func (r *Repository) CountByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := r.pg.QueryRow(ctx,
+		`SELECT COUNT(*) FROM nest_characters WHERE user_id = $1`,
+		userID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count characters: %w", err)
+	}
+	return n, nil
+}
+
 // Get returns a single character by id, scoped to the given user.
 func (r *Repository) Get(ctx context.Context, userID, id uuid.UUID) (*Character, error) {
 	const q = `

@@ -16,9 +16,46 @@ export interface ModelListResponse {
   data: Model[]
 }
 
+// Wu-gold catalog entry (M55.2). Returned by GET /api/models/catalog
+// which proxies to WuApi /api/catalog/gold with the WuNest-private
+// secret attached. Includes WuNest-exclusive `:lite` variants under
+// `eco != null`.
+export interface CatalogEcoLimits {
+  maxInputTokens?: number
+  maxOutputTokens?: number
+  summaryThreshold?: number
+  disableReasoning?: boolean
+  disableVision?: boolean
+}
+
+export interface CatalogModel {
+  id: string
+  provider: string
+  family: string
+  displayName: string
+  description: string
+  modality: string
+  contextLength: number
+  inputPricePerMTok: number
+  outputPricePerMTok: number
+  imagePrice?: number
+  reasoning: boolean
+  vision: boolean
+  tags: string[]
+  /** Present on `:lite` variants only — caps the server applies. */
+  eco?: CatalogEcoLimits
+  /** Canonical upstream id of the base model this lite variant
+   *  derives from. Empty string on full (non-lite) entries. */
+  baseId?: string
+}
+
 export const modelsApi = {
   // WuApi pool — proxied through our backend.
   list: () => apiFetch<ModelListResponse>('/api/models'),
+
+  // Wu-gold catalog with eco-mode (`:lite`) variants. Auth-only — the
+  // SPA gets full + lite via the WuNest backend's WUNEST_API_SECRET.
+  catalog: () => apiFetch<CatalogModel[]>('/api/models/catalog'),
 
   // Live-fetch the catalogue of models available through a stored BYOK key.
   // Backend caches the result in Redis for 10 min; pass `refresh=true` to

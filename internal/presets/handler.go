@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
+	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
@@ -79,6 +80,26 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+
+	// M54.2 — slot-cap enforcement (Free=3 / Plus=10 / Pro=∞ across
+	// ALL preset types combined — sampler/instruct/context/sysprompt/
+	// reasoning all share the per-user "presets" cap, matches the SPA
+	// pricing copy).
+	session := auth.FromContext(r.Context())
+	if session != nil {
+		count, cerr := h.Repo.CountByUserID(r.Context(), user.ID)
+		if cerr != nil {
+			h.writeErr(w, cerr)
+			return
+		}
+		if le := limits.Check(session.WuApi.CurrentNestLevel(), limits.ResourcePreset, count); le != nil {
+			if e, ok := limits.IsLimitReached(le); ok {
+				limits.WriteError(w, e)
+				return
+			}
+		}
+	}
+
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)

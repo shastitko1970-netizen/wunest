@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { usePersonasStore } from '@/stores/personas'
 import type { Persona } from '@/api/personas'
 import { uploadAvatar } from '@/api/uploads'
+import UsageHintChip from '@/components/UsageHintChip.vue'
 
 // Two-pane Personas management: list on the left, form on the right.
 // Matches the WorldsPanel layout for consistency.
@@ -241,6 +242,9 @@ watch(items, () => {
         </div>
       </div>
 
+      <!-- M54.3 — slot usage hint. -->
+      <UsageHintChip :used="items.length" class="mb-2" />
+
       <div v-if="loading && !items.length" class="nest-state">
         <v-progress-circular indeterminate color="primary" size="24" />
       </div>
@@ -307,10 +311,10 @@ watch(items, () => {
                 referrerpolicy="no-referrer"
               />
               <span v-else class="text-body-1">{{ draftInitials }}</span>
-              <!-- Camera edit badge only when there's an actual avatar to
-                   overlay. On empty (initials-only) state it clutters the
-                   clean letter mark — hover already signals clickability. -->
-              <v-icon v-if="draftAvatar" class="nest-persona-avatar-edit" size="14">mdi-camera</v-icon>
+              <!-- M52.13 — camera badge removed per user request.
+                   Click-to-upload pattern is universal enough; the
+                   button itself + cursor:pointer + title attribute
+                   carry the affordance without adding an icon overlay. -->
               <v-progress-circular
                 v-if="avatarUploading"
                 class="nest-persona-avatar-spinner"
@@ -609,16 +613,9 @@ watch(items, () => {
     outline-offset: 2px;
   }
 }
-.nest-persona-avatar-edit {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  background: var(--nest-accent);
-  color: var(--nest-text-on-accent, #fff);
-  border: 2px solid var(--nest-surface);
-  border-radius: 50%;
-  padding: 3px;
-}
+// M52.13 — `.nest-persona-avatar-edit` (camera badge overlay) removed
+// along with the icon. Click-to-upload affordance is carried by the
+// button + cursor:pointer + title.
 .nest-persona-avatar-spinner {
   position: absolute;
   top: 50%;

@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import type { Message } from '@/api/chats'
 import MessageContent from '@/components/MessageContent.vue'
 
 const { t } = useI18n()
+// M52.10 — mobile-only: collapse the action row into a single ⋮ menu.
+// `mdAndDown` matches the chat layout breakpoint already used in
+// Chat.vue (sidebar hides at the same threshold).
+const { mdAndDown } = useDisplay()
 
 const props = defineProps<{
   message: Message
@@ -354,87 +359,156 @@ function onEditKeydown(e: KeyboardEvent) {
           <v-icon size="14">mdi-chevron-right</v-icon>
         </button>
       </template>
-      <template v-if="!isUser && allowRegenerate">
+      <!-- M52.10 — Action buttons after swipe-nav.
+           Desktop (mdAndUp): inline row of icon-buttons (current behaviour).
+           Mobile (mdAndDown): single ⋮ trigger that opens a v-menu with
+           all actions as v-list items (titles + icons). Saves horizontal
+           space on phones where 9 inline buttons wrapped to 2-3 lines. -->
+      <template v-if="!mdAndDown">
+        <template v-if="!isUser && allowRegenerate">
+          <button
+            class="nest-action-btn"
+            :title="t('chat.swipe.newVariant')"
+            @click="emit('swipe', message)"
+          >
+            <v-icon size="14">mdi-plus</v-icon>
+          </button>
+        </template>
+        <button
+          v-if="allowRegenerate"
+          class="nest-action-btn"
+          :title="t('chat.actions.continue')"
+          @click="emit('continue', message)"
+        >
+          <v-icon size="14">mdi-play-outline</v-icon>
+        </button>
+        <button
+          v-if="allowRegenerate"
+          class="nest-action-btn"
+          :title="t('chat.actions.regenerate')"
+          @click="emit('regenerate', message)"
+        >
+          <v-icon size="14">mdi-reload</v-icon>
+        </button>
         <button
           class="nest-action-btn"
-          :title="t('chat.swipe.newVariant')"
-          @click="emit('swipe', message)"
+          :title="collapsed ? t('chat.actions.expand') : t('chat.actions.collapse')"
+          @click="toggleCollapse"
         >
-          <v-icon size="14">mdi-plus</v-icon>
+          <v-icon size="14">
+            {{ collapsed ? 'mdi-arrow-expand-vertical' : 'mdi-arrow-collapse-vertical' }}
+          </v-icon>
+        </button>
+        <button
+          class="nest-action-btn"
+          :title="t('chat.actions.fork')"
+          @click="emit('fork', message)"
+        >
+          <v-icon size="14">mdi-source-branch</v-icon>
+        </button>
+        <button
+          class="nest-action-btn"
+          :title="t('chat.actions.edit')"
+          @click="startEdit"
+        >
+          <v-icon size="14">mdi-pencil-outline</v-icon>
+        </button>
+        <button
+          class="nest-action-btn"
+          :title="message.hidden ? t('chat.actions.unhide') : t('chat.actions.hide')"
+          @click="emit('toggle-hidden', message)"
+        >
+          <v-icon size="14">{{ message.hidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline' }}</v-icon>
+        </button>
+        <button
+          class="nest-action-btn nest-action-btn--danger"
+          :title="t('chat.actions.delete')"
+          @click="emit('delete', message)"
+        >
+          <v-icon size="14">mdi-delete-outline</v-icon>
+        </button>
+        <button
+          class="nest-action-btn nest-action-btn--danger"
+          :title="t('chat.actions.deleteAfter')"
+          @click="emit('delete-after', message)"
+        >
+          <v-icon size="14">mdi-delete-sweep-outline</v-icon>
         </button>
       </template>
-      <button
-        v-if="allowRegenerate"
-        class="nest-action-btn"
-        :title="t('chat.actions.continue')"
-        @click="emit('continue', message)"
-      >
-        <v-icon size="14">mdi-play-outline</v-icon>
-      </button>
-      <button
-        v-if="allowRegenerate"
-        class="nest-action-btn"
-        :title="t('chat.actions.regenerate')"
-        @click="emit('regenerate', message)"
-      >
-        <v-icon size="14">mdi-reload</v-icon>
-      </button>
-      <!-- Collapse / expand — local toggle. Handy for long scroll cleanup
-           without actually deleting anything. Icon toggles between
-           up-chevron (collapse) and down-chevron (expand). -->
-      <button
-        class="nest-action-btn"
-        :title="collapsed ? t('chat.actions.expand') : t('chat.actions.collapse')"
-        @click="toggleCollapse"
-      >
-        <v-icon size="14">
-          {{ collapsed ? 'mdi-arrow-expand-vertical' : 'mdi-arrow-collapse-vertical' }}
-        </v-icon>
-      </button>
-      <!-- Fork — spawn a sibling chat starting from here. The branch
-           keeps every message through this point and lets the user
-           explore a different direction without losing the original
-           timeline. One click → new chat in sidebar + navigate to it. -->
-      <button
-        class="nest-action-btn"
-        :title="t('chat.actions.fork')"
-        @click="emit('fork', message)"
-      >
-        <v-icon size="14">mdi-source-branch</v-icon>
-      </button>
-      <button
-        class="nest-action-btn"
-        :title="t('chat.actions.edit')"
-        @click="startEdit"
-      >
-        <v-icon size="14">mdi-pencil-outline</v-icon>
-      </button>
-      <button
-        class="nest-action-btn"
-        :title="message.hidden ? t('chat.actions.unhide') : t('chat.actions.hide')"
-        @click="emit('toggle-hidden', message)"
-      >
-        <v-icon size="14">{{ message.hidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline' }}</v-icon>
-      </button>
-      <button
-        class="nest-action-btn nest-action-btn--danger"
-        :title="t('chat.actions.delete')"
-        @click="emit('delete', message)"
-      >
-        <v-icon size="14">mdi-delete-outline</v-icon>
-      </button>
-      <!-- Bulk-delete from here down. Primary use case: prune a tail of
-           rate-limit errors or abandon a scene branch without dozens of
-           single-delete clicks. Kept alongside the single delete so the
-           icon set is discoverable; Chat.vue gates the action behind a
-           confirm dialog showing the exact row count. -->
-      <button
-        class="nest-action-btn nest-action-btn--danger"
-        :title="t('chat.actions.deleteAfter')"
-        @click="emit('delete-after', message)"
-      >
-        <v-icon size="14">mdi-delete-sweep-outline</v-icon>
-      </button>
+
+      <!-- Mobile: regenerate stays as a dedicated icon-button (top-1 use
+           case — users hit it on every swipe), the rest collapse into ⋮. -->
+      <template v-else>
+        <button
+          v-if="allowRegenerate"
+          class="nest-action-btn"
+          :title="t('chat.actions.regenerate')"
+          @click="emit('regenerate', message)"
+        >
+          <v-icon size="14">mdi-reload</v-icon>
+        </button>
+        <v-menu
+          location="bottom end"
+          offset="4"
+        >
+          <template #activator="{ props: menuProps }">
+            <button
+              v-bind="menuProps"
+              class="nest-action-btn"
+              :title="t('chat.actions.more')"
+            >
+              <v-icon size="14">mdi-dots-vertical</v-icon>
+            </button>
+          </template>
+          <v-list density="compact" min-width="220">
+            <v-list-item
+              v-if="!isUser && allowRegenerate"
+              prepend-icon="mdi-plus"
+              :title="t('chat.swipe.newVariant')"
+              @click="emit('swipe', message)"
+            />
+            <v-list-item
+              v-if="allowRegenerate"
+              prepend-icon="mdi-play-outline"
+              :title="t('chat.actions.continue')"
+              @click="emit('continue', message)"
+            />
+            <v-list-item
+              :prepend-icon="collapsed ? 'mdi-arrow-expand-vertical' : 'mdi-arrow-collapse-vertical'"
+              :title="collapsed ? t('chat.actions.expand') : t('chat.actions.collapse')"
+              @click="toggleCollapse"
+            />
+            <v-list-item
+              prepend-icon="mdi-source-branch"
+              :title="t('chat.actions.fork')"
+              @click="emit('fork', message)"
+            />
+            <v-list-item
+              prepend-icon="mdi-pencil-outline"
+              :title="t('chat.actions.edit')"
+              @click="startEdit"
+            />
+            <v-list-item
+              :prepend-icon="message.hidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline'"
+              :title="message.hidden ? t('chat.actions.unhide') : t('chat.actions.hide')"
+              @click="emit('toggle-hidden', message)"
+            />
+            <v-divider class="my-1" />
+            <v-list-item
+              prepend-icon="mdi-delete-outline"
+              :title="t('chat.actions.delete')"
+              base-color="error"
+              @click="emit('delete', message)"
+            />
+            <v-list-item
+              prepend-icon="mdi-delete-sweep-outline"
+              :title="t('chat.actions.deleteAfter')"
+              base-color="error"
+              @click="emit('delete-after', message)"
+            />
+          </v-list>
+        </v-menu>
+      </template>
     </div>
   </div>
 </template>

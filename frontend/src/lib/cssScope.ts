@@ -20,6 +20,14 @@ export const supportsCSSScope: boolean = (() => {
   if (typeof document === 'undefined') return false
   try {
     const style = document.createElement('style')
+    // M51 Sprint 3 wave 3 — feature-detection probes need the CSP
+    // nonce too; without it strict CSP would block the probe and
+    // we'd silently report `false` for everyone. Inlined nonce read
+    // here (instead of the cspNonce helper) to avoid pulling its
+    // module into this module-level IIFE — keeps the load order
+    // minimal. No-op when CSP is off (current state).
+    const nonceMeta = document.querySelector('meta[name="csp-nonce"]') as HTMLMetaElement | null
+    if (nonceMeta?.content) style.setAttribute('nonce', nonceMeta.content)
     style.textContent = '@scope (.__nest_probe__) { :scope { color: red; } }'
     document.head.appendChild(style)
     const rules = (style.sheet?.cssRules ?? []) as CSSRule[]

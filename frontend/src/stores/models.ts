@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { modelsApi, type Model } from '@/api/models'
+import { modelsApi, type Model, type CatalogModel } from '@/api/models'
 import type { Chat } from '@/api/chats'
 
-// Active source of model lists. `wuapi` means the shared WuApi pool; a
-// byok_id string means the catalogue is live-fetched from that saved key's
-// provider (/api/byok/{id}/models).
-type ModelsSource = 'wuapi' | { byokID: string }
+// Active source of model lists.
+//
+//   'wuapi' — the shared WuApi pool, fetched via /v1/models.
+//   'wueco' — virtual M55 provider: same models as WuApi, but mapped
+//             to their `:lite` eco-mode variants. List comes from the
+//             gold catalog filter (eco != null), no extra fetch.
+//   { byokID } — live-fetched from a stored BYOK key's provider.
+type ModelsSource = 'wuapi' | 'wueco' | { byokID: string }
 
 function sourceKey(src: ModelsSource): string {
   return typeof src === 'string' ? src : `byok:${src.byokID}`
@@ -15,6 +19,10 @@ function sourceKey(src: ModelsSource): string {
 function sourceFromChat(chat: Chat | null | undefined): ModelsSource {
   const byokID = chat?.chat_metadata?.byok_id
   if (typeof byokID === 'string' && byokID.length > 0) return { byokID }
+  // M55 — eco_mode in chat metadata switches the source to the
+  // virtual WuEco provider. Survives chat reopens because the flag
+  // lives on chat_metadata.
+  if (chat?.chat_metadata?.eco_mode === true) return 'wueco'
   return 'wuapi'
 }
 
@@ -36,6 +44,44 @@ export const useModelsStore = defineStore('models', () => {
   const cache = ref<Record<string, CacheRow>>({})
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  // Wu-gold catalog (full + WuNest-only `:lite`). Loaded once per
+  // session and looked up by id when the SPA needs eco-limits or
+  // pricing context.
+  const catalog = ref<CatalogModel[]>([])
+  const catalogLoaded = ref(false)
+  const catalogByID = computed<Record<string, CatalogModel>>(() => {
+    const out: Record<string, CatalogModel> = {}
+    for (const m of catalog.value) out[m.id] = m
+    return out
+  })
+
+  async function fetchCatalog(opts?: { refresh?: boolean }) {
+    if (!opts?.refresh && catalogLoaded.value) return catalog.value
+    try {
+      const data = await modelsApi.catalog()
+      catalog.value = data ?? []
+      catalogLoaded.value = true
+      return catalog.value
+    } catch (e) {
+      // Non-fatal: SPA still works without the eco metadata, picker
+      // just won't show the dedicated section. Print warn for ops.
+      console.warn('models.fetchCatalog', e)
+      catalogLoaded.value = true
+      return []
+    }
+  }
+
+  /** Returns the catalog entry for the currently-selected model, or
+   *  null if not in the gold catalog (wu-tier / BYOK / unknown id). */
+  function catalogEntry(id: string): CatalogModel | null {
+    return catalogByID.value[id] ?? null
+  }
+
+  /** True iff `id` is a `:lite` (eco-mode) variant. */
+  function isEco(id: string): boolean {
+    return !!catalogByID.value[id]?.eco
+  }
 
   // The currently-active source (set by Chat view on chat open / BYOK switch).
   const activeSource = ref<ModelsSource>('wuapi')
@@ -62,13 +108,27 @@ export const useModelsStore = defineStore('models', () => {
     loading.value = true
     error.value = null
     try {
-      let res: { data?: Model[] }
+      let models: Model[] = []
       if (src === 'wuapi') {
-        res = await modelsApi.list()
+        const res = await modelsApi.list()
+        models = res?.data ?? []
+      } else if (src === 'wueco') {
+        // M55 — WuEco virtual provider. List comes from the gold
+        // catalog (already loaded once per session) filtered to
+        // entries with `eco != null`. No extra HTTP request — the
+        // catalog has everything we need.
+        await fetchCatalog()
+        models = catalog.value
+          .filter(m => m.eco)
+          .map(m => ({
+            id: m.id,
+            object: 'model',
+            owned_by: 'wueco',
+          }))
       } else {
-        res = await modelsApi.listForBYOK(src.byokID, opts?.refresh === true)
+        const res = await modelsApi.listForBYOK(src.byokID, opts?.refresh === true)
+        models = res?.data ?? []
       }
-      const models = res?.data ?? []
       cache.value = { ...cache.value, [key]: { models, loaded: true } }
       return models
     } catch (e) {
@@ -127,5 +187,11 @@ export const useModelsStore = defineStore('models', () => {
     setForChat,
     select,
     refresh,
+    // M55.2 — eco catalog
+    catalog,
+    catalogLoaded,
+    fetchCatalog,
+    catalogEntry,
+    isEco,
   }
 })

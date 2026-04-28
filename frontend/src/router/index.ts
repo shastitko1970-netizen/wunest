@@ -55,6 +55,10 @@ export const router = createRouter({
     { path: '/chat/:id', name: 'chat-detail', component: () => import('@/views/Chat.vue') },
     { path: '/library', name: 'library', component: () => import('@/views/Library.vue') },
     { path: '/account', name: 'account', component: () => import('@/views/Account.vue') },
+    // M54.2 — placeholder for the future plans gallery. The limit-reached
+    // dialog routes here on Upgrade click, so the URL must exist before
+    // M54.3 wires up the real comparison cards.
+    { path: '/subscription', name: 'subscription', component: () => import('@/views/Subscription.vue') },
     { path: '/presets', name: 'presets', component: () => import('@/views/Presets.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue') },
     // M43 — theme converter. Auth-required so we can bill tokens to the

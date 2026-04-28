@@ -5,19 +5,45 @@ import { useI18n } from 'vue-i18n'
 import { useAccountStore } from '@/stores/account'
 import { useAuthStore } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
+import { useSubscriptionStore } from '@/stores/subscription'
+import { accountApi } from '@/api/account'
+import PlanCardsGrid from '@/components/PlanCardsGrid.vue'
 
 const { t } = useI18n()
 const account = useAccountStore()
 const auth = useAuthStore()
 const appearance = useAppearanceStore()
+const subscription = useSubscriptionStore()
 const {
   profile, stats, transactions,
   loading, goldDisplay, memberSince, tierExpiresDisplay, quotaRemaining,
 } = storeToRefs(account)
 const { nestAccessGranted } = storeToRefs(auth)
 const { appearance: appearanceData } = storeToRefs(appearance)
+const { state: subState, buyError: subBuyError } = storeToRefs(subscription)
 
-onMounted(() => account.refreshAll())
+onMounted(() => {
+  void account.refreshAll()
+  // M54.3 — load nest-subscription state for the "WuNest plan" KPI.
+  // Cheap call (proxied to WuApi). Failure degrades to "Free" badge.
+  void subscription.fetchState()
+})
+
+/** Human-readable label for the active WuNest level. Free has its own
+ *  i18n key so we don't show a literal "null". */
+const nestLevelLabel = computed(() => {
+  const lvl = subState.value?.level
+  if (!lvl) return t('subscription.account.free')
+  return lvl === 'pro' ? 'Pro' : 'Plus'
+})
+
+/** Formatted "до 2026-05-25" suffix for the WuNest tier card. Empty
+ *  when on free or expiry is missing. */
+const nestExpiresLabel = computed(() => {
+  const exp = subState.value?.expires_at
+  if (!exp) return ''
+  return new Date(exp).toLocaleDateString()
+})
 
 // ─── Theme recovery ────────────────────────────────────────
 // Users who import a heavy ST theme sometimes break the shell enough
@@ -76,6 +102,28 @@ async function submitRedeem() {
   }
 }
 
+// Sign-out flow. Backend clears wu_session cookie + best-effort notifies
+// WuApi; on success we hard-navigate to / so AppShell's auth-check runs
+// fresh and shows the sign-in screen. window.location.assign (not router
+// push) — we want a full page reload to drop in-memory Pinia state too,
+// otherwise the next sign-in might briefly render with the previous
+// user's profile from the cache.
+const signingOut = ref(false)
+async function signOut() {
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await accountApi.logout()
+  } catch {
+    // Ignore — backend returns 204 even on upstream errors. If even the
+    // local request failed we still navigate; worst case the user lands
+    // on / with a stale cookie and AppShell's auth-check will surface a
+    // re-login prompt.
+  } finally {
+    window.location.assign('/')
+  }
+}
+
 const topModels = computed(() => {
   const m = stats.value?.models ?? []
   return [...m].sort((a, b) => b.total - a.total).slice(0, 6)
@@ -127,14 +175,24 @@ function kindChipColor(kind: string): string {
           {{ t('account.memberSince', { date: memberSince }) }}
         </p>
       </div>
-      <v-btn
-        variant="text"
-        :loading="loading.profile || loading.stats || loading.transactions"
-        prepend-icon="mdi-refresh"
-        @click="account.refreshAll()"
-      >
-        {{ t('account.refresh') }}
-      </v-btn>
+      <div class="nest-account-head-actions">
+        <v-btn
+          variant="text"
+          :loading="loading.profile || loading.stats || loading.transactions"
+          prepend-icon="mdi-refresh"
+          @click="account.refreshAll()"
+        >
+          {{ t('account.refresh') }}
+        </v-btn>
+        <v-btn
+          variant="text"
+          :loading="signingOut"
+          prepend-icon="mdi-logout"
+          @click="signOut"
+        >
+          {{ t('account.signOut') }}
+        </v-btn>
+      </div>
     </div>
 
     <!-- Access code section. Shown prominently when the user hasn't
@@ -196,7 +254,7 @@ function kindChipColor(kind: string): string {
         </a>
       </v-card>
 
-      <!-- Tier -->
+      <!-- Tier (LLM access) -->
       <v-card class="nest-kpi-card pa-5">
         <div class="nest-kpi-label">{{ t('account.kpi.tier') }}</div>
         <div class="nest-kpi-value">{{ profile?.tier ?? '—' }}</div>
@@ -212,6 +270,20 @@ function kindChipColor(kind: string): string {
         >
           {{ t('account.kpi.manage') }}
         </a>
+      </v-card>
+
+      <!-- WuNest plan (M54.3) — separate axis from the LLM tier above.
+           Shows the active level + expiry, links to /subscription. -->
+      <v-card class="nest-kpi-card pa-5">
+        <div class="nest-kpi-label">{{ t('subscription.account.block') }}</div>
+        <div class="nest-kpi-value">{{ nestLevelLabel }}</div>
+        <div v-if="nestExpiresLabel" class="nest-kpi-unit">
+          {{ t('account.kpi.tierExpires', { date: nestExpiresLabel }) }}
+        </div>
+        <div v-else class="nest-kpi-unit">{{ t('account.kpi.tierNoExpiration') }}</div>
+        <router-link to="/subscription" class="nest-kpi-action">
+          {{ subState?.level ? t('subscription.account.manage') : t('subscription.account.upgrade') }}
+        </router-link>
       </v-card>
 
       <!-- Today quota -->
@@ -235,6 +307,43 @@ function kindChipColor(kind: string): string {
         <div class="nest-kpi-unit">{{ t('account.kpi.referralsUnit') }}</div>
       </v-card>
     </div>
+
+    <!-- WuNest plans (M54.5). Inline buy block right after the KPI
+         row so users see their tier *and* can upgrade without
+         leaving Account. The dedicated /subscription page still
+         exists for direct linking; this is a discovery surface. -->
+    <section class="nest-section">
+      <div class="nest-section-head">
+        <h2 class="nest-h2">{{ t('subscription.account.sectionTitle') }}</h2>
+        <p class="nest-subtitle nest-section-tagline">{{ t('subscription.account.sectionTagline') }}</p>
+      </div>
+
+      <div
+        v-if="subState && subState.gold_discount_pct > 0 && subState.gold_discount_cap_nano > 0"
+        class="nest-account-discount-hint"
+      >
+        <v-icon size="14" class="mr-1">mdi-piggy-bank-outline</v-icon>
+        {{ t('subscription.discount.usage', {
+          used: (subState.gold_discount_used_nano / 1_000_000_000).toFixed(2),
+          remaining: (subState.gold_discount_remaining_nano / 1_000_000_000).toFixed(2),
+          cap: Math.round(subState.gold_discount_cap_nano / 1_000_000_000),
+        }) }}
+      </div>
+
+      <PlanCardsGrid />
+
+      <v-alert
+        v-if="subBuyError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-4"
+        closable
+        @click:close="subscription.dismissBuyError()"
+      >
+        {{ subBuyError }}
+      </v-alert>
+    </section>
 
     <!-- Token usage -->
     <section v-if="stats?.tokens" class="nest-section">
@@ -381,6 +490,14 @@ function kindChipColor(kind: string): string {
   gap: 16px;
   margin-bottom: 28px;
 }
+// Refresh + Sign-out share a row; on narrow screens flex-wrap drops
+// the action cluster onto its own line below the title block, so the
+// gap matters more than alignment here.
+.nest-account-head-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 
 // ─── Access-code card ───────────────────────────────────────
 // Prominent amber-outlined card while the user hasn't redeemed yet;
@@ -483,6 +600,30 @@ function kindChipColor(kind: string): string {
   margin-top: 40px;
   padding-top: 24px;
   border-top: 1px solid var(--nest-border);
+}
+.nest-section-head {
+  margin-bottom: 16px;
+}
+.nest-section-tagline {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--nest-text-secondary);
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+// Inline discount-cap usage row above the plan cards on Account.
+// Styled like a soft info pill so it doesn't compete with the cards.
+.nest-account-discount-hint {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  color: var(--nest-text-secondary);
+  background: var(--nest-bg-elevated);
+  border: 1px solid var(--nest-border-subtle);
+  border-radius: var(--nest-radius-pill);
 }
 
 // ─── Token usage row ───────────────────────────────────────

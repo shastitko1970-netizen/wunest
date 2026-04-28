@@ -49,6 +49,7 @@ type Revealed struct {
 var SupportedProviders = []string{
 	"openai",
 	"openrouter",
+	"linkapi",
 	"deepseek",
 	"mistral",
 	"anthropic",
@@ -67,6 +68,13 @@ var SupportedProviders = []string{
 var providerBaseURL = map[string]string{
 	"openai":     "https://api.openai.com/v1",
 	"openrouter": "https://openrouter.ai/api/v1",
+	// LinkAPI — New API-based aggregator, OpenAI-compatible (`type:
+	// new_api_error` on auth failures confirms the upstream stack).
+	// Three regional hosts exist (linkapi.ai, api.linkapi.ai, jp.linkapi.ai);
+	// linkapi.ai resolves fastest from our Selectel datacenter so it's
+	// the default. Users can override via custom URL if their key was
+	// issued for a specific region.
+	"linkapi":    "https://linkapi.ai/v1",
 	"deepseek":   "https://api.deepseek.com/v1",
 	"mistral":    "https://api.mistral.ai/v1",
 	"anthropic":  "https://api.anthropic.com/v1", // requires their OpenAI-compat beta header

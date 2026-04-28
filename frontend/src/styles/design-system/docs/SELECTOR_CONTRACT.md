@@ -21,6 +21,9 @@
   --nest-text-secondary     вторичный
   --nest-text-muted         третичный
   --nest-accent             бренд-акцент
+  --nest-text-on-accent     читаемый цвет поверх accent (CTA текст)
+  --nest-text-italic        курсив (em/i) — fallback inherit (M51)
+  --nest-text-quote         blockquote — fallback на --nest-text-secondary (M51)
   --nest-gold
   --nest-green
   --nest-blue
@@ -30,13 +33,15 @@
   --nest-font-display
   --nest-font-body
   --nest-font-mono
-  --nest-font-scale
+  --nest-font-scale         (legacy, не используется — оставлен для compat)
+  --nest-chat-font-scale    multiplier чата (slider 0.7–1.5, M51)
 
 Геометрия:
-  --nest-radius-sm
-  --nest-radius
-  --nest-radius-lg
-  --nest-radius-pill
+  --nest-radius-scale       multiplier (M51 — slider 0.5–2×)
+  --nest-radius-sm          calc(6px  * var(--nest-radius-scale, 1))
+  --nest-radius             calc(12px * var(--nest-radius-scale, 1))
+  --nest-radius-lg          calc(16px * var(--nest-radius-scale, 1))
+  --nest-radius-pill        100px (НЕ scaled — семантика «всегда max-round»)
   --nest-avatar-radius
 
 Спейсинг:

@@ -152,9 +152,55 @@ body {
   color: var(--nest-text);
 }
 
-em, i     { color: var(--nest-text-italic); }
-u         { color: var(--nest-text-underline); text-decoration-color: var(--nest-text-underline); }
-q, blockquote { color: var(--nest-accent); }
+/* M51 → M52.2 — italic emphasis colour scoped to chat-message content
+   only. Targeting bare `em, i` globally was wrong: Vuetify renders every
+   Material Design Icon as `<i class="mdi-…">`, so a user-set
+   `--nest-text-italic` (e.g. ST-imported italics_text_color) bled into
+   topbar nav icons, switches, dialog icons — every icon in the app.
+   Now only `em` / `i` inside `.nest-msg-content` (rendered chat text)
+   pick up the tint. Same fix for `u` underlined inline text. */
+.nest-msg-content em,
+.nest-msg-content i  { color: var(--nest-text-italic); }
+.nest-msg-content u  { color: var(--nest-text-underline); text-decoration-color: var(--nest-text-underline); }
+.nest-msg-content q,
+.nest-msg-content blockquote { color: var(--nest-accent); }
+
+/* M52.8 — bg-image scoped to chat only.
+   Image lives on `--nest-bg-image` :root var, consumed by
+   `.nest-chat-main` (Chat.vue scoped CSS). Body / Vuetify root /
+   Library / Settings views are untouched — only the chat view
+   shows the image.
+
+   When bg-image IS active (`body[data-nest-bg]`), the header /
+   composer / sidebar inside the chat view become translucent with
+   backdrop-filter blur so the image reads through without covering
+   the text. Default (no image) keeps solid bg from preset cascade. */
+body[data-nest-bg] .nest-chat-header {
+  background-color: color-mix(in srgb, var(--nest-bg-elevated) 70%, transparent) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+body[data-nest-bg] .nest-input-wrap {
+  background-color: color-mix(in srgb, var(--nest-surface) 75%, transparent) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+body[data-nest-bg] .nest-chat-sidebar {
+  background-color: color-mix(in srgb, var(--nest-bg-elevated) 78%, transparent) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* M52.3 — uniform icon colour control.
+   `.mdi` matches every Material Design Icon Vuetify renders. The
+   `:not([class*="text-"])` exclusion keeps Vuetify-coloured semantic
+   icons (text-error / text-success / text-warning / text-info) intact
+   so red error / green check don't get flattened by a decorative
+   palette choice. When `--nest-icon-color` is unset the icon falls
+   back to `currentColor` (whatever the surrounding context chose). */
+.mdi:not([class*="text-"]) {
+  color: var(--nest-icon-color, currentColor);
+}
 
 /* Scrollbar */
 * {

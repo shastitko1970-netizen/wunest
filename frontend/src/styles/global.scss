@@ -47,9 +47,13 @@
   --nest-space-16: 64px;
 
   // Radii
-  --nest-radius-sm: 6px;
-  --nest-radius:    12px;
-  --nest-radius-lg: 16px;
+  // --nest-radius-scale — M51 Sprint 2 wave 1. AppearancePanel slider
+  // writes 0.5–2 inline on :root. Default 1 keeps existing UI pixel-
+  // identical. Pill is NOT scaled — semantics are "max round".
+  --nest-radius-scale: 1;
+  --nest-radius-sm: calc(6px  * var(--nest-radius-scale, 1));
+  --nest-radius:    calc(12px * var(--nest-radius-scale, 1));
+  --nest-radius-lg: calc(16px * var(--nest-radius-scale, 1));
   --nest-radius-pill: 100px;
 
   // Transitions

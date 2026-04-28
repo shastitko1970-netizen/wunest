@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { personasApi, type Persona, type PersonaCreateInput, type PersonaUpdatePatch } from '@/api/personas'
+import { isLimitReached } from '@/api/client'
+import { useSubscriptionStore } from '@/stores/subscription'
 
 /**
  * Personas store — list of the user's personas. Exactly one may be the
@@ -33,11 +35,18 @@ export const usePersonasStore = defineStore('personas', () => {
   }
 
   async function create(input: PersonaCreateInput): Promise<Persona> {
-    const p = await personasApi.create(input)
-    // If newly-created is default, demote others locally.
-    if (p.is_default) items.value = items.value.map(x => ({ ...x, is_default: false }))
-    items.value = [p, ...items.value]
-    return p
+    try {
+      const p = await personasApi.create(input)
+      // If newly-created is default, demote others locally.
+      if (p.is_default) items.value = items.value.map(x => ({ ...x, is_default: false }))
+      items.value = [p, ...items.value]
+      return p
+    } catch (e) {
+      if (isLimitReached(e)) {
+        useSubscriptionStore().showLimitReached(e.detail)
+      }
+      throw e
+    }
   }
 
   async function update(id: string, patch: PersonaUpdatePatch): Promise<Persona> {
