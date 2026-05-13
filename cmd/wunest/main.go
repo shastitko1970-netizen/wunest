@@ -1,9 +1,9 @@
-// WuNest — Web client for LLM roleplay, WuSphere ecosystem.
+// WuNest — Web client for LLM roleplay, WuProj ecosystem.
 //
 // This binary boots an HTTP server that:
 //   - Serves the embedded Vue SPA at /
 //   - Exposes /api/* for characters, chats, personas, worlds
-//   - Reads the WuApi `wu_session` cookie from `.wusphere.ru` to authenticate users
+//   - Reads the WuApi `wu_session` cookie from `.wuproj.com` to authenticate users
 //   - Proxies /api/chats/:id/stream to WuApi /v1/chat/completions (SSE pass-through)
 package main
 

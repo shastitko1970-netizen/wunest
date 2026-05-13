@@ -21,7 +21,7 @@ import (
 // upload handler returns a public URL; the frontend inserts the URL as
 // a Markdown image tag `![name](url)`. Up to this point we shipped it
 // to the model as a literal text URL — vision models saw the string
-// "https://nest.wusphere.ru/images/attachments/abc.png" instead of
+// "https://nest.wuproj.com/images/attachments/abc.png" instead of
 // actually looking at the image.
 //
 // This file transforms user messages just before they hit the wire:

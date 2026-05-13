@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -189,6 +190,43 @@ func (s *Server) StartBackground(ctx context.Context) func() {
 	}
 }
 
+// apiBrowserOrigin is the WuApi HTTPS origin used for browser redirects
+// (/auth/refresh, OAuth). It must match the registrable domain of the Nest
+// URL the user is on, otherwise WuApi sets wu_session for .wuproj.com while
+// the user stays on another host — the cookie is never sent → 401 loops.
+func apiBrowserOrigin(returnTo, publicBaseURL, wuapiBaseURL string) string {
+	pick := func(host string) string {
+		h := strings.ToLower(host)
+		if i := strings.IndexByte(h, ':'); i >= 0 {
+			h = h[:i]
+		}
+		if h == "wuproj.com" || strings.HasSuffix(h, ".wuproj.com") {
+			return "https://api.wuproj.com"
+		}
+		return ""
+	}
+	if returnTo != "" {
+		if u, err := url.Parse(returnTo); err == nil && u.Scheme == "https" && u.Host != "" {
+			if o := pick(u.Hostname()); o != "" {
+				return o
+			}
+		}
+	}
+	if publicBaseURL != "" {
+		if u, err := url.Parse(publicBaseURL); err == nil && u.Scheme == "https" && u.Host != "" {
+			if o := pick(u.Hostname()); o != "" {
+				return o
+			}
+		}
+	}
+	if wuapiBaseURL != "" {
+		if u, err := url.Parse(wuapiBaseURL); err == nil && u.Scheme != "" && u.Host != "" {
+			return strings.TrimSuffix(u.Scheme+"://"+u.Host, "/")
+		}
+	}
+	return "https://api.wuproj.com"
+}
+
 // Router builds the application http.Handler.
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
@@ -205,12 +243,11 @@ func (s *Server) Router() http.Handler {
 	// 302-redirects to WuApi. Lets us see server-side EXACTLY when each user
 	// attempts to log in, which is most of the battle when debugging a
 	// "can't sign in on mobile" report. Called by the SPA's Sign-In button
-	// instead of pointing directly at api.wusphere.ru.
+	// instead of pointing directly at api.wuproj.com (must match cookie domain family).
 	mux.HandleFunc("GET /auth/start", s.handleAuthStart)
-	// /auth/logout — clears the wu_session cookie (Domain=.wusphere.ru so
-	// the same Set-Cookie header wipes it for nest, api and the marketing
-	// site at once) and best-effort POSTs WuApi's /auth/logout so any
-	// upstream session bookkeeping is also reset. Public — even a stale
+	// /auth/logout — clears the wu_session cookie (Domain must match WuApi,
+	// e.g. .wuproj.com) and best-effort POSTs WuApi's /auth/logout
+	// so any upstream session bookkeeping is also reset. Public — even a stale
 	// or forged cookie should be removable, and we don't want a logout
 	// click to 401-loop the user.
 	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
@@ -227,7 +264,7 @@ func (s *Server) Router() http.Handler {
 	mux.Handle("POST /api/pay/create", authRequired(http.HandlerFunc(s.handlePayCreate)))
 	// M54.5 hotfix — proxy WuApi's public pricing catalog so the SPA
 	// hits a same-origin endpoint and avoids CORS preflight against
-	// api.wusphere.ru. Same payload shape; auth not required (catalog
+	// api.wuproj.com. Same payload shape; auth not required (catalog
 	// is public on the WuApi side too).
 	mux.HandleFunc("GET /api/pricing", s.handlePricing)
 	mux.Handle("POST /api/me/nest-access/redeem", authRequired(http.HandlerFunc(s.handleNestRedeem)))
@@ -327,15 +364,16 @@ func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 
 	// Build the WuApi URL and redirect. We pass the return_to through
 	// unchanged — WuApi handles URL-encoding its own way.
-	wuapiLogin := "https://api.wusphere.ru/auth/refresh?return_to=" + url.QueryEscape(returnTo)
+	origin := apiBrowserOrigin(returnTo, s.deps.Config.PublicBaseURL, s.deps.Config.WuApiBaseURL)
+	wuapiLogin := origin + "/auth/refresh?return_to=" + url.QueryEscape(returnTo)
 	http.Redirect(w, r, wuapiLogin, http.StatusFound)
 }
 
 // handleAuthLogout clears the wu_session cookie locally and best-effort
 // notifies WuApi so its `/auth/logout` (which also clears the same cookie
-// with Domain=.wusphere.ru) runs upstream. Both clears are belt-and-
+// with Domain=.wuproj.com) runs upstream. Both clears are belt-and-
 // suspenders: WuApi's response carries a Set-Cookie that wipes the cookie
-// across .wusphere.ru subdomains, but if WuApi is unreachable we still
+// across .wuproj.com subdomains, but if WuApi is unreachable we still
 // drop the local copy so the user isn't stuck.
 //
 // Always returns 204 — logout must be idempotent. A missing cookie, a
@@ -367,7 +405,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 			)
 		} else {
 			// Forward WuApi's Set-Cookie headers — they carry the
-			// canonical Domain=.wusphere.ru clearing instruction. If WuApi
+			// canonical Domain=.wuproj.com clearing instruction. If WuApi
 			// happens to also clear other auxiliary cookies (oauth_state
 			// etc.), we propagate those too.
 			for _, sc := range resp.Header.Values("Set-Cookie") {
@@ -416,7 +454,7 @@ func sessionFingerprintShort(token string) string {
 
 // handleAuthCheck reports whether the caller is logged in. Used by the SPA
 // at page-load to decide between showing the app or redirecting to
-// wusphere.ru/login.
+// WuApi login (via /auth/start).
 func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	u := auth.FromContext(r.Context())
 	type resp struct {
@@ -541,7 +579,7 @@ func (s *Server) handleMeStats(w http.ResponseWriter, r *http.Request) {
 // endpoint (M54.5 hotfix).
 //
 // The WuApi catalog itself is public, but cross-origin browser fetches
-// to api.wusphere.ru fail without CORS headers — and we don't want to
+// to api.wuproj.com fail without CORS headers — and we don't want to
 // open up CORS on WuApi just for this one path. Proxying through
 // WuNest keeps the SPA's network requests same-origin and the WuApi
 // CORS surface unchanged.
@@ -567,9 +605,9 @@ func (s *Server) handlePricing(w http.ResponseWriter, r *http.Request) {
 // as Bearer and forward. WuApi creates the YooKassa payment and
 // returns {payment_url} which the SPA uses to redirect.
 //
-// Why proxy at all: WuNest cookies are scoped to nest.wusphere.ru,
-// not api.wusphere.ru directly. POSTing to api.wusphere.ru from the
-// SPA would either rely on cross-origin cookies (Domain=.wusphere.ru,
+// Why proxy at all: WuNest cookies are scoped to nest.wuproj.com,
+// not api.wuproj.com directly. POSTing to api.wuproj.com from the
+// SPA would either rely on cross-origin cookies (Domain=.wuproj.com,
 // works but couples WuNest's auth to WuApi's session model) or
 // require the SPA to ferry the API key in headers (leaks it into the
 // SPA bundle). Proxying keeps both authentication and origin tidy.

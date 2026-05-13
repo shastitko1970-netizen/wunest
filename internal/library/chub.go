@@ -27,7 +27,7 @@ import (
 
 // userAgent identifies WuNest to third-party services. CHUB rate-limits
 // per-UA; having our own tag makes us distinguishable from generic bots.
-const userAgent = "WuNest/0.1 (+https://nest.wusphere.ru)"
+const userAgent = "WuNest/0.1 (+https://nest.wuproj.com)"
 
 // Client is the HTTP gateway to the library providers.
 type Client struct {

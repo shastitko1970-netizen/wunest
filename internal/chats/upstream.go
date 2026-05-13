@@ -69,7 +69,7 @@ func directChatStream(ctx context.Context, pool *outboundproxy.Pool, up upstream
 	httpReq.Header.Set("Accept", "text/event-stream")
 	// WuNest identifies itself so providers can tell us apart in their logs;
 	// useful if someone reports unexpected traffic from a user's own key.
-	httpReq.Header.Set("User-Agent", "WuNest/0.1 (+https://nest.wusphere.ru)")
+	httpReq.Header.Set("User-Agent", "WuNest/0.1 (+https://nest.wuproj.com)")
 	for k, v := range DirectCallHeaders(up.Provider, up.APIKey) {
 		httpReq.Header.Set(k, v)
 	}

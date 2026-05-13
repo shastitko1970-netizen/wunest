@@ -75,7 +75,7 @@ type Config struct {
 	UseSSL bool
 
 	// PublicBaseURL is the origin where the `/images/*` proxy is served
-	// (e.g. "https://nest.wusphere.ru"). Must NOT have a trailing slash.
+	// (e.g. "https://nest.wuproj.com"). Must NOT have a trailing slash.
 	PublicBaseURL string
 }
 

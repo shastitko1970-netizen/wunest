@@ -95,7 +95,7 @@ func TestApplyMultimodal(t *testing.T) {
 
 	t.Run("user message with attachment → multipart", func(t *testing.T) {
 		in := []map[string]any{
-			{"role": "user", "content": "What is this? ![](https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png) Explain."},
+			{"role": "user", "content": "What is this? ![](https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png) Explain."},
 		}
 		out := ApplyMultimodal(in, opts)
 		parts, ok := out[0]["content"].([]map[string]any)
@@ -116,7 +116,7 @@ func TestApplyMultimodal(t *testing.T) {
 			t.Errorf("part 1 type: %v", parts[1]["type"])
 		}
 		img, _ := parts[1]["image_url"].(map[string]any)
-		if img["url"] != "https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png" {
+		if img["url"] != "https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png" {
 			t.Errorf("url: %v", img["url"])
 		}
 		if img["detail"] != "high" {
@@ -136,7 +136,7 @@ func TestApplyMultimodal(t *testing.T) {
 
 	t.Run("assistant messages never transformed", func(t *testing.T) {
 		in := []map[string]any{
-			{"role": "assistant", "content": "![](https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png)"},
+			{"role": "assistant", "content": "![](https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png)"},
 		}
 		out := ApplyMultimodal(in, opts)
 		if _, ok := out[0]["content"].(string); !ok {
@@ -146,7 +146,7 @@ func TestApplyMultimodal(t *testing.T) {
 
 	t.Run("system messages never transformed", func(t *testing.T) {
 		in := []map[string]any{
-			{"role": "system", "content": "you are helpful ![](https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png)"},
+			{"role": "system", "content": "you are helpful ![](https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png)"},
 		}
 		out := ApplyMultimodal(in, opts)
 		if _, ok := out[0]["content"].(string); !ok {
@@ -156,7 +156,7 @@ func TestApplyMultimodal(t *testing.T) {
 
 	t.Run("empty-after-strip gets [image] filler", func(t *testing.T) {
 		in := []map[string]any{
-			{"role": "user", "content": "![](https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png)"},
+			{"role": "user", "content": "![](https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png)"},
 		}
 		out := ApplyMultimodal(in, opts)
 		parts, _ := out[0]["content"].([]map[string]any)
@@ -167,7 +167,7 @@ func TestApplyMultimodal(t *testing.T) {
 	})
 
 	t.Run("multiple images preserved + deduped", func(t *testing.T) {
-		url := "https://nest.wusphere.ru/images/attachments/abcdef012345678901234567.png"
+		url := "https://nest.wuproj.com/images/attachments/abcdef012345678901234567.png"
 		in := []map[string]any{
 			{"role": "user", "content": "compare ![](" + url + ") with ![](" + url + ")"},
 		}

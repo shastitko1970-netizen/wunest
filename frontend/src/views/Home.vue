@@ -25,7 +25,7 @@ const goldDisplay = (nano: number) => (nano / 1_000_000_000).toFixed(2)
           <p class="nest-subtitle text-center">
             Современный клиент для ролевой переписки с моделями.
             <br />
-            Залогинься через WuSphere — ключи и подписка подтянутся сами.
+            Залогинься через WuApi — ключи и подписка подтянутся сами.
           </p>
           <v-btn
             size="x-large"

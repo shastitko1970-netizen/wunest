@@ -37,7 +37,7 @@ const messages = {
       manageAccount: 'Аккаунт в WuApi',
       safeMode: 'Безопасный режим',
       safeModeSubtitle: 'если тема сломала интерфейс',
-      byWusphere: 'часть wusphere.ru',
+      byWusphere: 'часть wuproj.com',
     },
     welcome: {
       eyebrow: 'WuNest',
@@ -102,7 +102,7 @@ const messages = {
         byokBody: 'Уже оплатил OpenAI Plus или Claude Pro — используй тот же ключ. Мы обходим WuApi и трафик идёт напрямую к провайдеру. Приватность + счёт у них.',
       },
       footerTitle: 'Готов начать?',
-      byWusphere: 'wunest · часть wusphere.ru',
+      byWusphere: 'wunest · часть wuproj.com',
     },
     docs: {
       indexTitle: 'Документация',
@@ -131,7 +131,7 @@ const messages = {
       howToMod: 'Как собрать свою?',
       howToModBody: 'Подробный гайд — в документации: классы .nest-*, ST-алиасы (.mes, #chat), CSS-переменные. Готовый пресет как отправную точку — экспортни через «Внешний вид → Экспорт в .css».',
       howToModCta: 'Читать гайд по темам',
-      byWusphere: 'wunest · часть wusphere.ru',
+      byWusphere: 'wunest · часть wuproj.com',
     },
     converter: {
       eyebrow: 'Конвертер',
@@ -204,7 +204,7 @@ const messages = {
       headline: 'WuNest',
       tagline: 'Современный клиент для ролевой переписки с моделями. Ключи и подписка подтянутся из твоего WuApi-аккаунта.',
       cta: 'Войти через WuApi',
-      noAccountHint: 'Нет аккаунта? Зарегистрируйся на wusphere.ru — это бесплатно.',
+      noAccountHint: 'Нет аккаунта? Зарегистрируйся на wuproj.com — это бесплатно.',
     },
     settings: {
       title: 'Настройки',
@@ -1477,7 +1477,7 @@ const messages = {
       manageAccount: 'WuApi account',
       safeMode: 'Safe mode',
       safeModeSubtitle: 'if a theme broke the UI',
-      byWusphere: 'part of wusphere.ru',
+      byWusphere: 'part of wuproj.com',
     },
     welcome: {
       eyebrow: 'WuNest',
@@ -1542,7 +1542,7 @@ const messages = {
         byokBody: "Already on ChatGPT Plus or Claude Pro? Use that key. We bypass WuApi and talk to your provider directly. Privacy + billing on their side.",
       },
       footerTitle: 'Ready to try?',
-      byWusphere: 'wunest · part of wusphere.ru',
+      byWusphere: 'wunest · part of wuproj.com',
     },
     docs: {
       indexTitle: 'Documentation',
@@ -1571,7 +1571,7 @@ const messages = {
       howToMod: 'Rolling your own?',
       howToModBody: 'Full guide in docs: .nest-* classes, ST aliases (.mes, #chat), CSS variables. Start from an existing preset — export one via Appearance → Export as .css.',
       howToModCta: 'Read the theming guide',
-      byWusphere: 'wunest · part of wusphere.ru',
+      byWusphere: 'wunest · part of wuproj.com',
     },
     converter: {
       eyebrow: 'Converter',
@@ -1644,7 +1644,7 @@ const messages = {
       headline: 'WuNest',
       tagline: 'A modern client for roleplay with LLMs. Keys and subscription come from your WuApi account.',
       cta: 'Sign in with WuApi',
-      noAccountHint: "Don't have an account? Sign up at wusphere.ru — it's free.",
+      noAccountHint: "Don't have an account? Sign up at wuproj.com — it's free.",
     },
     settings: {
       title: 'Settings',

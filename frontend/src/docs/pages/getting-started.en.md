@@ -6,7 +6,7 @@ WuNest is a roleplay chat client for LLMs. SillyTavern-compatible: cards, lorebo
 
 ### 1. Sign in via WuApi
 
-On the landing page — "Sign in with WuApi". WuApi (api.wusphere.ru) is our gateway to LLM providers. The account is shared with any other wusphere service.
+On the landing page — "Sign in with WuApi". WuApi (api.wuproj.com) is our gateway to LLM providers. The account is shared with other WuProj services.
 
 ### 2. Add a character
 

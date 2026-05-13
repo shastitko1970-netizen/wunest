@@ -246,7 +246,7 @@ function kindChipColor(kind: string): string {
         <div class="nest-kpi-unit">{{ t('account.kpi.goldSub') }}</div>
         <a
           class="nest-kpi-action"
-          href="https://wusphere.ru/dashboard"
+          href="https://wuproj.com/dashboard"
           target="_blank"
           rel="noopener"
         >
@@ -264,7 +264,7 @@ function kindChipColor(kind: string): string {
         <div v-else class="nest-kpi-unit">{{ t('account.kpi.tierNoExpiration') }}</div>
         <a
           class="nest-kpi-action"
-          href="https://wusphere.ru/dashboard"
+          href="https://wuproj.com/dashboard"
           target="_blank"
           rel="noopener"
         >
@@ -466,7 +466,7 @@ function kindChipColor(kind: string): string {
         class="mt-3"
         variant="outlined"
         append-icon="mdi-open-in-new"
-        href="https://wusphere.ru/dashboard"
+        href="https://wuproj.com/dashboard"
         target="_blank"
         rel="noopener"
       >

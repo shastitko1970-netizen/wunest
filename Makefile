@@ -64,8 +64,8 @@ sync:
 
 setup: sync
 	@echo "[setup] Initial server setup ..."
-	ssh $(SERVER) "cp $(APP_DIR)/scripts/nginx-nest.conf /etc/nginx/sites-available/nest.wusphere.ru"
-	ssh $(SERVER) "ln -sf /etc/nginx/sites-available/nest.wusphere.ru /etc/nginx/sites-enabled/nest.wusphere.ru"
+	ssh $(SERVER) "cp $(APP_DIR)/scripts/nginx-nest.conf /etc/nginx/sites-available/nest.wuproj.com"
+	ssh $(SERVER) "ln -sf /etc/nginx/sites-available/nest.wuproj.com /etc/nginx/sites-enabled/nest.wuproj.com"
 	ssh $(SERVER) "echo 'upstream wunest_backend { server 127.0.0.1:9090; }' > /etc/nginx/conf.d/wunest-upstream.conf"
 	ssh $(SERVER) "nginx -t && systemctl reload nginx"
 	ssh $(SERVER) "test -f $(APP_DIR)/.env || cp $(APP_DIR)/.env.example $(APP_DIR)/.env"

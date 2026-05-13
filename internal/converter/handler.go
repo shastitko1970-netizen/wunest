@@ -627,7 +627,7 @@ func (h *Handler) directCall(ctx context.Context, ups callUpstream, req wuapi.Ch
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("User-Agent", "WuNest-Converter/0.1 (+https://nest.wusphere.ru)")
+	httpReq.Header.Set("User-Agent", "WuNest-Converter/0.1 (+https://nest.wuproj.com)")
 	for k, v := range chats.DirectCallHeaders(ups.Provider, ups.APIKey) {
 		httpReq.Header.Set(k, v)
 	}

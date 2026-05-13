@@ -1,6 +1,6 @@
 // Package wuapi is an HTTP client for the sibling WuApi service.
 //
-// WuApi (api.wusphere.ru) owns user identity, API-key issuance, and the
+// WuApi (api.wuproj.com) owns user identity, API-key issuance, and the
 // upstream LLM proxy. WuNest calls it for three things:
 //
 //  1. Resolve a session cookie into a user profile (GET /api/me)
@@ -34,7 +34,7 @@ import (
 )
 
 type Config struct {
-	BaseURL     string        // https://api.wusphere.ru
+	BaseURL     string        // https://api.wuproj.com
 	InternalURL string        // optional: http://127.0.0.1:8080 (blue) or :8081 (green)
 	Timeout     time.Duration // per-request timeout (ignored for streaming)
 }

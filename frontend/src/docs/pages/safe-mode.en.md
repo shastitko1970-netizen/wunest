@@ -7,7 +7,7 @@ If your custom CSS broke the UI badly enough that you can't get to Settings — 
 Append `?safe` to the URL:
 
 ```
-https://nest.wusphere.ru/?safe
+https://nest.wuproj.com/?safe
 ```
 
 Reload. Custom CSS is automatically disabled **for this session** — not deleted, just suppressed, so your rules stay in place.

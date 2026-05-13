@@ -1,15 +1,15 @@
 # WuNest
 
-Modern web client for LLM roleplay, part of the [WuSphere](https://wusphere.ru) ecosystem.
+Modern web client for LLM roleplay, part of the [WuProj](https://wuproj.com) ecosystem.
 
-**Status:** ✅ live at [`nest.wusphere.ru`](https://nest.wusphere.ru) — actively iterating.
+**Status:** This GitHub repository is **archived** (read-only). The product may remain deployed at [`nest.wuproj.com`](https://nest.wuproj.com); ongoing development happens in the broader WuProj / WuApi workspace rather than in this repo.
 
 ## What is it
 
 WuNest is a SaaS web client for character-driven conversations with language models.
 Think SillyTavern, but cloud-hosted, mobile-friendly, and with a modern UI.
 
-It plugs into [WuApi](https://api.wusphere.ru) for identity, API keys, and billing,
+It plugs into [WuApi](https://api.wuproj.com) for identity, API keys, and billing,
 so users don't need to configure anything — log in with Google/Telegram/etc., and start chatting.
 
 ## Architecture (bird's-eye)
@@ -17,9 +17,9 @@ so users don't need to configure anything — log in with Google/Telegram/etc., 
 ```
 Browser (Vue 3 + Vuetify SPA)
    │
-   ├──► nest.wusphere.ru/api/*    (this service — Go)
+   ├──► nest.wuproj.com/api/*    (this service — Go)
    │       │
-   │       ├── reads wu_session cookie from .wusphere.ru
+   │       ├── reads wu_session cookie from .wuproj.com
    │       ├── resolves user via WuApi /api/me
    │       ├── stores characters, chats, worlds in own Postgres DB
    │       └── proxies chat completions to WuApi (SSE stream pass-through)
@@ -72,7 +72,7 @@ docker compose up -d postgres redis
 
 # 2. Configure the backend
 cp .env.example .env
-# edit DATABASE_URL, REDIS_ADDR, WUAPI_BASE_URL, COOKIE_DOMAIN
+# edit DATABASE_URL, REDIS_URL, WUAPI_BASE_URL, SESSION_COOKIE_DOMAIN
 # (defaults work for local dev; SECRETS_KEY must be 32 bytes)
 
 # 3. Run migrations
@@ -95,7 +95,7 @@ npm run dev    # http://localhost:5173, proxies /api/* → :9090
 - MinIO is **optional** in dev. Without it, character-import avatars and
   background-image uploads fall back to "no image", but everything else
   works.
-- `wu_session` cookie is shared across `.wusphere.ru` subdomains. For
+- `wu_session` cookie is shared across `.wuproj.com` subdomains. For
   local dev, log in on the live site once and copy the cookie value into
   your dev browser, OR run WuApi locally (instructions in WuApi repo).
 

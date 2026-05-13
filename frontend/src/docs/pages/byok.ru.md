@@ -24,7 +24,7 @@ BYOK (Bring Your Own Key) — использовать свой API-ключ у 
 
 В шапке чата — иконка ключа (`mdi-key-variant`). Открывается picker:
 
-- «Использовать ключ WuApi» — дефолт, трафик через api.wusphere.ru, оплата в wu-gold
+- «Использовать ключ WuApi» — дефолт, трафик через api.wuproj.com, оплата в wu-gold
 - Твои BYOK-ключи сгруппированы по провайдеру
 
 Выбор сохраняется в `chat_metadata.byok_id`. При следующей отправке стрим идёт **напрямую** к `{base_url}/chat/completions` с Bearer заголовком твоего ключа. WuApi не задействован.

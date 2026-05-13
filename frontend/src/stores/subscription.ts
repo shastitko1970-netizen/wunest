@@ -46,7 +46,7 @@ export interface NestPlan {
 }
 
 // Same-origin proxy to WuApi's /api/pay/prices (see internal/server/
-// router.go:handlePricing). Hitting api.wusphere.ru directly fails CORS
+// router.go:handlePricing). Hitting api.wuproj.com directly fails CORS
 // in the browser; the WuNest backend just forwards the request and the
 // SPA stays on one origin.
 const PRICING_ENDPOINT = '/api/pricing'
@@ -103,7 +103,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     plansLoading.value = true
     try {
       // Same-origin via WuNest's pricing proxy — bypasses cross-origin
-      // CORS against api.wusphere.ru. apiFetch handles error envelopes
+      // CORS against api.wuproj.com. apiFetch handles error envelopes
       // but the catalog is plain JSON so we just .json() the response.
       const res = await fetch(PRICING_ENDPOINT, { credentials: 'include' })
       if (!res.ok) throw new Error(`catalog ${res.status}`)

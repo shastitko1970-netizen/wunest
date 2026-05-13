@@ -8,7 +8,7 @@ The header shows your name or username from WuApi (fetched via `/api/me` on ever
 
 The **Refresh** button reloads all blocks (profile, stats, gold) from the backend — handy after a top-up or a manual edit in the WuApi cabinet.
 
-The **Sign out** button clears the `wu_session` cookie (across all `*.wusphere.ru` subdomains) and best-effort POSTs to WuApi for server-side session invalidation. Then it does a hard-reload to `/` so the SPA's auth-check runs fresh and shows the sign-in screen.
+The **Sign out** button clears the `wu_session` cookie (across all `*.wuproj.com` subdomains) and best-effort POSTs to WuApi for server-side session invalidation. Then it does a hard-reload to `/` so the SPA's auth-check runs fresh and shows the sign-in screen.
 
 ## KPI grid (4 cards)
 
@@ -17,7 +17,7 @@ The **Sign out** button clears the `wu_session` cookie (across all `*.wusphere.r
 
 Every WuApi-pool request to a model debits the real upstream USD cost (OpenRouter / Anthropic / Google etc.) → converted to gold with half-away-from-zero rounding. **The minimum paid request is always ≥ 1 nano** — tiny costs never round silently to zero.
 
-The **Top up →** button takes you to the WuApi cabinet (`wusphere.ru/dashboard`) where top-ups happen via YooMoney / Telegram Stars / Crypto.
+The **Top up →** button takes you to the WuApi cabinet (`wuproj.com/dashboard`) where top-ups happen via YooMoney / Telegram Stars / Crypto.
 
 ### Tier
 Free / Plus / Prem / Pro Plus / Max. Free is the minimum — a daily request limit + a restricted model list. Paid tiers drop the daily cap and unlock premium models (Claude Sonnet 4.5, GPT-4o, Gemini Pro, Wu-named tunes).
@@ -68,6 +68,6 @@ More on safe mode → [`safe-mode`](safe-mode).
 
 ## Delete my account
 
-Account deletion lives on the WuApi side (`wusphere.ru/dashboard` → Settings → Delete Account). Deleting your WuApi user cascades to all WuNest data (chats, characters, BYOK keys, presets, lorebooks).
+Account deletion lives on the WuApi side (`wuproj.com/dashboard` → Settings → Delete Account). Deleting your WuApi user cascades to all WuNest data (chats, characters, BYOK keys, presets, lorebooks).
 
 If you want to reset just your WuNest data but keep the WuApi account — that mode doesn't exist yet, ping support.

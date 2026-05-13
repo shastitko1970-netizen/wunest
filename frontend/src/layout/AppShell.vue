@@ -410,7 +410,7 @@ const localeLabel = (code: string) => {
           <v-list-item
             :title="t('nav.manageAccount')"
             prepend-icon="mdi-open-in-new"
-            href="https://wusphere.ru/dashboard"
+            href="https://wuproj.com/dashboard"
             target="_blank"
           />
         </v-list>

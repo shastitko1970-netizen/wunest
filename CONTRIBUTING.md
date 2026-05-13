@@ -1,6 +1,6 @@
 # Contributing to WuNest
 
-WuNest is a Vue 3 + Go SaaS web client for LLM roleplay, hosted on `nest.wusphere.ru` and integrated with [WuApi](https://api.wusphere.ru). This document is for contributors who want to run it locally or ship a PR.
+WuNest is a Vue 3 + Go SaaS web client for LLM roleplay, hosted on `nest.wuproj.com` and integrated with [WuApi](https://api.wuproj.com). This document is for contributors who want to run it locally or ship a PR.
 
 End-user documentation lives at `/docs` in the running app. This file covers the build / dev / deploy story.
 
@@ -41,8 +41,8 @@ Edit `.env`:
 |---|---|---|---|
 | `DATABASE_URL` | yes | `postgresql://wunest:wunest@127.0.0.1:5434/wunest` | matches docker-compose |
 | `REDIS_ADDR` | yes | `127.0.0.1:6380` | matches docker-compose |
-| `WUAPI_BASE_URL` | yes | `https://api.wusphere.ru` | for production-like dev; runs in your local cluster if you have one |
-| `COOKIE_DOMAIN` | yes | `localhost` for dev, `.wusphere.ru` for prod | controls `wu_session` cookie scope |
+| `WUAPI_BASE_URL` | yes | `https://api.wuproj.com` | for production-like dev; runs in your local cluster if you have one |
+| `SESSION_COOKIE_DOMAIN` | no | inferred from `PUBLIC_BASE_URL` | e.g. `.wuproj.com` in prod — must match WuApi cookie domain |
 | `SECRETS_KEY` | yes | (32 random bytes, base64) | AES-GCM master key for BYOK encryption. Generate via `openssl rand -base64 32`. **Never commit.** |
 | `MINIO_ENDPOINT` | no | empty | optional; without it, character/avatar/bg uploads fall back to "no image" |
 | `OUTBOUND_PROXIES` | no | empty | see "BYOK gotcha" below |
@@ -81,15 +81,15 @@ Vite proxies `/api/*` → backend on `:9090`, so frontend hot-reload works again
 
 ### 6. Sign in for development
 
-WuNest uses `wu_session` cookie set by WuApi (`api.wusphere.ru`). Two options:
+WuNest uses `wu_session` cookie set by WuApi (`api.wuproj.com`). Two options:
 
 **Option A (easy)** — log in on the live site once, then copy the cookie value:
-1. Visit `https://nest.wusphere.ru` and sign in
-2. DevTools → Application → Cookies → `.wusphere.ru` → copy `wu_session`
+1. Visit `https://nest.wuproj.com` and sign in
+2. DevTools → Application → Cookies → `.wuproj.com` → copy `wu_session`
 3. In your dev browser, paste the value into `localhost`'s cookies (manually via DevTools, since the Domain attribute differs)
 4. Visit `http://localhost:5173` — should be authenticated
 
-**Option B (full local stack)** — run WuApi locally too. See WuApi's repo for setup. You'll need both stacks running, with `COOKIE_DOMAIN=localhost` on both.
+**Option B (full local stack)** — run WuApi locally too. See WuApi's repo for setup. You'll need both stacks running, with `SESSION_COOKIE_DOMAIN=localhost` on both.
 
 ## Gotchas
 
@@ -109,8 +109,8 @@ If you want MinIO locally, the docker-compose file has it commented out — unco
 
 ### Cookie domain mismatch in dev
 
-`wu_session` is shared across `*.wusphere.ru` subdomains via `Domain=.wusphere.ru`. For pure `localhost` dev that domain doesn't apply — you can either:
-- Run with `COOKIE_DOMAIN=localhost` and a local WuApi (Option B above)
+`wu_session` is shared across `*.wuproj.com` subdomains via `Domain=.wuproj.com`. For pure `localhost` dev that domain doesn't apply — you can either:
+- Run with `SESSION_COOKIE_DOMAIN=localhost` and a local WuApi (Option B above)
 - Or paste the prod cookie manually (Option A above)
 
 There's no "auto" mode that handles both transparently — pick one for your dev session.

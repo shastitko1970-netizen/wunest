@@ -59,7 +59,7 @@ export function isBlockedProvider(err: unknown): err is ApiError & { detail: Blo
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
-    credentials: 'include', // send .wusphere.ru cookies
+    credentials: 'include', // send .wuproj.com cookies
     ...init,
     headers: {
       'Content-Type': 'application/json',

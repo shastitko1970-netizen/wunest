@@ -8,7 +8,7 @@
 
 Кнопка **«Обновить»** перезагружает все блоки (профиль, статистику, золото) из бэкенда — пригодится после top-up или после ручной правки в WuApi-кабинете.
 
-Кнопка **«Выйти»** — sign-out: чистит cookie `wu_session` (на всех subdomain'ах `*.wusphere.ru`) + best-effort POST в WuApi для серверной инвалидации сессии. После — hard-reload на `/`, AppShell видит «не authenticated» и показывает экран входа.
+Кнопка **«Выйти»** — sign-out: чистит cookie `wu_session` (на всех subdomain'ах `*.wuproj.com`) + best-effort POST в WuApi для серверной инвалидации сессии. После — hard-reload на `/`, AppShell видит «не authenticated» и показывает экран входа.
 
 ## KPI-блок (4 карточки)
 
@@ -17,7 +17,7 @@
 
 Каждый запрос к моделям через WuApi-pool списывает реальную стоимость в USD от upstream-провайдера (OpenRouter / Anthropic / Google etc.) → конвертируется в gold с округлением half-away-from-zero. **Минимальный платный запрос всегда ≥ 1 nano** — крошечные cost'ы не округляются молча в ноль.
 
-Кнопка **«Пополнить →»** ведёт в WuApi-кабинет (`wusphere.ru/dashboard`), где топ-ап делается через ЮMoney/Telegram Stars/Crypto.
+Кнопка **«Пополнить →»** ведёт в WuApi-кабинет (`wuproj.com/dashboard`), где топ-ап делается через ЮMoney/Telegram Stars/Crypto.
 
 ### Тариф
 Free / Plus / Prem / Pro Plus / Max. Free даёт минимум — daily-limit запросов в сутки + ограниченный список моделей. Платные тарифы убирают daily-limit и открывают premium модели (Claude Sonnet 4.5, GPT-4o, Gemini Pro, Wu-named тюны).
@@ -68,6 +68,6 @@ WuNest пока в закрытой бете — пользоваться чат
 
 ## Удалить аккаунт
 
-Удаление аккаунта — на стороне WuApi (`wusphere.ru/dashboard` → Settings → Delete Account). При удалении WuApi-юзера каскадно удаляются все WuNest-данные (chats, characters, BYOK-ключи, presets, lorebooks).
+Удаление аккаунта — на стороне WuApi (`wuproj.com/dashboard` → Settings → Delete Account). При удалении WuApi-юзера каскадно удаляются все WuNest-данные (chats, characters, BYOK-ключи, presets, lorebooks).
 
 Если хочешь только сбросить WuNest-данные но оставить WuApi-аккаунт — пока такого режима нет, напиши в саппорт.

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -72,11 +73,11 @@ func Load() (*Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisURL:    os.Getenv("REDIS_URL"),
 
-		WuApiBaseURL:     envOr("WUAPI_BASE_URL", "https://api.wusphere.ru"),
+		WuApiBaseURL:     envOr("WUAPI_BASE_URL", "https://api.wuproj.com"),
 		WuApiInternalURL: os.Getenv("WUAPI_INTERNAL_URL"),
 		WuNestAPISecret:  os.Getenv("WUNEST_API_SECRET"),
 
-		SessionCookieDomain: envOr("SESSION_COOKIE_DOMAIN", ".wusphere.ru"),
+		SessionCookieDomain: "", // resolved below (env or inferred from PUBLIC_BASE_URL)
 		SessionCookieName:   envOr("SESSION_COOKIE_NAME", "wu_session"),
 
 		MinIOEndpoint:      os.Getenv("MINIO_ENDPOINT"),
@@ -89,12 +90,24 @@ func Load() (*Config, error) {
 	}
 
 	// Default MinIOPublicBaseURL to PublicBaseURL so the common same-
-	// origin case (nginx on nest.wusphere.ru proxies /images/*) needs no
+	// origin case (nginx on nest.wuproj.com proxies /images/*) needs no
 	// extra env var. Only set explicitly when serving from a different
 	// host.
 	if cfg.MinIOPublicBaseURL == "" {
 		cfg.MinIOPublicBaseURL = cfg.PublicBaseURL
 	}
+
+	// Session cookie domain must match the WuApi host the browser uses for login
+	// (see server.apiBrowserOrigin). If unset, infer from PUBLIC_BASE_URL so
+	// nest.wuproj.com + api.wuproj.com stay paired when SESSION_COOKIE_DOMAIN is unset.
+	sessionDomain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
+	if sessionDomain == "" {
+		sessionDomain = cookieDomainFromPublicBase(cfg.PublicBaseURL)
+	}
+	if sessionDomain == "" {
+		sessionDomain = ".wuproj.com"
+	}
+	cfg.SessionCookieDomain = sessionDomain
 
 	var missing []string
 	if cfg.DatabaseURL == "" {
@@ -133,6 +146,28 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// cookieDomainFromPublicBase returns ".wuproj.com" when the
+// public Nest URL clearly belongs to that site family; empty for localhost
+// or unknown hosts (caller supplies a final default).
+func cookieDomainFromPublicBase(publicBase string) string {
+	u, err := url.Parse(publicBase)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return ""
+	}
+	switch {
+	case host == "localhost", host == "127.0.0.1":
+		return ""
+	case host == "wuproj.com" || strings.HasSuffix(host, ".wuproj.com"):
+		return ".wuproj.com"
+	default:
+		return ""
+	}
 }
 
 func decodeB64Key(s string, wantLen int) ([]byte, error) {

@@ -24,7 +24,7 @@ After save, plaintext is nowhere — only the ciphertext blob and a masked previ
 
 In the chat header — the key icon (`mdi-key-variant`). Opens a picker:
 
-- "Use the WuApi key" — default, traffic via api.wusphere.ru, billed in wu-gold
+- "Use the WuApi key" — default, traffic via api.wuproj.com, billed in wu-gold
 - Your BYOK keys grouped by provider
 
 The pick persists in `chat_metadata.byok_id`. On the next send, the stream goes **directly** to `{base_url}/chat/completions` with your key as the Bearer token. WuApi isn't in the request path.
