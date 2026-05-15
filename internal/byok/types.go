@@ -1,6 +1,8 @@
 package byok
 
 import (
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,6 +88,37 @@ var providerBaseURL = map[string]string{
 // if the provider is "custom" (URL must be user-supplied) or unknown.
 func DefaultBaseURL(provider string) string {
 	return providerBaseURL[provider]
+}
+
+// linkAPIHosts are regional LinkAPI roots. Their OpenAI-compat API lives
+// under /v1; bare origins serve the marketing SPA and return HTML on /models.
+var linkAPIHosts = []string{"linkapi.ai", "api.linkapi.ai", "jp.linkapi.ai"}
+
+// NormalizeBaseURL fixes common user mistakes before routing or persistence.
+// Today: LinkAPI keys saved as custom with https://linkapi.ai (no /v1) —
+// FetchModels would hit /models and decode the SPA index.html.
+func NormalizeBaseURL(provider, baseURL string) string {
+	baseURL = strings.TrimSpace(strings.TrimRight(baseURL, "/"))
+	if baseURL == "" {
+		return DefaultBaseURL(provider)
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return baseURL
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, h := range linkAPIHosts {
+		if host != h {
+			continue
+		}
+		path := strings.TrimRight(u.Path, "/")
+		if path == "" || path == "/" {
+			u.Path = "/v1"
+			return strings.TrimRight(u.String(), "/")
+		}
+		break
+	}
+	return baseURL
 }
 
 // IsSupportedProvider reports whether the given string is in SupportedProviders.

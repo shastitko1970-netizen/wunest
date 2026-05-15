@@ -988,12 +988,21 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	// Empty content is allowed ONLY in group chats, where it means
-	// "continue the scene — next speaker, no user turn". Single-char
-	// chats still require content (there'd be nothing to respond to).
-	if in.Content == "" && !chat.IsGroupChat {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
+	// Empty content means "no new user turn — reply from existing history".
+	// Group chats use this for auto-continue / next speaker; single-char
+	// chats use it for "ask for a reply" when the tail is a user message
+	// (e.g. after deleting the bot's last reply).
+	if in.Content == "" {
+		ok, err := h.allowEmptySendContent(r.Context(), chat.ID, chat)
+		if err != nil {
+			slog.Error("check empty send", "err", err, "chat_id", chat.ID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "content is required", http.StatusBadRequest)
+			return
+		}
 	}
 
 	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
@@ -1050,6 +1059,23 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	// Stream.
 	others := otherParticipantIDs(chat.CharacterIDs, respondingCharID)
 	h.streamChat(w, r, user.ID, chat.ID, respondingCharID, others, up, userName, userDesc, in)
+}
+
+// allowEmptySendContent reports whether POST /messages may omit user text.
+// Allowed for group chats (next-speaker continue) and for single-char chats
+// whose visible tail is a user message waiting for an assistant reply.
+func (h *Handler) allowEmptySendContent(ctx context.Context, chatID uuid.UUID, chat *Chat) (bool, error) {
+	if chat.IsGroupChat {
+		return true, nil
+	}
+	msgs, err := h.Repo.ListMessages(ctx, chatID, false)
+	if err != nil {
+		return false, err
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+	return msgs[len(msgs)-1].Role == RoleUser, nil
 }
 
 // otherParticipantIDs returns all character IDs in the group except the

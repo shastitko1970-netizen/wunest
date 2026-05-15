@@ -334,10 +334,9 @@ func (h *Handler) streamChat(
 	flusher, _ := w.(http.Flusher)
 
 	// 1. Persist user message — unless the content is empty, in which
-	// case we're in group-chat "continue" mode (advance the scene
-	// without a user turn). The handler has already rejected empty
-	// content for single-char chats, so reaching this branch implies
-	// a group chat asking for the next speaker's line.
+	// case we're in "continue" mode (advance without a new user turn).
+	// The handler only allows empty content for group chats or when the
+	// visible tail is already a user message ("ask for a reply").
 	if in.Content != "" {
 		userMsg, err := h.Repo.AppendMessage(ctx, chatID, RoleUser, in.Content, &MessageExtras{
 			Model: in.Model,

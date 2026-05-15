@@ -23,7 +23,7 @@ import { apiFetch, type LimitReachedDetail } from '@/api/client'
  */
 
 export interface SubscriptionState {
-  level: 'plus' | 'pro' | null
+  level: string | null
   expires_at: string | null
   slot_limit: number
   gold_discount_pct: number
@@ -33,23 +33,21 @@ export interface SubscriptionState {
   period_start: string
 }
 
-/** A single tier row from WuApi's /api/pay/prices endpoint
- *  (`nest_subscriptions` array). Free is included as a synthetic row so
- *  the Subscription page can render a uniform 3-card comparison grid. */
+/** A single tier row from WuApi /api/catalog/pricing (`wuapi_tiers`). */
 export interface NestPlan {
-  level: 'free' | 'plus' | 'pro'
+  level: string
   amount_rub: number
-  label: string
-  slot_limit: number       // -1 = unlimited
+  name: string
+  slot_limit: number
   gold_discount_pct: number
-  gold_discount_cap: number // nano-gold per month
+  gold_discount_cap: number
+  gold_discount_unlimited?: boolean
 }
 
-// Same-origin proxy to WuApi's /api/pay/prices (see internal/server/
-// router.go:handlePricing). Hitting api.wuproj.com directly fails CORS
-// in the browser; the WuNest backend just forwards the request and the
-// SPA stays on one origin.
+// Same-origin proxy to WuApi catalog pricing (WuNest server forwards).
 const PRICING_ENDPOINT = '/api/pricing'
+
+const WUAPI_SUBSCRIBE_URL = (import.meta.env.VITE_WUAPI_URL as string) || 'https://api.wuproj.com/dashboard'
 
 export const useSubscriptionStore = defineStore('subscription', () => {
   const state = ref<SubscriptionState | null>(null)
@@ -57,16 +55,11 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   const loading = ref(false)
   const plansLoading = ref(false)
   const limitReached = ref<LimitReachedDetail | null>(null)
-  // Purchase flow state, shared between Subscription page and Account
-  // page so both surfaces show the same loading/error feedback when a
-  // user clicks Buy from either place.
-  const buyingLevel = ref<'plus' | 'pro' | null>(null)
+  const buyingLevel = ref<string | null>(null)
   const buyError = ref<string | null>(null)
 
-  /** Active level — null when free, "plus" or "pro" when subscribed. */
-  const level = computed<'free' | 'plus' | 'pro'>(() => {
-    return state.value?.level ?? 'free'
-  })
+  /** Active WuApi tier key from /api/me/subscription, or "free". */
+  const level = computed(() => state.value?.level ?? 'free')
 
   /** Per-resource slot cap from current state. Always >= 0 (unlimited
    *  is exposed as Infinity). Used by the Library usage hints. */
@@ -82,9 +75,6 @@ export const useSubscriptionStore = defineStore('subscription', () => {
       state.value = data
       return data
     } catch (e) {
-      // Non-fatal — the SPA falls back to "free" defaults (slot_limit=3
-      // shows 3-cap hints, level=null). Real CRUD operations still go
-      // through server-side enforcement which is the truth.
       console.warn('subscription.fetchState', e)
       return null
     } finally {
@@ -102,16 +92,45 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     if (plans.value.length > 0) return plans.value
     plansLoading.value = true
     try {
-      // Same-origin via WuNest's pricing proxy — bypasses cross-origin
-      // CORS against api.wuproj.com. apiFetch handles error envelopes
-      // but the catalog is plain JSON so we just .json() the response.
       const res = await fetch(PRICING_ENDPOINT, { credentials: 'include' })
       if (!res.ok) throw new Error(`catalog ${res.status}`)
-      const data = await res.json()
-      const list = (data?.nest_subscriptions ?? []) as NestPlan[]
-      // Order: free → plus → pro for stable card layout.
-      const order: Record<string, number> = { free: 0, plus: 1, pro: 2 }
-      list.sort((a, b) => (order[a.level] ?? 99) - (order[b.level] ?? 99))
+      const data = await res.json() as {
+        wuapi_tiers?: Array<{
+          key: string
+          name: string
+          amount_rub_monthly: number
+          slot_limit: number
+          gold_discount_pct: number
+          gold_discount_cap_nano: number
+          gold_discount_unlimited?: boolean
+        }>
+      }
+      const rows = data?.wuapi_tiers ?? []
+      const mapped: NestPlan[] = rows
+        .filter((r) => r.key && r.key !== 'free')
+        .map((r) => ({
+          level: r.key,
+          amount_rub: r.amount_rub_monthly ?? 0,
+          name: r.name || r.key,
+          slot_limit: r.slot_limit ?? 3,
+          gold_discount_pct: r.gold_discount_pct ?? 0,
+          gold_discount_cap: r.gold_discount_cap_nano ?? 0,
+          gold_discount_unlimited: !!r.gold_discount_unlimited,
+        }))
+      const free: NestPlan = {
+        level: 'free',
+        amount_rub: 0,
+        name: 'Free',
+        slot_limit: 3,
+        gold_discount_pct: 0,
+        gold_discount_cap: 0,
+      }
+      const order: Record<string, number> = {
+        free: 0, start: 1, plus: 2, pro: 3, max: 4, max_plus: 5,
+      }
+      const list = [free, ...mapped].sort(
+        (a, b) => (order[a.level] ?? 99) - (order[b.level] ?? 99),
+      )
       plans.value = list
       return list
     } catch (e) {
@@ -122,54 +141,17 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     }
   }
 
-  /**
-   * purchase — start a Yookassa checkout for the given level (M54.4).
-   *
-   * Lives in the store (not in a single component) so multiple surfaces
-   * — `/subscription` and the inline plans block on `/account` — can
-   * share buyingLevel + buyError state. The user shouldn't see a stuck
-   * spinner on one page just because they clicked Buy on the other.
-   *
-   * On success: hard-redirects via `window.location.assign(payment_url)`.
-   * On failure: leaves `buyError` set, clears `buyingLevel`, resolves
-   * (no throw) so callers can stay simple.
-   */
-  async function purchase(level: 'plus' | 'pro') {
-    if (buyingLevel.value) return
+  /** Opens WuApi checkout in a new tab — Nest plans are no longer sold here. */
+  async function purchase(_level?: string) {
     buyError.value = null
-    buyingLevel.value = level
-    try {
-      const res = await fetch('/api/pay/create', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'nest_subscription', nest_level: level }),
-      })
-      const data = await res.json().catch(() => ({})) as { payment_url?: string; error?: string }
-      if (!res.ok || !data.payment_url) {
-        buyError.value = data.error || `payment ${res.status}`
-        buyingLevel.value = null
-        return
-      }
-      // Hard redirect — Yookassa hosted checkout. After payment user
-      // lands back on /subscription via the configured return URL.
-      window.location.assign(data.payment_url)
-    } catch (e) {
-      console.error('subscription.purchase', e)
-      buyError.value = (e as Error).message || 'payment failed'
-      buyingLevel.value = null
-    }
+    buyingLevel.value = null
+    window.open(WUAPI_SUBSCRIBE_URL, '_blank', 'noopener')
   }
 
   function dismissBuyError() {
     buyError.value = null
   }
 
-  /**
-   * showLimitReached — open the global "you hit your slot cap" dialog.
-   * Called by any handler that caught an ApiError(402, kind=limit_reached).
-   * Use isLimitReached() from @/api/client to type-narrow the error.
-   */
   function showLimitReached(detail: LimitReachedDetail) {
     limitReached.value = detail
   }

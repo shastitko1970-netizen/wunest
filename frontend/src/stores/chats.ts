@@ -147,21 +147,13 @@ export const useChatsStore = defineStore('chats', () => {
     )
   }
 
-  /** Generate a new variant of the last assistant reply, keeping the prior
-   *  ones addressable via swipe navigation. Implemented on top of swipe so
-   *  history is never destroyed — the "♻ new variant" button in the UI and
-   *  the regenerate hotkey both call into this.
-   *
-   *  Fall-through to the destructive regenerateStream only when there is no
-   *  existing assistant message to swipe from (rare — usually means the user
-   *  deleted the tail; in that case the UI should be routing through
-   *  `requestReplyFromLastUser` instead, but we keep the fallback to avoid
-   *  hard-breaking old call sites). */
+  /** Regenerate = new swipe variant on the same assistant row (ST-style).
+   *  Keeps prior text in `swipes[]` so chevrons work. Destructive
+   *  /regenerate (drops the row server-side) is only used when there is
+   *  no assistant tail to swipe from. */
   async function regenerate(input: Partial<SendMessageInput> = {}) {
     if (!currentId.value || streaming.value) return
 
-    // Find the last assistant message. If one exists, route through swipe —
-    // additive, non-destructive, prior variants stay reachable.
     for (let i = messages.value.length - 1; i >= 0; i--) {
       const m = messages.value[i]
       if (m && m.role === 'assistant') {
@@ -170,10 +162,6 @@ export const useChatsStore = defineStore('chats', () => {
       }
     }
 
-    // No assistant tail — fall back to the destructive server regenerate.
-    // Callers that hit this branch almost certainly want requestReplyFromLastUser
-    // instead (user deleted the bot reply and wants a new one); we take the
-    // safe route anyway.
     await runStream(
       () => regenerateStream(currentId.value!, input, streamAbort!.signal),
       null,
@@ -275,8 +263,17 @@ export const useChatsStore = defineStore('chats', () => {
           }
           case 'assistant_start': {
             assistantId = ev.data.id
+            // Destructive /regenerate deletes the DB row but the client may
+            // still list it — drop a trailing assistant so we don't stack two
+            // bubbles (reported as "new message below"). Normal send ends
+            // with a user row, so this is a no-op there.
+            const tail = messages.value[messages.value.length - 1]
+            const base =
+              tail?.role === 'assistant'
+                ? messages.value.slice(0, -1)
+                : messages.value
             messages.value = [
-              ...messages.value,
+              ...base,
               {
                 id: assistantId,
                 chat_id: currentId.value!,
@@ -387,6 +384,10 @@ export const useChatsStore = defineStore('chats', () => {
    *   - anything else                                      → passthrough
    */
   function formatStreamError(kind: string, message: string): string {
+    const trimmed = message.trim()
+    if (trimmed === 'content is required' || trimmed === 'content required') {
+      return 'Нужен текст сообщения — или нажми «Попросить ответ», если последнее сообщение твоё.'
+    }
     // Try to dig the embedded JSON out of the message — server-side
     // writeSSEError wraps upstream body as `"upstream 402: {json}"`.
     const jsonStart = message.indexOf('{')

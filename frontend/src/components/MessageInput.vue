@@ -10,8 +10,11 @@ import { uploadAttachment } from '@/api/uploads'
 import { useQuickRepliesStore } from '@/stores/quickReplies'
 import { byokApi, type BYOKKey } from '@/api/byok'
 import { chatsApi } from '@/api/chats'
+import { usePreferencesStore } from '@/stores/preferences'
 
 const { t } = useI18n()
+const prefs = usePreferencesStore()
+const { enterToSend } = storeToRefs(prefs)
 
 // Beta gate — sending is disabled until the user has redeemed an
 // access code. Whole UI stays visible (banner in AppShell explains),
@@ -240,14 +243,22 @@ function onKeydown(e: KeyboardEvent) {
   // legacy fallback some browsers use during IME composition where
   // `isComposing` flag isn't reliably set (older Firefox).
   if (e.isComposing || e.keyCode === 229) return
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-    e.preventDefault()
-    if (canSend.value) emit('send')
-    return
-  }
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    if (canSend.value) emit('send')
+  if (e.key !== 'Enter') return
+
+  const mod = e.metaKey || e.ctrlKey
+  if (enterToSend.value) {
+    // Default: Enter sends, Shift+Enter newline.
+    if (mod) return
+    if (!e.shiftKey) {
+      e.preventDefault()
+      if (canSend.value) emit('send')
+    }
+  } else {
+    // Alt mode: Enter newline, Ctrl/Cmd+Enter sends (mobile-friendly).
+    if (mod) {
+      e.preventDefault()
+      if (canSend.value) emit('send')
+    }
   }
 }
 

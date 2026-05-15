@@ -519,24 +519,31 @@ function close() { emit('update:modelValue', false) }
         <v-btn variant="text" size="small" icon="mdi-close" @click="close" />
       </v-card-title>
 
-      <v-tabs v-model="tab" density="compact" color="primary" :grow="false">
-        <v-tab value="tags">
-          <v-icon size="16" class="mr-1">mdi-tag-outline</v-icon>
-          {{ t('chat.settings.tabs.tags') }}
-        </v-tab>
-        <v-tab value="stats">
-          <v-icon size="16" class="mr-1">mdi-chart-box-outline</v-icon>
-          {{ t('chat.settings.tabs.stats') }}
-        </v-tab>
-        <v-tab value="memory">
-          <v-icon size="16" class="mr-1">mdi-brain</v-icon>
-          {{ t('chat.settings.tabs.memory') }}
-        </v-tab>
-      </v-tabs>
+      <div class="nest-chat-settings-tabs-head">
+        <v-tabs
+          v-model="tab"
+          density="compact"
+          color="primary"
+          :grow="false"
+          show-arrows
+        >
+          <v-tab value="tags">
+            <v-icon size="16" class="mr-1">mdi-tag-outline</v-icon>
+            {{ t('chat.settings.tabs.tags') }}
+          </v-tab>
+          <v-tab value="stats">
+            <v-icon size="16" class="mr-1">mdi-chart-box-outline</v-icon>
+            {{ t('chat.settings.tabs.stats') }}
+          </v-tab>
+          <v-tab value="memory">
+            <v-icon size="16" class="mr-1">mdi-brain</v-icon>
+            {{ t('chat.settings.tabs.memory') }}
+          </v-tab>
+        </v-tabs>
+        <v-divider />
+      </div>
 
-      <v-divider />
-
-      <v-card-text class="pa-3">
+      <v-card-text class="pa-3 nest-chat-settings-body">
         <!-- ── Tags tab ───────────────────────────────────────── -->
         <div v-if="tab === 'tags'">
           <div class="nest-hint mb-2">{{ t('chat.settings.tagsHint') }}</div>
@@ -674,24 +681,30 @@ function close() { emit('update:modelValue', false) }
                 variant="outlined"
               />
               <div class="nest-an-fields mt-2">
-                <v-text-field
-                  v-model.number="noteDraft.depth"
-                  :label="t('chat.authorsNote.depth')"
-                  type="number" :min="0" :max="20"
-                  density="compact" variant="outlined" hide-details
-                  style="max-width: 110px"
-                />
-                <v-select
-                  v-model="noteDraft.role"
-                  :label="t('chat.authorsNote.role')"
-                  :items="[
-                    { value: 'system', title: t('chat.authorsNote.roleSystem') },
-                    { value: 'user', title: t('chat.authorsNote.roleUser') },
-                    { value: 'assistant', title: t('chat.authorsNote.roleAssistant') },
-                  ]"
-                  density="compact" variant="outlined" hide-details
-                  style="max-width: 200px"
-                />
+                <div class="nest-an-field">
+                  <label class="nest-an-field-label">{{ t('chat.authorsNote.depth') }}</label>
+                  <v-text-field
+                    v-model.number="noteDraft.depth"
+                    type="number"
+                    :min="0"
+                    :max="20"
+                    density="compact"
+                    hide-details
+                  />
+                </div>
+                <div class="nest-an-field">
+                  <label class="nest-an-field-label">{{ t('chat.authorsNote.role') }}</label>
+                  <v-select
+                    v-model="noteDraft.role"
+                    :items="[
+                      { value: 'system', title: t('chat.authorsNote.roleSystem') },
+                      { value: 'user', title: t('chat.authorsNote.roleUser') },
+                      { value: 'assistant', title: t('chat.authorsNote.roleAssistant') },
+                    ]"
+                    density="compact"
+                    hide-details
+                  />
+                </div>
               </div>
               <div class="nest-an-hint nest-hint mt-1">{{ t('chat.authorsNote.hint') }}</div>
               <div class="d-flex ga-2 justify-end mt-2">
@@ -1003,10 +1016,35 @@ function close() { emit('update:modelValue', false) }
   }
   &[open] > .nest-an-summary { color: var(--nest-text); }
 }
+.nest-chat-settings-tabs-head {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--nest-surface);
+}
+.nest-chat-settings-body {
+  max-height: min(70vh, calc(100dvh - 120px));
+  overflow-y: auto;
+}
 .nest-an-fields {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: flex-end;
+}
+.nest-an-field {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nest-an-field-label {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nest-text-muted);
 }
 .nest-saving-hint {
   font-size: 10px;

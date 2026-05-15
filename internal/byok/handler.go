@@ -111,6 +111,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		// without producing double slashes.
 		req.BaseURL = strings.TrimRight(req.BaseURL, "/")
 	}
+	if req.BaseURL != "" {
+		req.BaseURL = NormalizeBaseURL(req.Provider, req.BaseURL)
+	}
 	if req.Provider == "custom" && req.BaseURL == "" {
 		http.Error(w, "base_url required for custom provider", http.StatusBadRequest)
 		return

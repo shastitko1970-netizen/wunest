@@ -234,27 +234,46 @@ func (r *runner) collectRefs(bucket string) (map[string]bool, error) {
 	return refs, nil
 }
 
-// scanAvatars pulls both avatar_url and avatar_original_url columns from
-// nest_characters. Extracts the object-key suffix and adds it to the ref set.
+// scanAvatars pulls avatar URLs from nest_characters and nest_personas.
+// Persona avatars were previously omitted and got reaped as orphans.
 func (r *runner) scanAvatars(refs map[string]bool) error {
-	const q = `
+	const qChars = `
 		SELECT COALESCE(avatar_url, ''), COALESCE(avatar_original_url, '')
 		  FROM nest_characters
 	`
-	rows, err := r.pg.Query(r.ctx, q)
+	rows, err := r.pg.Query(r.ctx, qChars)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var thumb, orig string
 		if err := rows.Scan(&thumb, &orig); err != nil {
+			rows.Close()
 			return err
 		}
 		r.addRef(refs, thumb, "/images/avatars/")
 		r.addRef(refs, orig, "/images/avatars/")
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	const qPersonas = `SELECT COALESCE(avatar_url, '') FROM nest_personas`
+	prows, err := r.pg.Query(r.ctx, qPersonas)
+	if err != nil {
+		return err
+	}
+	defer prows.Close()
+	for prows.Next() {
+		var url string
+		if err := prows.Scan(&url); err != nil {
+			return err
+		}
+		r.addRef(refs, url, "/images/avatars/")
+	}
+	return prows.Err()
 }
 
 // attachmentURLRegex matches any URL that points at our attachments path.
@@ -292,7 +311,29 @@ func (r *runner) scanAttachments(refs map[string]bool) error {
 			refs[key] = true
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	// Character expression sprites live in data.assets JSON, not in messages.
+	const qChars = `SELECT data FROM nest_characters WHERE data IS NOT NULL`
+	crows, err := r.pg.Query(r.ctx, qChars)
+	if err != nil {
+		return err
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var raw []byte
+		if err := crows.Scan(&raw); err != nil {
+			return err
+		}
+		for _, match := range attachmentURLRegex.FindAllString(string(raw), -1) {
+			key := strings.TrimPrefix(match, "/images/attachments/")
+			refs[key] = true
+		}
+	}
+	return crows.Err()
 }
 
 // scanBackgrounds walks nest_users.settings and extracts any

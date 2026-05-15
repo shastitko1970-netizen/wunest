@@ -58,6 +58,7 @@ func (r *Repository) List(ctx context.Context, userID uuid.UUID) ([]Key, error) 
 		if k.BaseURL == "" {
 			k.BaseURL = DefaultBaseURL(k.Provider)
 		}
+		k.BaseURL = NormalizeBaseURL(k.Provider, k.BaseURL)
 		out = append(out, k)
 	}
 	return out, rows.Err()
@@ -77,6 +78,7 @@ func (r *Repository) Create(ctx context.Context, in CreateInput) (*Key, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL(in.Provider)
 	}
+	baseURL = NormalizeBaseURL(in.Provider, baseURL)
 	if baseURL == "" {
 		return nil, fmt.Errorf("byok: base URL required for provider %q", in.Provider)
 	}
@@ -146,6 +148,7 @@ func (r *Repository) Reveal(ctx context.Context, userID, id uuid.UUID) (Revealed
 	if baseURL == "" {
 		baseURL = DefaultBaseURL(provider)
 	}
+	baseURL = NormalizeBaseURL(provider, baseURL)
 	plaintext, err := Decrypt(r.secretKey, ct, nonce)
 	if err != nil {
 		return Revealed{}, err

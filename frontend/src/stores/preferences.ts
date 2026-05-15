@@ -29,6 +29,8 @@ interface PersistedPrefs {
   // Some users find live-emotion sprites distracting; default false
   // (show when available).
   hideSprites?: boolean
+  // Composer: Enter sends (default) vs Ctrl/Cmd+Enter sends (Enter = newline).
+  enterToSend?: boolean
 }
 
 function loadFromStorage(): PersistedPrefs {
@@ -53,6 +55,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
   const groupAutoNext = ref<boolean>(stored.groupAutoNext ?? false)
   const groupDetectMention = ref<boolean>(stored.groupDetectMention ?? true)
   const hideSprites = ref<boolean>(stored.hideSprites ?? false)
+  const enterToSend = ref<boolean>(stored.enterToSend ?? true)
 
   function persist() {
     const next: PersistedPrefs = {
@@ -60,13 +63,14 @@ export const usePreferencesStore = defineStore('preferences', () => {
       groupAutoNext: groupAutoNext.value,
       groupDetectMention: groupDetectMention.value,
       hideSprites: hideSprites.value,
+      enterToSend: enterToSend.value,
     }
     try { localStorage.setItem(LS_KEY, JSON.stringify(next)) } catch { /* quota */ }
   }
 
   // Any mutation → persist the whole bag. Small object, don't bother with
   // a debounce.
-  watch([disableStreaming, groupAutoNext, groupDetectMention, hideSprites], persist)
+  watch([disableStreaming, groupAutoNext, groupDetectMention, hideSprites, enterToSend], persist)
 
   // Cross-tab sync — a different tab toggling the pref should reflect here
   // without waiting for a reload.
@@ -87,9 +91,12 @@ export const usePreferencesStore = defineStore('preferences', () => {
         if (typeof parsed.hideSprites === 'boolean') {
           hideSprites.value = parsed.hideSprites
         }
+        if (typeof parsed.enterToSend === 'boolean') {
+          enterToSend.value = parsed.enterToSend
+        }
       } catch { /* ignore */ }
     })
   }
 
-  return { disableStreaming, groupAutoNext, groupDetectMention, hideSprites }
+  return { disableStreaming, groupAutoNext, groupDetectMention, hideSprites, enterToSend }
 })

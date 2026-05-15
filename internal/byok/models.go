@@ -66,7 +66,7 @@ var ErrGeoBlocked = errors.New("provider blocks requests from this server's regi
 // Timeout is 20s — OpenRouter's list is ~400 rows and has been known to take
 // 10s+ on cold caches.
 func FetchModels(ctx context.Context, provider string, revealed Revealed, pool *outboundproxy.Pool) (*ModelList, error) {
-	base := strings.TrimRight(revealed.BaseURL, "/")
+	base := strings.TrimRight(NormalizeBaseURL(provider, revealed.BaseURL), "/")
 	if base == "" {
 		return nil, fmt.Errorf("byok models: empty base URL")
 	}
@@ -117,7 +117,11 @@ func FetchModels(ctx context.Context, provider string, revealed Revealed, pool *
 
 	var list ModelList
 	if err := json.Unmarshal(body, &list); err != nil {
-		return nil, fmt.Errorf("decode: %w (body: %s)", err, truncate(string(body), 200))
+		msg := truncate(string(body), 200)
+		if strings.HasPrefix(strings.TrimSpace(msg), "<") {
+			return nil, fmt.Errorf("decode: %w (body: %s) — endpoint returned HTML, not JSON; for LinkAPI use base URL ending in /v1 (e.g. https://linkapi.ai/v1)", err, msg)
+		}
+		return nil, fmt.Errorf("decode: %w (body: %s)", err, msg)
 	}
 
 	// Per-provider post-processing.

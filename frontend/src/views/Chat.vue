@@ -374,7 +374,11 @@ function scrollToMessage(mid: number) {
 }
 
 const characterName = computed(() => currentChat.value?.character_name ?? undefined)
-const userName = computed(() => profile.value?.first_name || profile.value?.username || 'You')
+const userName = computed(() => {
+  const fromPersona = activePersonaLabel.value
+  if (fromPersona) return fromPersona
+  return profile.value?.first_name || profile.value?.username || 'You'
+})
 const hasSelection = computed(() => !!currentChat.value)
 
 // ─── Group-chat state ─────────────────────────────────────────────
@@ -1037,7 +1041,7 @@ async function requestReplyFromLastUser() {
 
       <template v-else>
         <!-- Header -->
-        <header class="nest-chat-header">
+        <header class="nest-chat-header" :class="{ 'nest-chat-header--mobile': mdAndDown }">
           <!-- Mobile burger opens the chat list drawer. Without this the
                chat list on phones is stranded behind the hidden sidebar
                (`display: none` on <=960px) and users can't switch chats. -->
@@ -1066,11 +1070,76 @@ async function requestReplyFromLastUser() {
                 ECO
               </span>
             </div>
-            <div v-if="characterName" class="nest-mono nest-chat-char">
+            <div v-if="characterName && !mdAndDown" class="nest-mono nest-chat-char">
               {{ t('chat.with', { name: characterName }) }}
             </div>
           </div>
-          <div class="nest-chat-tools">
+
+          <v-menu v-if="mdAndDown" location="bottom end" offset="6">
+            <template #activator="{ props: menuProps }">
+              <v-btn
+                v-bind="menuProps"
+                variant="text"
+                size="small"
+                icon="mdi-dots-vertical"
+                class="nest-chat-overflow-btn"
+                :title="t('chat.header.moreActions')"
+              />
+            </template>
+            <v-list density="compact" min-width="240" class="nest-chat-overflow-menu">
+              <template v-if="samplerChipLabel">
+                <v-list-subheader class="nest-mono">
+                  {{ t('chat.preset.switchTitle') }}
+                </v-list-subheader>
+                <v-list-item
+                  v-for="p in presets.samplers"
+                  :key="p.id"
+                  :active="presets.isActive(p)"
+                  prepend-icon="mdi-tune-variant"
+                  @click="pickActiveSampler(p.id)"
+                >
+                  <v-list-item-title>{{ p.name }}</v-list-item-title>
+                </v-list-item>
+                <v-list-item
+                  :active="!presets.activeID('sampler')"
+                  prepend-icon="mdi-close-circle-outline"
+                  @click="pickActiveSampler(null)"
+                >
+                  <v-list-item-title class="text-medium-emphasis">
+                    {{ t('chat.preset.none') }}
+                  </v-list-item-title>
+                </v-list-item>
+                <v-divider />
+              </template>
+              <v-list-item prepend-icon="mdi-drama-masks" @click="personaPickerOpen = true">
+                <v-list-item-title>{{ t('personas.picker.title') }}</v-list-item-title>
+                <v-list-item-subtitle v-if="activePersonaLabel">
+                  {{ activePersonaLabel }}
+                </v-list-item-subtitle>
+              </v-list-item>
+              <v-list-item
+                prepend-icon="mdi-key-variant"
+                :class="{ 'text-primary': hasBYOKPin }"
+                @click="byokPickerOpen = true"
+              >
+                <v-list-item-title>{{ t('byok.picker.title') }}</v-list-item-title>
+              </v-list-item>
+              <v-list-item prepend-icon="mdi-download-outline" @click="exportCurrentChat">
+                <v-list-item-title>{{ t('chat.export.btn') }}</v-list-item-title>
+              </v-list-item>
+              <v-list-item prepend-icon="mdi-tune-variant" @click="settingsOpen = true">
+                <v-list-item-title>{{ t('chat.sampler.title') }}</v-list-item-title>
+              </v-list-item>
+              <v-list-item
+                prepend-icon="mdi-book-open-page-variant-outline"
+                @click="settingsDrawerOpen = true"
+              >
+                <v-list-item-title>{{ t('chat.settings.title') }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+
+          <div v-if="!mdAndDown" class="nest-chat-tools">
             <!-- Active-sampler chip: instant preset switcher without
                  opening the settings drawer. Click → menu of all sampler
                  presets (+ "none" option). Hidden when user has no
@@ -1593,6 +1662,24 @@ body[data-nest-bg] .nest-chat-empty {
   padding: 14px 20px;
   border-bottom: 1px solid var(--nest-border);
 }
+// Phones: burger | title (ellipsis) | overflow menu — keeps the row on one line.
+.nest-chat-header--mobile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+
+  .nest-chat-title {
+    grid-column: 2;
+  }
+  .nest-chat-overflow-btn {
+    grid-column: 3;
+    flex-shrink: 0;
+  }
+  .nest-chat-menu-btn {
+    grid-column: 1;
+  }
+}
 .nest-chat-title {
   display: flex;
   flex-direction: column;
@@ -1960,18 +2047,12 @@ body[data-nest-bg] .nest-chat-empty {
 //   - No extra gap between icon buttons
 @media (max-width: 520px) {
   .nest-chat-header { padding: 10px 12px; }
+  .nest-chat-header--mobile { column-gap: 2px; }
   .nest-chat-name   { font-size: 15px; }
   .nest-chat-char   { display: none; }
   .nest-ctx-chip    { display: none; }
   .nest-chat-tools  { gap: 0; }
   .nest-chat-tools .v-btn { --v-btn-size: 28px; }
-  // Preset chip gets tighter on phones. The label is still there but
-  // capped harder so it can't shove the Send-settings button off-screen.
-  .nest-preset-chip {
-    max-width: 96px;
-    padding: 3px 6px;
-    font-size: 10.5px;
-  }
   .nest-chat-messages { padding: 14px 12px 56px; }
   .nest-chat-input    { padding: 10px 12px max(14px, env(safe-area-inset-bottom)); }
 }

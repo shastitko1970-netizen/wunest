@@ -255,6 +255,12 @@ const messages = {
         disableHint: 'С выключенной опцией показывается «Думает…», а готовое сообщение появляется целиком. Экономит зрение, если смотреть на токены раздражает.',
         disableHintShort: 'Показывать готовый ответ целиком, а не по токенам.',
       },
+      composer: {
+        title: 'Отправка сообщений',
+        tagline: 'Как Enter работает в поле ввода чата.',
+        enterToSend: 'Enter — отправить (Shift+Enter — новая строка)',
+        enterToSendHint: 'Выключи, если на телефоне Enter должен делать абзац, а отправка — Ctrl+Enter.',
+      },
     },
     byok: {
       eyebrow: 'BYOK',
@@ -1129,6 +1135,9 @@ const messages = {
         openLibrary: 'Открыть библиотеку',
       },
       with: 'с {name}',
+      header: {
+        moreActions: 'Ещё действия',
+      },
       sayHi: 'Ещё нет сообщений — напиши привет.',
       you: 'Ты',
       jumpToBottom: 'Вниз к новому',
@@ -1371,13 +1380,15 @@ const messages = {
       cta: 'Ввести код в профиле',
     },
     subscription: {
-      title: 'Тарифы WuNest',
-      tagline: 'Free для пробы, Plus и Pro когда играешь регулярно. Подписка даёт больше слотов в библиотеке и скидку на покупку wu-голд.',
+      title: 'Тарифы WuApi и WuNest',
+      tagline: 'Слоты библиотеки и скидка на wu-gold зависят от активной подписки WuApi. Оформление — на api.wuproj.com.',
       active: 'Активен тариф {level}',
       activeUntil: 'до {date}',
       current: 'Текущий',
-      footnote: 'Платежи через Юкассу. Скидка на голду действует на первые 20 голд в каждом календарном месяце; всё что сверху — по обычной цене. Когда подписка заканчивается, твои сохранённые объекты остаются на месте, но новые на Free создаются только до лимита 3 в каждой категории.',
+      footnote: 'Платежи через ЮKassa. Скидка на докупку голд и включённый голд считаются по календарному месяцу. Годовая подписка — 12 таких периодов.',
       fetchFailed: 'Не удалось загрузить тарифы. Попробуй обновить страницу.',
+      wuapiTagline: 'Оформление и продление — на сайте WuApi.',
+      wuapiCtaHint: 'Откроется страница оплаты WuApi в новой вкладке.',
       price: {
         free: 'Бесплатно',
       },
@@ -1404,6 +1415,7 @@ const messages = {
       feature: {
         slots: '{count} слотов в каждой категории',
         discount: 'Скидка {percent}% на первые {cap} голд/мес',
+        discountUnlimited: 'Скидка {percent}% на докупку голд без месячного лимита',
         noDiscount: 'Без скидки на голд',
       },
       cta: {
@@ -1412,17 +1424,18 @@ const messages = {
         freeUnavailable: 'Активен по умолчанию',
         comingSoon: 'Платежи скоро запустим',
         downgrade: 'Уже на старшем тарифе',
+        openWuApi: 'Оформить в WuApi',
       },
       buy: {
         failed: 'Не удалось создать платёж. Попробуй позже или напиши в поддержку.',
       },
       account: {
-        block: 'Тариф WuNest',
+        block: 'Тариф WuApi',
         free: 'Free',
         manage: 'Управлять',
         upgrade: 'Тарифы',
-        sectionTitle: 'Тарификация WuNest',
-        sectionTagline: 'Прокачай слоты библиотеки и получи скидку на покупку голды.',
+        sectionTitle: 'Тарификация',
+        sectionTagline: 'Слоты WuNest и скидка на голд идут от подписки WuApi.',
       },
       usage: {
         chip: '{used} из {total}',
@@ -1434,7 +1447,7 @@ const messages = {
       limit: {
         title: 'Достигнут лимит',
         body: 'У тебя {current} из {max} {resource}. На Free-тарифе слотов больше не добавить.',
-        hint: 'Plus — 10 слотов в каждой категории за 100 ₽/мес. Pro — безлимит за 300 ₽/мес. Также 3% / 5% скидка на покупку голды.',
+        hint: 'Оформи подписку WuApi на api.wuproj.com — появятся слоты и скидка на докупку wu-gold.',
         upgrade: 'Тарифы',
         resource: {
           character: 'персонажей',
@@ -1691,6 +1704,12 @@ const messages = {
         disableLabel: 'Wait for the full response (no token-by-token streaming)',
         disableHint: 'When off, "Thinking…" shows while the reply is generated, and the full message appears in one shot. The server still streams; the client just buffers the display.',
         disableHintShort: 'Paint the full reply at once instead of per-token.',
+      },
+      composer: {
+        title: 'Message composer',
+        tagline: 'How Enter behaves in the chat input.',
+        enterToSend: 'Enter sends (Shift+Enter for newline)',
+        enterToSendHint: 'Turn off if Enter should insert a paragraph on mobile and Ctrl+Enter should send.',
       },
     },
     byok: {
@@ -2543,6 +2562,9 @@ const messages = {
         openLibrary: 'Open Library',
       },
       with: 'with {name}',
+      header: {
+        moreActions: 'More actions',
+      },
       sayHi: 'No messages yet — say hi.',
       you: 'You',
       jumpToBottom: 'Jump to latest',
@@ -2783,13 +2805,15 @@ const messages = {
       cta: 'Enter code in profile',
     },
     subscription: {
-      title: 'WuNest plans',
-      tagline: 'Free for trying, Plus and Pro for regular play. Subscriptions give more library slots and a discount on wu-gold.',
+      title: 'WuApi & WuNest plans',
+      tagline: 'Library slots and wu-gold discount follow your active WuApi subscription. Purchase on api.wuproj.com.',
       active: '{level} plan active',
       activeUntil: 'until {date}',
       current: 'Current',
-      footnote: 'Payments handled by Yookassa. The gold discount applies to the first 20 gold per calendar month — anything beyond that is at the regular price. When a subscription expires your saved objects stay; new ones can only be created up to the Free cap of 3 per category.',
+      footnote: 'Payments via YooKassa. Included gold and the gold-purchase discount accrue per calendar month. Annual plans cover 12 such periods.',
       fetchFailed: "Couldn't load plans. Try reloading the page.",
+      wuapiTagline: 'Subscribe or renew on the WuApi site.',
+      wuapiCtaHint: 'Opens the WuApi billing page in a new tab.',
       price: {
         free: 'Free',
       },
@@ -2816,6 +2840,7 @@ const messages = {
       feature: {
         slots: '{count} slots per category',
         discount: '{percent}% off on the first {cap} gold/mo',
+        discountUnlimited: '{percent}% off gold top-ups with no monthly cap',
         noDiscount: 'No gold discount',
       },
       cta: {
@@ -2824,17 +2849,18 @@ const messages = {
         freeUnavailable: 'Active by default',
         comingSoon: 'Payments going live soon',
         downgrade: 'Already on a higher plan',
+        openWuApi: 'Open WuApi billing',
       },
       buy: {
         failed: 'Failed to create payment. Try again later or contact support.',
       },
       account: {
-        block: 'WuNest plan',
+        block: 'WuApi plan',
         free: 'Free',
         manage: 'Manage',
         upgrade: 'See plans',
-        sectionTitle: 'WuNest plans',
-        sectionTagline: 'Upgrade your library slots and unlock the gold discount.',
+        sectionTitle: 'Billing',
+        sectionTagline: 'WuNest slots and gold discount come from your WuApi subscription.',
       },
       usage: {
         chip: '{used} of {total}',
@@ -2846,7 +2872,7 @@ const messages = {
       limit: {
         title: 'Limit reached',
         body: "You've used {current} of {max} {resource}. Free plan can't fit any more.",
-        hint: 'Plus — 10 slots per category at 100 ₽/mo. Pro — unlimited at 300 ₽/mo. Both also discount gold (3% / 5%).',
+        hint: 'Subscribe on api.wuproj.com to unlock more slots and discounted wu-gold.',
         upgrade: 'See plans',
         resource: {
           character: 'characters',

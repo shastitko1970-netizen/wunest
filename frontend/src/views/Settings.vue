@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import AppearancePanel from '@/components/AppearancePanel.vue'
@@ -26,10 +27,11 @@ import { apiFetch } from '@/api/client'
 //     к Конвертеру; здесь в Settings просто оборачиваем его в ясную
 //     section.
 
+const route = useRoute()
 const { t, locale, availableLocales } = useI18n()
 const models = useModelsStore()
 const prefs = usePreferencesStore()
-const { disableStreaming } = storeToRefs(prefs)
+const { disableStreaming, enterToSend } = storeToRefs(prefs)
 const { items: modelOptions, loading: modelsLoading } = storeToRefs(models)
 
 const currentLocale = computed({
@@ -86,9 +88,9 @@ async function saveDefaultModel(v: string) {
 }
 
 // ─── TOC / desktop section nav ──────────────────────────────────────
-// Anchor-click jumps via native hash navigation (+ CSS scroll-behavior
-// smooth в html). Active state tracks which section is in viewport
-// via IntersectionObserver.
+// Section jumps use scrollIntoView — native #hash links fight Vue Router's
+// scrollBehavior (always top: 0 on route change) and feel like a refresh
+// with no movement. Active state tracks viewport via IntersectionObserver.
 interface TocEntry {
   id: string
   icon: string
@@ -100,6 +102,17 @@ const TOC: TocEntry[] = [
   { id: 'byok',       icon: 'mdi-key-variant',          labelKey: 'settings.nav.byok' },
 ]
 const activeTocId = ref<string>('general')
+
+function scrollToSection(id: string) {
+  const el = document.getElementById(id)
+  if (!el) return
+  activeTocId.value = id
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const hash = `#${id}`
+  if (window.location.hash !== hash) {
+    history.replaceState(history.state, '', `${route.path}${hash}`)
+  }
+}
 
 onMounted(() => {
   const io = new IntersectionObserver(
@@ -120,6 +133,10 @@ onMounted(() => {
     const el = document.getElementById(t2.id)
     if (el) io.observe(el)
   }
+  const hashId = route.hash.replace(/^#/, '')
+  if (hashId && TOC.some((e) => e.id === hashId)) {
+    requestAnimationFrame(() => scrollToSection(hashId))
+  }
 })
 </script>
 
@@ -134,9 +151,10 @@ onMounted(() => {
         <a
           v-for="entry in TOC"
           :key="entry.id"
-          :href="'#' + entry.id"
+          href="#"
           class="nest-settings-toc-link"
           :class="{ 'is-active': activeTocId === entry.id }"
+          @click.prevent="scrollToSection(entry.id)"
         >
           <v-icon size="16" class="mr-2">{{ entry.icon }}</v-icon>
           <span>{{ t(entry.labelKey) }}</span>
@@ -210,6 +228,22 @@ onMounted(() => {
             />
             <p class="nest-hint mt-2">
               {{ t('settings.streaming.disableHint') }}
+            </p>
+          </div>
+
+          <div class="nest-subsection">
+            <div class="nest-subsection-head">{{ t('settings.composer.title') }}</div>
+            <p class="nest-hint mb-3">{{ t('settings.composer.tagline') }}</p>
+            <v-switch
+              v-model="enterToSend"
+              :label="t('settings.composer.enterToSend')"
+              color="primary"
+              inset
+              hide-details
+              density="compact"
+            />
+            <p class="nest-hint mt-2">
+              {{ t('settings.composer.enterToSendHint') }}
             </p>
           </div>
         </section>

@@ -71,7 +71,20 @@ export const router = createRouter({
       component: () => import('@/views/NotFound.vue'),
     },
   ],
-  scrollBehavior() {
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.hash) {
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(to.hash)
+          if (el) {
+            resolve({ el: to.hash, behavior: 'smooth' })
+          } else {
+            resolve({ top: 0 })
+          }
+        })
+      })
+    }
     return { top: 0 }
   },
 })

@@ -17,26 +17,15 @@ import { useSubscriptionStore, type NestPlan } from '@/stores/subscription'
 
 const { t } = useI18n()
 const sub = useSubscriptionStore()
-const { plans, plansLoading, level, buyingLevel } = storeToRefs(sub)
+const { plans, plansLoading, level } = storeToRefs(sub)
 
 onMounted(() => {
   void sub.fetchPlans()
 })
 
 function isCurrent(plan: NestPlan): boolean {
+  if (plan.level === 'free') return false
   return plan.level === level.value
-}
-
-// Plan rank for downgrade detection. We don't let users "buy" a tier
-// strictly below their active one — Plus when they already have Pro
-// would silently waste money (the activator extends max(NOW, current)
-// so the row sits unused beneath the Pro coverage). Free has its own
-// disabled CTA, so the only real downgrade case is plus < pro.
-const PLAN_RANK: Record<string, number> = { free: 0, plus: 1, pro: 2 }
-function isDowngrade(plan: NestPlan): boolean {
-  const here = PLAN_RANK[plan.level] ?? 0
-  const current = PLAN_RANK[level.value] ?? 0
-  return current > here && plan.level !== 'free'
 }
 
 function formatSlots(limit: number): string {
@@ -56,7 +45,7 @@ function formatGoldCap(capNano: number): string {
 
 function onSubscribe(plan: NestPlan) {
   if (plan.level === 'free' || isCurrent(plan)) return
-  void sub.purchase(plan.level as 'plus' | 'pro')
+  void sub.purchase(plan.level)
 }
 
 const showLoading = computed(() => plansLoading.value && plans.value.length === 0)
@@ -79,11 +68,11 @@ const showLoading = computed(() => plansLoading.value && plans.value.length === 
         class="nest-plan-card"
         :class="{
           'is-current': isCurrent(plan),
-          'is-pro': plan.level === 'pro',
+          'is-pro': plan.level === 'max' || plan.level === 'max_plus',
         }"
       >
         <div class="nest-plan-head">
-          <span class="nest-plan-name">{{ t(`subscription.plan.${plan.level}.name`) }}</span>
+          <span class="nest-plan-name">{{ plan.name }}</span>
           <v-chip
             v-if="isCurrent(plan)"
             size="x-small"
@@ -101,7 +90,9 @@ const showLoading = computed(() => plansLoading.value && plans.value.length === 
           </span>
         </div>
 
-        <p class="nest-plan-tagline">{{ t(`subscription.plan.${plan.level}.tagline`) }}</p>
+        <p class="nest-plan-tagline">
+          {{ plan.level === 'free' ? t('subscription.plan.free.tagline') : t('subscription.wuapiTagline') }}
+        </p>
 
         <ul class="nest-plan-features">
           <li>
@@ -110,18 +101,23 @@ const showLoading = computed(() => plansLoading.value && plans.value.length === 
           </li>
           <li v-if="plan.gold_discount_pct > 0">
             <v-icon size="14" class="nest-plan-feature-icon">mdi-piggy-bank-outline</v-icon>
-            {{ t('subscription.feature.discount', {
-              percent: plan.gold_discount_pct,
-              cap: formatGoldCap(plan.gold_discount_cap),
-            }) }}
+            <template v-if="plan.gold_discount_unlimited">
+              {{ t('subscription.feature.discountUnlimited', { percent: plan.gold_discount_pct }) }}
+            </template>
+            <template v-else>
+              {{ t('subscription.feature.discount', {
+                percent: plan.gold_discount_pct,
+                cap: formatGoldCap(plan.gold_discount_cap),
+              }) }}
+            </template>
           </li>
           <li v-else-if="plan.level === 'free'">
             <v-icon size="14" class="nest-plan-feature-icon">mdi-information-outline</v-icon>
             {{ t('subscription.feature.noDiscount') }}
           </li>
           <li v-if="plan.level !== 'free'">
-            <v-icon size="14" class="nest-plan-feature-icon">mdi-headset</v-icon>
-            {{ t(`subscription.plan.${plan.level}.support`) }}
+            <v-icon size="14" class="nest-plan-feature-icon">mdi-open-in-new</v-icon>
+            {{ t('subscription.wuapiCtaHint') }}
           </li>
         </ul>
 
@@ -143,23 +139,15 @@ const showLoading = computed(() => plansLoading.value && plans.value.length === 
             {{ t('subscription.cta.freeUnavailable') }}
           </v-btn>
           <v-btn
-            v-else-if="isDowngrade(plan)"
-            block
-            variant="tonal"
-            disabled
-          >
-            {{ t('subscription.cta.downgrade') }}
-          </v-btn>
-          <v-btn
             v-else
             block
             color="primary"
-            :variant="plan.level === 'pro' ? 'flat' : 'outlined'"
-            :loading="buyingLevel === plan.level"
-            :disabled="buyingLevel !== null && buyingLevel !== plan.level"
+            :variant="plan.level === 'max' || plan.level === 'max_plus' ? 'flat' : 'outlined'"
+            :loading="false"
+            :disabled="false"
             @click="onSubscribe(plan)"
           >
-            {{ t('subscription.cta.subscribe') }}
+            {{ t('subscription.cta.openWuApi') }}
           </v-btn>
         </div>
       </article>
