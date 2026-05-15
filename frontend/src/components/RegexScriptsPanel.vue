@@ -234,7 +234,18 @@ function cancelMerge() {
     <p class="nest-rx-import-hint">{{ t('presets.regex.importZipHint') }}</p>
 
     <div v-if="totalCount === 0" class="nest-rx-empty">
-      {{ t('presets.regex.empty') }}
+      <v-icon size="36" color="surface-variant" class="mb-2">mdi-folder-zip-outline</v-icon>
+      <p class="nest-rx-empty-text">{{ t('presets.regex.empty') }}</p>
+      <v-btn
+        color="primary"
+        variant="flat"
+        prepend-icon="mdi-folder-zip-outline"
+        :loading="importing"
+        class="mt-3"
+        @click="openImportPicker"
+      >
+        {{ t('presets.regex.importZipBtn') }}
+      </v-btn>
     </div>
 
     <div v-else class="nest-rx-list">
@@ -397,12 +408,20 @@ function cancelMerge() {
 }
 
 .nest-rx-empty {
-  padding: 20px;
+  padding: 24px 16px;
   text-align: center;
   color: var(--nest-text-muted);
   font-size: 13px;
   border: 1px dashed var(--nest-border-subtle);
   border-radius: var(--nest-radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.nest-rx-empty-text {
+  margin: 0;
+  max-width: 320px;
+  line-height: 1.45;
 }
 
 .nest-rx-list { display: flex; flex-direction: column; gap: 4px; }

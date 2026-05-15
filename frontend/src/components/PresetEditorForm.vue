@@ -1183,6 +1183,7 @@ function cancel() {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 120px;
 }
 
 .nest-form-section {

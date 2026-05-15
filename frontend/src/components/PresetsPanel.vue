@@ -679,7 +679,12 @@ function createForCurrentFilter() {
   .nest-preset-row {
     grid-template-columns: 1fr;
     grid-template-areas: "main" "actions";
-    &.expanded { grid-template-areas: "main" "actions" "json"; }
+    &.json-open {
+      grid-template-areas: "main" "actions" "json";
+    }
+    &.editing {
+      grid-template-areas: "main" "actions" "edit";
+    }
   }
   .nest-preset-actions {
     justify-content: flex-end;
