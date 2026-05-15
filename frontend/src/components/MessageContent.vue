@@ -585,19 +585,20 @@ function runAction(action: PlateAction) {
   // override — avoids the "raw UA defaults in the middle of a chat
   // bubble" look that prompted the complaint.
 
-  // Collapsible panels (<details>/<summary>) — common for "scene
-  // details", "inventory", stat cards.
-  :deep(details) {
+  // Collapsible panels (<details>/<summary>) — baseline for plain markdown.
+  // SATURIC/ST regex cards ship their own inline-styled <details>; don't
+  // paint nest chrome on top or the tabs look like empty grey bars.
+  :deep(details:not(:has(> summary[style]))) {
     margin: 8px 0;
     padding: 6px 10px;
     background: var(--nest-bg-elevated);
     border: 1px solid var(--nest-border-subtle);
     border-radius: var(--nest-radius-sm);
   }
-  :deep(details[open]) {
+  :deep(details:not(:has(> summary[style]))[open]) {
     padding-bottom: 10px;
   }
-  :deep(summary) {
+  :deep(summary:not([style])) {
     cursor: pointer;
     font-weight: 500;
     color: var(--nest-text);
@@ -614,8 +615,14 @@ function runAction(action: PlateAction) {
       color: var(--nest-text-muted);
     }
   }
-  :deep(details[open]) > :deep(summary)::before {
+  :deep(details:not(:has(> summary[style]))[open] > summary:not([style])::before) {
     transform: rotate(90deg);
+  }
+  // Author regex tabs (голова/ботинки): keep labels readable — preset uses 7px/40% opacity.
+  :deep(details > summary[style] b),
+  :deep(details > summary[style] span) {
+    font-size: max(10px, 0.72em) !important;
+    opacity: max(0.72, 0.65) !important;
   }
 
   // Progress bars / meters — simple plate vocab.
