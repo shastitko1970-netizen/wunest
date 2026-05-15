@@ -38,6 +38,7 @@ const totalCount = computed(() => scripts.value.length)
 // handles. ST has more (3=slash, 4=WI, 5=reasoning, 6=display) but they
 // round-trip through the raw blob without a UI control.
 const placementOptions = [
+  { value: 0, title: 'MD display (legacy)' },
   { value: 1, title: 'user input' },
   { value: 2, title: 'AI output' },
 ]
@@ -200,10 +201,12 @@ function placementSummary(s: RegexScript): string {
                 </template>
               </v-tooltip>
             </label>
-            <v-text-field
+            <v-textarea
               :model-value="s.findRegex"
               class="nest-rx-code"
-              placeholder="/pattern/gi"
+              placeholder="/pattern/gims"
+              rows="3"
+              auto-grow
               density="compact" hide-details
               @update:model-value="v => update(idx, { findRegex: v })"
             />
@@ -217,9 +220,11 @@ function placementSummary(s: RegexScript): string {
                 </template>
               </v-tooltip>
             </label>
-            <v-text-field
+            <v-textarea
               :model-value="s.replaceString"
               class="nest-rx-code"
+              rows="6"
+              auto-grow
               density="compact" hide-details
               @update:model-value="v => update(idx, { replaceString: v })"
             />

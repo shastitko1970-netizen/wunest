@@ -5,7 +5,13 @@ import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import JsonPlate from './JsonPlate.vue'
 import { splitContent, type Part } from '@/lib/splitContent'
+import {
+  applyRegexScripts,
+  bundleFromPresetData,
+  REGEX_PLACEMENT,
+} from '@/lib/regexScripts'
 import { useAppearanceStore } from '@/stores/appearance'
+import { usePresetsStore } from '@/stores/presets'
 import { dispatchAction, applyDomUpdate, type PlateAction } from '@/lib/plateActions'
 
 // MessageContent renders a single assistant/user message, with:
@@ -23,6 +29,8 @@ const props = defineProps<{
   content: string
   // When true, suppress plate rendering (useful for preview in the edit box).
   raw?: boolean
+  /** Drives which regex placement runs on display (ST parity). */
+  role?: 'user' | 'assistant' | 'system'
 }>()
 
 /**
@@ -41,6 +49,21 @@ const emit = defineEmits<{
 
 const appearance = useAppearanceStore()
 const { appearance: app } = storeToRefs(appearance)
+const presets = usePresetsStore()
+
+// Re-run active preset regex on display so ST card HTML works for older
+// messages and fixes capture-group substitution without a regen.
+const regexProcessedContent = computed(() => {
+  const raw = props.content ?? ''
+  if (props.raw) return raw
+  const active = presets.activePreset('sampler')
+  const bundle = active ? bundleFromPresetData(active.data) : null
+  if (!bundle) return raw
+  const placement =
+    props.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT
+  return applyRegexScripts(bundle, raw, placement, { isMarkdown: true })
+})
+
 
 // html: true lets raw <div>/<span> flow through markdown-it. We still route
 // every output through DOMPurify before injecting, so the model can't ship
@@ -62,7 +85,7 @@ const md = computed(() => {
   return inst
 })
 
-const parts = computed<Part[]>(() => splitContent(props.content ?? '', !!props.raw))
+const parts = computed<Part[]>(() => splitContent(regexProcessedContent.value, !!props.raw))
 
 // DOMPurify config. The goal is "ST-themes should render as authored,
 // minus anything that runs code". So we allow the full structural/semantic

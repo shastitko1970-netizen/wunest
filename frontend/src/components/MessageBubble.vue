@@ -305,6 +305,7 @@ function onEditKeydown(e: KeyboardEvent) {
           <MessageContent
             v-else
             :content="message.content"
+            :role="message.role"
             @bubble-action="onPlateBubbleAction"
             @draft="(text, send) => emit('plate-draft', text, send)"
             @toast="(level, text) => emit('plate-toast', level, text)"

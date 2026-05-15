@@ -237,7 +237,7 @@ func TestApplyRegex_WrongPlacementSkipped(t *testing.T) {
 // compileSTRegex translates JS-style flags correctly ──────────────
 
 func TestCompileSTRegex_CaseInsensitive(t *testing.T) {
-	re, err := compileSTRegex("/HELLO/i")
+	re, _, err := compileSTRegex("/HELLO/i")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,11 +247,66 @@ func TestCompileSTRegex_CaseInsensitive(t *testing.T) {
 }
 
 func TestCompileSTRegex_PlainPattern(t *testing.T) {
-	re, err := compileSTRegex(`\d+`)
+	re, _, err := compileSTRegex(`\d+`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !re.MatchString("abc123") {
 		t.Errorf("plain pattern should match")
+	}
+}
+
+// ST card templates use $10+ in replace strings; Go's naive $10 means "$1" + "0".
+func TestApplyRegex_CaptureGroup10(t *testing.T) {
+	bundle := &presets.OpenAIBundleData{
+		Extensions: presets.ExtensionsBundle{
+			RegexScripts: []presets.RegexScript{
+				{
+					FindRegex:     `/^(.)(.)(.)(.)(.)(.)(.)(.)(.)(.)$/`,
+					ReplaceString: "G10=$10 end",
+					Placement:     []int{2},
+				},
+			},
+		},
+	}
+	out := ApplyRegexToAIOutput(bundle, "abcdefghij")
+	if out != "G10=j end" {
+		t.Fatalf("expected group 10 in replace, got %q", out)
+	}
+}
+
+func TestApplyRegex_NonGlobalFirstMatchOnly(t *testing.T) {
+	bundle := &presets.OpenAIBundleData{
+		Extensions: presets.ExtensionsBundle{
+			RegexScripts: []presets.RegexScript{
+				{
+					FindRegex:     `/a/`,
+					ReplaceString: "X",
+					Placement:     []int{2},
+				},
+			},
+		},
+	}
+	out := ApplyRegexToAIOutput(bundle, "a a a")
+	if out != "X a a" {
+		t.Fatalf("non-global should replace first match only, got %q", out)
+	}
+}
+
+func TestApplyRegex_MatchAlias(t *testing.T) {
+	bundle := &presets.OpenAIBundleData{
+		Extensions: presets.ExtensionsBundle{
+			RegexScripts: []presets.RegexScript{
+				{
+					FindRegex:     `/hello/`,
+					ReplaceString: "[[{{match}}]]",
+					Placement:     []int{2},
+				},
+			},
+		},
+	}
+	out := ApplyRegexToAIOutput(bundle, "hello")
+	if out != "[[hello]]" {
+		t.Fatalf("{{match}} alias failed: %q", out)
 	}
 }
