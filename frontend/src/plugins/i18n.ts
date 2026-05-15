@@ -259,7 +259,7 @@ const messages = {
         title: 'Отправка сообщений',
         tagline: 'Как Enter работает в поле ввода чата.',
         enterToSend: 'Enter — отправить (Shift+Enter — новая строка)',
-        enterToSendHint: 'Выключи, если на телефоне Enter должен делать абзац, а отправка — Ctrl+Enter.',
+        enterToSendHint: 'На телефонах Enter всегда делает новую строку (отправка — кнопкой или Ctrl+Enter). Здесь — только для десктопа.',
       },
     },
     byok: {
@@ -1709,7 +1709,7 @@ const messages = {
         title: 'Message composer',
         tagline: 'How Enter behaves in the chat input.',
         enterToSend: 'Enter sends (Shift+Enter for newline)',
-        enterToSendHint: 'Turn off if Enter should insert a paragraph on mobile and Ctrl+Enter should send.',
+        enterToSendHint: 'On phones Enter always inserts a newline (send via button or Ctrl+Enter). This toggle applies on desktop only.',
       },
     },
     byok: {

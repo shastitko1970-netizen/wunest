@@ -11,10 +11,22 @@ import { useQuickRepliesStore } from '@/stores/quickReplies'
 import { byokApi, type BYOKKey } from '@/api/byok'
 import { chatsApi } from '@/api/chats'
 import { usePreferencesStore } from '@/stores/preferences'
+import { useDisplay } from 'vuetify'
 
 const { t } = useI18n()
 const prefs = usePreferencesStore()
 const { enterToSend } = storeToRefs(prefs)
+const { mobile, smAndDown } = useDisplay()
+
+// Phones: Enter = newline always. Mobile keyboards + accidental sends were
+// the top tester complaint; desktop keeps the user preference.
+const isPhoneComposer = computed(() => mobile.value || smAndDown.value)
+const effectiveEnterToSend = computed(() =>
+  isPhoneComposer.value ? false : enterToSend.value,
+)
+const textareaEnterKeyHint = computed(() =>
+  effectiveEnterToSend.value ? 'send' : 'enter',
+)
 
 // Beta gate — sending is disabled until the user has redeemed an
 // access code. Whole UI stays visible (banner in AppShell explains),
@@ -246,15 +258,15 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Enter') return
 
   const mod = e.metaKey || e.ctrlKey
-  if (enterToSend.value) {
-    // Default: Enter sends, Shift+Enter newline.
+  if (effectiveEnterToSend.value) {
+    // Desktop default: Enter sends, Shift+Enter newline.
     if (mod) return
     if (!e.shiftKey) {
       e.preventDefault()
       if (canSend.value) emit('send')
     }
   } else {
-    // Alt mode: Enter newline, Ctrl/Cmd+Enter sends (mobile-friendly).
+    // Phones + "Enter = newline" mode: Enter inserts newline; Ctrl/Cmd+Enter sends.
     if (mod) {
       e.preventDefault()
       if (canSend.value) emit('send')
@@ -429,6 +441,7 @@ function insertMarkdownImage(alt: string, url: string) {
       :value="modelValue"
       :placeholder="placeholder ?? t('chat.input.placeholder')"
       :disabled="disabled"
+      :enterkeyhint="textareaEnterKeyHint"
       rows="1"
       @input="onInput"
       @keydown="onKeydown"
