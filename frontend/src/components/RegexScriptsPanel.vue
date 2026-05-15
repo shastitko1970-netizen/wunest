@@ -2,6 +2,11 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { OpenAIBundleData, RegexScript } from '@/api/presets'
+import {
+  importRegexScriptsFromFile,
+  mergeRegexScripts,
+  RegexImportError,
+} from '@/lib/regexZipImport'
 
 /**
  * RegexScriptsPanel — editor for bundle.extensions.regex_scripts. ST's
@@ -34,9 +39,6 @@ const enabledCount = computed(() =>
 )
 const totalCount = computed(() => scripts.value.length)
 
-// Placement choices — we only surface the ones our server-side executor
-// handles. ST has more (3=slash, 4=WI, 5=reasoning, 6=display) but they
-// round-trip through the raw blob without a UI control.
 const placementOptions = [
   { value: 0, title: 'MD display (legacy)' },
   { value: 1, title: 'user input' },
@@ -91,7 +93,7 @@ function addScript() {
     disabled: false,
   }
   setScripts([...scripts.value, next])
-  expandedIdx.value = scripts.value.length  // new row is last
+  expandedIdx.value = scripts.value.length
 }
 
 function cryptoID(): string {
@@ -106,8 +108,65 @@ function placementSummary(s: RegexScript): string {
   const labels: string[] = []
   if (s.placement.includes(1)) labels.push(t('presets.regex.placeUser'))
   if (s.placement.includes(2)) labels.push(t('presets.regex.placeAI'))
-  // Silent pass-through for 3-6 so the chip stays short.
   return labels.join(', ') || '—'
+}
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+const importNotice = ref<string | null>(null)
+const importError = ref<string | null>(null)
+const mergeDialog = ref(false)
+const pendingImport = ref<RegexScript[]>([])
+
+function openImportPicker() {
+  importError.value = null
+  fileInput.value?.click()
+}
+
+async function onImportFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  importing.value = true
+  importError.value = null
+  importNotice.value = null
+  try {
+    const imported = await importRegexScriptsFromFile(file)
+    if (scripts.value.length > 0) {
+      pendingImport.value = imported
+      mergeDialog.value = true
+    } else {
+      applyImport('replace', imported)
+    }
+  } catch (e) {
+    const msg = e instanceof RegexImportError ? e.message : (e as Error).message
+    importError.value = t('presets.regex.importError', { msg })
+  } finally {
+    importing.value = false
+  }
+}
+
+function applyImport(mode: 'replace' | 'append', imported: RegexScript[]) {
+  const next = mergeRegexScripts(scripts.value, imported, mode)
+  setScripts(next)
+  mergeDialog.value = false
+  pendingImport.value = []
+  importNotice.value = t('presets.regex.importDone', { n: imported.length })
+}
+
+function confirmMergeReplace() {
+  applyImport('replace', pendingImport.value)
+}
+
+function confirmMergeAppend() {
+  applyImport('append', pendingImport.value)
+}
+
+function cancelMerge() {
+  mergeDialog.value = false
+  pendingImport.value = []
 }
 </script>
 
@@ -117,20 +176,62 @@ function placementSummary(s: RegexScript): string {
       <div class="nest-rx-stats nest-mono">
         {{ t('presets.regex.stats', { enabled: enabledCount, total: totalCount }) }}
       </div>
-      <v-btn
-        size="small"
-        variant="outlined"
-        prepend-icon="mdi-plus"
-        @click="addScript"
+      <div class="nest-rx-head-actions">
+        <v-btn
+          size="small"
+          variant="outlined"
+          prepend-icon="mdi-folder-zip-outline"
+          :loading="importing"
+          @click="openImportPicker"
+        >
+          {{ t('presets.regex.importZipBtn') }}
+        </v-btn>
+        <v-btn
+          size="small"
+          variant="outlined"
+          prepend-icon="mdi-plus"
+          @click="addScript"
+        >
+          {{ t('presets.regex.addBtn') }}
+        </v-btn>
+      </div>
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".zip,.json,application/zip,application/json"
+        class="nest-rx-file-input"
+        @change="onImportFile"
       >
-        {{ t('presets.regex.addBtn') }}
-      </v-btn>
     </div>
+
+    <v-alert
+      v-if="importNotice"
+      type="success"
+      density="compact"
+      variant="tonal"
+      class="nest-rx-alert"
+      closable
+      @click:close="importNotice = null"
+    >
+      {{ importNotice }}
+    </v-alert>
+    <v-alert
+      v-if="importError"
+      type="error"
+      density="compact"
+      variant="tonal"
+      class="nest-rx-alert"
+      closable
+      @click:close="importError = null"
+    >
+      {{ importError }}
+    </v-alert>
 
     <div class="nest-rx-hint">
       <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>
       {{ t('presets.regex.hint') }}
     </div>
+    <p class="nest-rx-import-hint">{{ t('presets.regex.importZipHint') }}</p>
 
     <div v-if="totalCount === 0" class="nest-rx-empty">
       {{ t('presets.regex.empty') }}
@@ -232,6 +333,21 @@ function placementSummary(s: RegexScript): string {
         </div>
       </div>
     </div>
+
+    <v-dialog v-model="mergeDialog" max-width="420">
+      <v-card>
+        <v-card-title>{{ t('presets.regex.importMergeTitle') }}</v-card-title>
+        <v-card-text>
+          {{ t('presets.regex.importMergeBody', { n: pendingImport.length, cur: totalCount }) }}
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" @click="cancelMerge">{{ t('common.cancel') }}</v-btn>
+          <v-spacer />
+          <v-btn variant="outlined" @click="confirmMergeAppend">{{ t('presets.regex.importMergeAppend') }}</v-btn>
+          <v-btn color="primary" variant="flat" @click="confirmMergeReplace">{{ t('presets.regex.importMergeReplace') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -247,6 +363,25 @@ function placementSummary(s: RegexScript): string {
   justify-content: space-between;
   align-items: center;
   padding: 2px 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nest-rx-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nest-rx-file-input {
+  display: none;
+}
+.nest-rx-alert {
+  margin: 0 4px;
+}
+.nest-rx-import-hint {
+  font-size: 11px;
+  color: var(--nest-text-muted);
+  padding: 0 4px 6px;
+  margin: 0;
 }
 .nest-rx-stats {
   font-size: 11.5px;

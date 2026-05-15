@@ -25,6 +25,7 @@ frontend/*.log
 
 # ── Deploy state ──────────────────────────────────
 .active
+_tmp_regex_audit/
 
 # ── Editor / OS ───────────────────────────────────
 .vscode/
