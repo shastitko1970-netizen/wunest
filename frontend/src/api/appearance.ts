@@ -94,6 +94,10 @@ export interface Appearance {
   // you're worried about models smuggling markup in.
   htmlRendering?: boolean
 
+  /** Run inline `<script>` from regex/HTML cards (ST parity). Off by default;
+   *  user accepts risk — scripts only run inside the message bubble. */
+  allowMessageScripts?: boolean
+
   // M51 Sprint 1 wave 3 — server-synced theme preset. Previously the
   // active preset id lived ONLY in localStorage (`nest:theme-preset`),
   // so a login on a new device painted with the local fallback rather

@@ -183,6 +183,10 @@ const htmlRendering = computed<boolean>({
   get: () => appearance.value.htmlRendering !== false,
   set: v => store.update({ htmlRendering: v }),
 })
+const allowMessageScripts = computed<boolean>({
+  get: () => appearance.value.allowMessageScripts !== false,
+  set: v => store.update({ allowMessageScripts: v }),
+})
 
 // 'chat' — CSS wrapped in @scope(#chat) so ST themes don't paint over
 // settings/library/menu. 'global' — the whole UI inherits the CSS.
@@ -898,6 +902,14 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
         color="primary"
         inset
       />
+      <v-switch
+        v-model="allowMessageScripts"
+        :label="t('appearance.allowMessageScripts')"
+        :disabled="!htmlRendering"
+        hide-details
+        color="primary"
+        inset
+      />
       <!-- M51 Sprint 2 wave 3 — follow OS dark/light. Disabled by
            default (opt-in). Toggling on attaches the matchMedia
            listener and immediately re-evaluates the system pref.
@@ -911,6 +923,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
       />
     </div>
     <p class="nest-subtitle nest-html-hint">{{ t('appearance.htmlRenderingHint') }}</p>
+    <p class="nest-subtitle nest-html-hint">{{ t('appearance.allowMessageScriptsHint') }}</p>
     <p class="nest-subtitle nest-html-hint">{{ t('appearance.followSystemHint') }}</p>
 
     <!-- Custom CSS — collapsed by default, summary shows theme name + line count -->

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
@@ -13,6 +13,7 @@ import {
 import { useAppearanceStore } from '@/stores/appearance'
 import { usePresetsStore } from '@/stores/presets'
 import { dispatchAction, applyDomUpdate, type PlateAction } from '@/lib/plateActions'
+import { runEmbeddedScripts } from '@/lib/embeddedScripts'
 
 // MessageContent renders a single assistant/user message, with:
 //   - Markdown (bold, italic, lists, links, blockquotes)
@@ -21,7 +22,8 @@ import { dispatchAction, applyDomUpdate, type PlateAction } from '@/lib/plateAct
 //     pulled out and rendered as key/value cards — the roleplay community
 //     uses these as stat blocks, status panels, etc.
 //   - Optional inline HTML (appearance.htmlRendering) — sanitized with
-//     DOMPurify so the model can't paint a phishing popup.
+//     DOMPurify. Optional inline scripts (allowMessageScripts) for ST regex
+//     cards; onclick handlers stay stripped.
 //
 // The splitter lives in lib/ so it's unit-testable without touching Vue.
 
@@ -87,8 +89,12 @@ const md = computed(() => {
 
 const parts = computed<Part[]>(() => splitContent(regexProcessedContent.value, !!props.raw))
 
-// DOMPurify config. The goal is "ST-themes should render as authored,
-// minus anything that runs code". So we allow the full structural/semantic
+const allowMessageScripts = computed(
+  () => app.value.htmlRendering !== false && app.value.allowMessageScripts !== false,
+)
+
+// DOMPurify config. The goal is "ST-themes should render as authored",
+// minus anything that runs code unless the user opted into regex scripts.
 // HTML a character-plate author typically reaches for (nav, aside, details,
 // progress, inline SVG) and widen the attribute allowlist to cover ARIA,
 // data-*, and media attrs, but KEEP all on* handlers and javascript: URIs
@@ -124,7 +130,8 @@ const DP_CFG = {
     // post-sanitize pass (scopeStyleBlocks below) so a character's stylesheet
     // can't reach outside its own bubble.
     'style',
-  ],
+    // Added dynamically when allowMessageScripts — ST regex card builders.
+  ] as string[],
   ALLOWED_ATTR: [
     // Structural
     'href', 'title', 'alt', 'src', 'srcset', 'sizes', 'class', 'style', 'id',
@@ -156,6 +163,14 @@ const DP_CFG = {
   // Don't allow javascript: / vbscript: URIs anywhere.
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data:image\/(?:png|jpeg|gif|webp|svg\+xml)):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 }
+
+const dpCfg = computed(() => {
+  const tags = [...DP_CFG.ALLOWED_TAGS]
+  if (allowMessageScripts.value && !tags.includes('script')) {
+    tags.push('script')
+  }
+  return { ...DP_CFG, ALLOWED_TAGS: tags }
+})
 
 // Make external links safe by default.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
@@ -240,9 +255,27 @@ const scopeSel = `[data-nest-msg-scope="${scopeId}"]`
 
 function renderMd(body: string): string {
   const raw = md.value.render(body)
-  const purified = String(DOMPurify.sanitize(raw, DP_CFG))
+  const purified = String(DOMPurify.sanitize(raw, dpCfg.value))
   return scopeStyleBlocks(purified, scopeSel)
 }
+
+function executeMessageScripts() {
+  if (props.raw || !allowMessageScripts.value) return
+  runEmbeddedScripts(contentRoot.value)
+}
+
+watch(
+  () => [parts.value, allowMessageScripts.value] as const,
+  async () => {
+    await nextTick()
+    executeMessageScripts()
+  },
+  { flush: 'post' },
+)
+
+onMounted(() => {
+  void nextTick().then(executeMessageScripts)
+})
 
 // scopeStyleBlocks finds every <style> element in a fragment of HTML and
 // rewrites its CSS so selectors only match elements inside this message's
