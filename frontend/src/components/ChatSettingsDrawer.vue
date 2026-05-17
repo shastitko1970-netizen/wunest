@@ -246,7 +246,10 @@ async function runSummarize() {
   summarizing.value = true
   summarizeError.value = null
   try {
-    const res = await chatsApi.summarize(props.chat.id)
+    const res = await chatsApi.summarize(
+      props.chat.id,
+      autoModel.value || undefined,
+    )
     if (res.summary) {
       // Refresh full list so ordering + existing manual/pinned stay in sync.
       await refreshSummaries()
@@ -318,7 +321,8 @@ async function promoteAutoToManual(s: Summary) {
 // under jsonb_set to preserve sibling metadata. Debounced light because
 // slider drag + numeric input both mutate threshold_tokens.
 
-const AUTO_DEFAULT_THRESHOLD = 30_000
+// ~4k matches backend defaultAutoSummariseThreshold + memory docs.
+const AUTO_DEFAULT_THRESHOLD = 4_000
 const AUTO_THRESHOLD_MAX = 2_000_000
 
 // Local state — mirror of server config; watcher resyncs when chat swaps.
@@ -460,6 +464,10 @@ async function saveAutoConfig() {
 // as an «SES_UNCAUGHT_EXCEPTION». Each handler now has a local .catch().
 function onAutoEnabledChange(v: boolean | null) {
   autoEnabled.value = !!v
+  // Legacy UI default was 30_000 — felt like auto-summary never fired.
+  if (autoEnabled.value && autoThreshold.value >= 25_000) {
+    autoThreshold.value = AUTO_DEFAULT_THRESHOLD
+  }
   saveAutoConfig().catch(err => console.warn('auto-summarise save:', err))
 }
 

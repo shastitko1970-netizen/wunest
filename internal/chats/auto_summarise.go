@@ -162,7 +162,20 @@ func (h *Handler) runAutoSummariseIfNeeded(
 	}
 	// Zero / negative threshold is treated as "every turn" — respects
 	// user intent, even if unusual.
-	if lastPromptTokens < threshold {
+	effectiveTokens := lastPromptTokens
+	if effectiveTokens <= 0 {
+		// Some BYOK providers omit usage chunks even with include_usage.
+		// Fall back to a char-based estimate so auto-summary isn't stuck
+		// off forever when the user enabled it.
+		if hist, err := h.Repo.ListMessages(ctx, chat.ID, true); err == nil {
+			effectiveTokens = estimatePromptTokensFromHistory(hist)
+			if effectiveTokens > 0 {
+				slog.Info("auto-summarise: using estimated prompt tokens",
+					"chat_id", chatID, "estimate", effectiveTokens)
+			}
+		}
+	}
+	if effectiveTokens < threshold {
 		return
 	}
 
@@ -188,6 +201,8 @@ func (h *Handler) runAutoSummariseIfNeeded(
 		}
 		err := h.runSummarisePipeline(ctx, chat, userID, wuapiKey, cfg)
 		if err == nil {
+			slog.Info("auto-summarise: ok",
+				"chat_id", chatID, "user_id", userID)
 			return
 		}
 		lastErr = err
@@ -227,12 +242,12 @@ func (h *Handler) runSummarisePipeline(
 	// want to know where raw-history starts; we don't need it here — the
 	// SummariseChat result itself carries CoveredThroughMessageID set
 	// from the last folded message's id.
-	// Auto-trigger — honor keepRecentMessages window (short-term memory).
-	toFold, _ := PickSummariserBounds(history, existingCovered, false)
+	// Auto-trigger — honor keepRecentMessages, with a tighter floor on
+	// short-but-token-heavy chats (see PickAutoSummariserBounds).
+	toFold, _ := PickAutoSummariserBounds(history, existingCovered)
 	if len(toFold) == 0 {
-		// Threshold hit but nothing new to fold — the last keepRecent
-		// messages dominated tokens. No-op; next qualifying turn will
-		// try again.
+		slog.Info("auto-summarise: threshold met but nothing to fold",
+			"chat_id", chat.ID, "messages", len(history))
 		return nil
 	}
 

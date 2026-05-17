@@ -18,7 +18,7 @@ export interface ModelListResponse {
 
 // Wu-gold catalog entry (M55.2). Returned by GET /api/models/catalog
 // which proxies to WuApi /api/catalog/gold with the WuNest-private
-// secret attached. Includes WuNest-exclusive `:lite` variants under
+  // secret attached. Includes `:lite` eco variants (public on WuApi too).
 // `eco != null`.
 export interface CatalogEcoLimits {
   maxInputTokens?: number

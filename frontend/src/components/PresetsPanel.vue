@@ -485,6 +485,7 @@ function createForCurrentFilter() {
 .nest-presets-panel {
   max-width: 900px;
   padding-bottom: 40px;
+  min-width: 0;
 }
 
 .nest-panel-head {
@@ -539,6 +540,7 @@ function createForCurrentFilter() {
   border-radius: var(--nest-radius-sm);
   background: var(--nest-surface);
   align-items: center;
+  min-width: 0; // grid children default to min-width:auto and blow past the viewport
   transition: border-color var(--nest-transition-fast), background var(--nest-transition-fast);
 
   &:hover {
@@ -650,6 +652,8 @@ function createForCurrentFilter() {
   margin-top: 10px;
   padding-top: 12px;
   border-top: 1px solid var(--nest-border-subtle);
+  min-width: 0;
+  max-width: 100%;
 }
 
 // Unified empty state — one central plate, two CTAs.
@@ -673,22 +677,31 @@ function createForCurrentFilter() {
   border: 1px solid var(--nest-border);
 }
 
-// Mobile — let the actions row wrap under the main text instead of
-// overlapping it on narrow screens.
-@media (max-width: 560px) {
+// Mobile — stack metadata/actions; editor spans full row width.
+// DS-canonical 640px (was 560) — matches GenerationSettings + ADAPTIVE_RULES.
+@media (max-width: 640px) {
   .nest-preset-row {
     grid-template-columns: 1fr;
     grid-template-areas: "main" "actions";
+    padding: 10px;
     &.json-open {
       grid-template-areas: "main" "actions" "json";
     }
     &.editing {
       grid-template-areas: "main" "actions" "edit";
     }
+    &.is-draft {
+      padding: 10px;
+    }
   }
   .nest-preset-actions {
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+  .nest-preset-edit {
+    // Last resort if a nested control is still wider than the row.
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 </style>

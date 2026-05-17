@@ -293,8 +293,8 @@ func (s *Server) Router() http.Handler {
 
 	// Model catalog proxy — pulls from WuApi /v1/models with the user's key.
 	mux.Handle("GET /api/models", authRequired(http.HandlerFunc(s.handleModels)))
-	// M55.2 — wu-gold catalog with eco-mode variants. Authed; SPA pulls
-	// here to render the picker's separate "Эко-режим" section.
+	// M55.2 — wu-gold catalog (incl. `:lite` eco variants). Authed;
+	// proxies WuApi with WUNEST_API_SECRET for legacy compatibility.
 	mux.Handle("GET /api/models/catalog", authRequired(http.HandlerFunc(s.handleModelsCatalog)))
 
 	// Catch-all: SPA (embedded Vue bundle). Must be LAST so that specific
@@ -837,11 +837,8 @@ func (s *Server) handleSetDefaultModel(w http.ResponseWriter, r *http.Request) {
 // handleModelsCatalog proxies GET /api/models/catalog →
 // WuApi GET /api/catalog/gold?app=wunest&secret=$WUNEST_API_SECRET (M55.2).
 //
-// Catalog itself is public, but only WuNest-authenticated calls
-// receive the `:lite` eco-mode variants — the secret is held
-// server-side and never sent to the SPA. The SPA cannot construct
-// the WuApi URL on its own, so this is the only surface where lite
-// models are fetchable from the browser.
+	// Lite variants are public on WuApi; the secret is still held
+	// server-side so the SPA never talks to WuApi catalog directly.
 func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 	body, resp, err := s.deps.WuApi.GetGoldCatalog(r.Context(), s.deps.Config.WuNestAPISecret)
 	if err != nil {

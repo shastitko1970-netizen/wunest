@@ -40,6 +40,18 @@ import (
 // context for the model to track short-term coherence.
 const keepRecentMessages = 20
 
+// autoKeepRecentFloor — when auto-summary fires on a chat shorter than
+// keepRecentMessages (few turns but each turn is huge), we still fold
+// older messages and keep only this many raw at the tail.
+const autoKeepRecentFloor = 5
+
+// defaultAutoSummariseThreshold is the UI/server default for
+// chat_metadata.auto_summarise.threshold_tokens. ~4k matches docs +
+// typical "start compressing before context explodes" expectations.
+// (Frontend used to default to 30_000, which made auto-summary feel
+// completely dead.)
+const defaultAutoSummariseThreshold = 4000
+
 // defaultSummariserModel is used when the caller doesn't specify one.
 // Gemini 2.5 Flash is the current sweet spot for WuApi-proxied users:
 // cheap, 1M context (so old chats of any length fit), good RP
@@ -277,6 +289,63 @@ func PickSummariserBounds(history []Message, existingCoveredThrough int64, force
 		toSummarise = append(toSummarise, m)
 	}
 	return toSummarise, keepFromIdx
+}
+
+// PickAutoSummariserBounds is like PickSummariserBounds(force=false) but
+// when the normal window leaves nothing to fold (short chat with huge
+// messages), it compresses harder: keep only autoKeepRecentFloor raw.
+func PickAutoSummariserBounds(history []Message, existingCoveredThrough int64) ([]Message, int) {
+	toFold, keepIdx := PickSummariserBounds(history, existingCoveredThrough, false)
+	if len(toFold) > 0 {
+		return toFold, keepIdx
+	}
+	if len(history) <= autoKeepRecentFloor {
+		return nil, keepIdx
+	}
+	cutoff := len(history) - autoKeepRecentFloor
+	if cutoff < 1 {
+		return nil, keepIdx
+	}
+	for i := 0; i < cutoff; i++ {
+		m := history[i]
+		if existingCoveredThrough > 0 && m.ID <= existingCoveredThrough {
+			continue
+		}
+		if m.Role != RoleUser && m.Role != RoleAssistant {
+			continue
+		}
+		toFold = append(toFold, m)
+	}
+	return toFold, cutoff
+}
+
+// PickForceRefreshMessages returns every user/assistant turn for a full
+// manual re-summarisation. Used when incremental force-fold is empty
+// because covered_through already spans the whole history — the user
+// clicked «Summarise» and expects a fresh rollup, not a no-op.
+func PickForceRefreshMessages(history []Message) []Message {
+	var out []Message
+	for _, m := range history {
+		if m.Role == RoleUser || m.Role == RoleAssistant {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// estimatePromptTokensFromHistory is a coarse fallback when upstream
+// omits usage in the SSE stream (tokens_in stays 0). Char/4 is good
+// enough to decide whether we crossed a 4k-style threshold.
+func estimatePromptTokensFromHistory(history []Message) int {
+	const charsPerToken = 4
+	total := 0
+	for _, m := range history {
+		total += len(m.Content)
+	}
+	if total == 0 {
+		return 0
+	}
+	return total / charsPerToken
 }
 
 // FilterHistoryForPrompt — M49 переход к ST-style additive memory.

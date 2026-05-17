@@ -179,6 +179,17 @@ function toSamplerData(): SamplerData {
 }
 
 /**
+ * PATCH replaces the whole JSONB `data` blob. Merge sampler knobs from
+ * this drawer over the active preset's existing payload so prompts,
+ * prompt_order, regex scripts, and other ST fields are not wiped when
+ * the user tweaks temperature / top_p from chat.
+ */
+function buildPresetDataForSave(): Record<string, unknown> {
+  const base = (presets.activePreset('sampler')?.data ?? {}) as Record<string, unknown>
+  return { ...base, ...toSamplerData() }
+}
+
+/**
  * Save = write form changes back to the active preset. If there is no
  * active preset yet, fall through to Save-As so the user can name it
  * first (otherwise we'd silently create an "Untitled" preset).
@@ -192,7 +203,7 @@ async function save() {
   saving.value = true
   savedHint.value = false
   try {
-    await presets.update(activeId, { data: toSamplerData() })
+    await presets.update(activeId, { data: buildPresetDataForSave() })
     savedHint.value = true
     setTimeout(() => (savedHint.value = false), 1500)
   } finally {
@@ -240,7 +251,7 @@ async function saveAsPreset() {
   saveAsBusy.value = true
   saveAsError.value = null
   try {
-    const created = await presets.createSampler(name, toSamplerData())
+    const created = await presets.createSampler(name, buildPresetDataForSave())
     // New preset auto-becomes active — matches user expectation of
     // "saved + now using it".
     await presets.setActive('sampler', created.id)

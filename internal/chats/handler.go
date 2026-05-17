@@ -808,6 +808,15 @@ func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
 	// от keepRecentMessages threshold. User явно попросил.
 	toFold, _ := PickSummariserBounds(history, prevCovered, true)
 	if len(toFold) == 0 {
+		// Everything is already marked covered — user still clicked
+		// «Summarise», so rebuild from the full transcript (no prior
+		// summary text to avoid duplicating facts in the prompt).
+		if all := PickForceRefreshMessages(history); len(all) > 0 {
+			toFold = all
+			prevContent = ""
+		}
+	}
+	if len(toFold) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"summary":  nil,
 			"message":  "nothing new to summarise",
@@ -816,9 +825,20 @@ func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upstream resolution: same rules as send — BYOK if pinned, else
-	// WuApi via the session's API key.
-	up := h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	summariseModel := req.Model
+	autoCfg := readAutoSummarise(chat.Metadata)
+	if summariseModel == "" && autoCfg != nil && autoCfg.Model != "" {
+		summariseModel = autoCfg.Model
+	}
+
+	// Upstream: dedicated auto-summary BYOK when configured, else chat
+	// BYOK / WuApi pool (same as generation).
+	var up upstream
+	if autoCfg != nil && autoCfg.BYOKID != nil && *autoCfg.BYOKID != uuid.Nil {
+		up = h.pickAutoSummariseUpstream(r.Context(), user.ID, chat, autoCfg, session.WuApi.APIKey)
+	} else {
+		up = h.resolveUpstream(r.Context(), user.ID, chat.Metadata, session.WuApi.APIKey)
+	}
 	if up.APIKey == "" {
 		http.Error(w, "no api key", http.StatusPreconditionFailed)
 		return
@@ -836,7 +856,7 @@ func (h *Handler) summarize(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.SummariseChat(r.Context(), SummariseInput{
 		ChatID:                  chatID.String(),
-		Model:                   req.Model,
+		Model:                   summariseModel,
 		PreviousSummary:         prevContent,
 		Messages:                toFold,
 		PromptAPIKey:            up.APIKey,

@@ -1148,10 +1148,21 @@ function cancel() {
 <style lang="scss" scoped>
 .nest-preset-form {
   padding: 8px 0 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.nest-form-header {
+  min-width: 0;
 }
 
 .nest-form-tabs {
   border-bottom: 1px solid var(--nest-border-subtle);
+  max-width: 100%;
+
+  :deep(.v-slide-group) {
+    max-width: 100%;
+  }
 }
 
 // Sampler sub-tabs — one level deeper than the main Form/Raw tabs.
@@ -1184,6 +1195,8 @@ function cancel() {
   flex-direction: column;
   gap: 10px;
   min-height: 120px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .nest-form-section {
@@ -1312,5 +1325,40 @@ function cancel() {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--nest-border-subtle);
+}
+
+// Phones — same stacking rules as GenerationSettings drawer: half-half
+// rows become one column so sliders/inputs aren't clipped at ~375px.
+@media (max-width: 640px) {
+  .nest-field-row {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .nest-field-half {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .nest-field-label {
+    flex-wrap: wrap;
+  }
+
+  .nest-field-value {
+    margin-left: 0;
+  }
+
+  :deep(.v-slider) {
+    min-width: 0;
+  }
+
+  .nest-adv-panels :deep(.v-btn-toggle) {
+    flex-wrap: wrap;
+    height: auto !important;
+  }
+
+  .nest-form-actions {
+    flex-wrap: wrap;
+  }
 }
 </style>
