@@ -15,6 +15,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
+	"github.com/shastitko1970-netizen/wunest/internal/uploads"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
@@ -45,6 +46,7 @@ type Handler struct {
 	Users   *users.Resolver
 	Books   BookExtractor
 	Storage *storage.Client
+	Tracker *uploads.Tracker
 }
 
 // maxUploadSize is the cap on a single PNG upload.
@@ -165,6 +167,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+	h.claimAvatarURLs(r.Context(), user.ID, c.AvatarURL, c.AvatarOriginalURL)
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -341,8 +344,9 @@ func (h *Handler) extractEmbeddedBook(ctx context.Context, userID, characterID u
 type updateRequest struct {
 	Name      *string        `json:"name,omitempty"`
 	Data      *CharacterData `json:"data,omitempty"`
-	AvatarURL *string        `json:"avatar_url,omitempty"`
-	Tags      *[]string      `json:"tags,omitempty"`
+	AvatarURL         *string        `json:"avatar_url,omitempty"`
+	AvatarOriginalURL *string        `json:"avatar_original_url,omitempty"`
+	Tags              *[]string      `json:"tags,omitempty"`
 	Favorite  *bool          `json:"favorite,omitempty"`
 	SourceURL *string        `json:"source_url,omitempty"`
 }
@@ -366,17 +370,19 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c, err := h.Repo.Update(r.Context(), user.ID, id, UpdatePatch{
-		Name:      req.Name,
-		Data:      req.Data,
-		AvatarURL: req.AvatarURL,
-		Tags:      req.Tags,
-		Favorite:  req.Favorite,
-		SourceURL: req.SourceURL,
+		Name:              req.Name,
+		Data:              req.Data,
+		AvatarURL:         req.AvatarURL,
+		AvatarOriginalURL: req.AvatarOriginalURL,
+		Tags:              req.Tags,
+		Favorite:          req.Favorite,
+		SourceURL:         req.SourceURL,
 	})
 	if err != nil {
 		h.writeErr(w, err)
 		return
 	}
+	h.claimAvatarURLs(r.Context(), user.ID, c.AvatarURL, c.AvatarOriginalURL)
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -587,6 +593,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) claimAvatarURLs(ctx context.Context, userID uuid.UUID, urls ...string) {
+	if h.Tracker == nil {
+		return
+	}
+	if err := h.Tracker.ClaimByURLs(ctx, userID, uploads.KindAvatar, urls...); err != nil {
+		slog.Warn("characters: claim staged avatar", "err", err, "user_id", userID)
+	}
 }
 
 // normalizeTags merges user-provided tags with tags from the card data,

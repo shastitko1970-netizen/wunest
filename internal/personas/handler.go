@@ -12,13 +12,15 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/uploads"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
 // Handler wires /api/personas onto an http.ServeMux.
 type Handler struct {
-	Repo  *Repository
-	Users *users.Resolver
+	Repo    *Repository
+	Users   *users.Resolver
+	Tracker *uploads.Tracker
 }
 
 func (h *Handler) Register(mux *http.ServeMux, authRequired func(http.Handler) http.Handler) {
@@ -114,6 +116,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+	h.claimAvatarURLs(r.Context(), user.ID, p.AvatarURL)
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -148,6 +151,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, err)
 		return
 	}
+	h.claimAvatarURLs(r.Context(), user.ID, p.AvatarURL)
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -232,4 +236,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) claimAvatarURLs(ctx context.Context, userID uuid.UUID, urls ...string) {
+	if h.Tracker == nil {
+		return
+	}
+	if err := h.Tracker.ClaimByURLs(ctx, userID, uploads.KindAvatar, urls...); err != nil {
+		slog.Warn("personas: claim staged avatar", "err", err, "user_id", userID)
+	}
 }

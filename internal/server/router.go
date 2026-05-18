@@ -111,10 +111,11 @@ func New(deps Deps) *Server {
 	// here instead of inside characters/ to keep that package free of a
 	// dependency on worldinfo (which imports characters).
 	bookExtractor := &worldsBookExtractor{repo: worldsRepo}
+	uploadTracker := uploads.NewTracker(deps.Postgres)
 	return &Server{
 		deps:       deps,
 		users:      resolver,
-		characters: &characters.Handler{Repo: charRepo, Users: resolver, Books: bookExtractor, Storage: storageClient},
+		characters: &characters.Handler{Repo: charRepo, Users: resolver, Books: bookExtractor, Storage: storageClient, Tracker: uploadTracker},
 		chats: &chats.Handler{
 			Repo:       chats.NewRepository(deps.Postgres),
 			Users:      resolver,
@@ -135,6 +136,7 @@ func New(deps Deps) *Server {
 			Client:         library.NewClient(),
 			Users:          resolver,
 			CharactersRepo: charRepo,
+			Storage:        storageClient,
 			Books:          bookExtractor,
 		},
 		worlds: &worldinfo.Handler{
@@ -143,8 +145,9 @@ func New(deps Deps) *Server {
 			Characters: charRepo,
 		},
 		personas: &personas.Handler{
-			Repo:  personasRepo,
-			Users: resolver,
+			Repo:    personasRepo,
+			Users:   resolver,
+			Tracker: uploadTracker,
 		},
 		byok: &byok.Handler{
 			Repo:       byokRepo,
@@ -153,7 +156,7 @@ func New(deps Deps) *Server {
 			ProxyPool:  proxyPool,
 		},
 		byokRepo:     byokRepo,
-		uploads:      &uploads.Handler{Storage: storageClient},
+		uploads:      &uploads.Handler{Storage: storageClient, Users: resolver, Tracker: uploadTracker},
 		quickReplies: &quickreplies.Handler{Repo: quickreplies.NewRepository(deps.Postgres), Users: resolver},
 		// Converter needs same LLM-call primitives as the chat stream
 		// (BYOK + WuApi + proxy pool). Reusing components instead of
@@ -786,6 +789,22 @@ func (s *Server) handleSetAppearance(w http.ResponseWriter, r *http.Request) {
 		slog.Error("set appearance", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if s.uploads != nil && s.uploads.Tracker != nil {
+		var app map[string]any
+		if err := json.Unmarshal(body, &app); err == nil {
+			var bg string
+			if v, ok := app["bgImageUrl"].(string); ok {
+				bg = v
+			} else if v, ok := app["background_url"].(string); ok {
+				bg = v
+			}
+			if bg != "" {
+				if err := s.uploads.Tracker.ClaimByURLs(r.Context(), local.ID, uploads.KindBackground, bg); err != nil {
+					slog.Warn("appearance: claim staged background", "err", err)
+				}
+			}
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

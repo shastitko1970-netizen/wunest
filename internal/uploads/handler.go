@@ -24,6 +24,7 @@ import (
 
 	"github.com/shastitko1970-netizen/wunest/internal/auth"
 	"github.com/shastitko1970-netizen/wunest/internal/storage"
+	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
 // Handler groups the upload endpoints.
@@ -33,6 +34,8 @@ import (
 // from "user upload was rejected".
 type Handler struct {
 	Storage *storage.Client
+	Users   *users.Resolver
+	Tracker *Tracker
 }
 
 // Register wires the endpoints onto the mux with the given auth middleware.
@@ -67,10 +70,12 @@ func (h *Handler) uploadAvatar(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "upload_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, avatarResponse{
+	resp := avatarResponse{
 		AvatarURL:         urls.Thumbnail,
 		AvatarOriginalURL: urls.Original,
-	})
+	}
+	h.stageUpload(r, KindAvatar, resp.AvatarURL, resp.AvatarOriginalURL)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // attachmentResponse carries the attachment URL back to the client.
@@ -131,11 +136,13 @@ func (h *Handler) uploadBackground(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "upload_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, backgroundResponse{
+	resp := backgroundResponse{
 		URL:         url,
 		ContentType: contentType,
 		Size:        len(raw),
-	})
+	}
+	h.stageUpload(r, KindBackground, resp.URL)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- helpers ---
@@ -199,6 +206,26 @@ func (h *Handler) readFile(w http.ResponseWriter, r *http.Request, max int) ([]b
 		contentType = http.DetectContentType(raw)
 	}
 	return raw, contentType, true
+}
+
+// stageUpload records the latest draft upload for the signed-in user so the
+// reaper keeps it until save or supersede. Failures are logged only.
+func (h *Handler) stageUpload(r *http.Request, kind Kind, urls ...string) {
+	if h.Tracker == nil || h.Users == nil {
+		return
+	}
+	session := auth.FromContext(r.Context())
+	if session == nil {
+		return
+	}
+	user, err := h.Users.Resolve(r.Context(), session.WuApi.ID)
+	if err != nil {
+		slog.Warn("uploads: resolve user for staging", "err", err)
+		return
+	}
+	if err := h.Tracker.StageActive(r.Context(), user.ID, kind, urls...); err != nil {
+		slog.Warn("uploads: stage upload", "err", err, "kind", kind)
+	}
 }
 
 // writeJSON serialises `v` as JSON with the given status code.

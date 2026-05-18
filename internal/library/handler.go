@@ -13,6 +13,7 @@ import (
 	"github.com/shastitko1970-netizen/wunest/internal/characters"
 	"github.com/shastitko1970-netizen/wunest/internal/limits"
 	"github.com/shastitko1970-netizen/wunest/internal/models"
+	"github.com/shastitko1970-netizen/wunest/internal/storage"
 	"github.com/shastitko1970-netizen/wunest/internal/users"
 )
 
@@ -21,6 +22,9 @@ type Handler struct {
 	Client         *Client
 	Users          *users.Resolver
 	CharactersRepo *characters.Repository
+	// Storage is optional — when set, CHUB imports rehost card PNG art to MinIO
+	// instead of relying on charhub.io CDN URLs that can 404 or block hotlinks.
+	Storage *storage.Client
 	// Books is optional — when non-nil, CHUB imports that carry an embedded
 	// character_book get promoted to a standalone Lorebook and attached.
 	Books characters.BookExtractor
@@ -121,14 +125,27 @@ func (h *Handler) chubImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	avatarURL := card.AvatarURL
+	avatarOriginalURL := ""
+	if h.Storage != nil && len(card.CardPNG) > 0 {
+		if urls, err := h.Storage.PutAvatar(r.Context(), card.CardPNG); err != nil {
+			slog.Warn("chub import: avatar rehost failed, keeping CDN URL",
+				"err", err, "full_path", fullPath)
+		} else {
+			avatarURL = urls.Thumbnail
+			avatarOriginalURL = urls.Original
+		}
+	}
+
 	created, err := h.CharactersRepo.Create(r.Context(), characters.CreateInput{
-		UserID:    user.ID,
-		Name:      card.Name,
-		Data:      card.Data,
-		AvatarURL: card.AvatarURL,
-		Tags:      card.Tags,
-		Spec:      card.Spec,
-		SourceURL: card.SourceURL,
+		UserID:            user.ID,
+		Name:              card.Name,
+		Data:              card.Data,
+		AvatarURL:         avatarURL,
+		AvatarOriginalURL: avatarOriginalURL,
+		Tags:              card.Tags,
+		Spec:              card.Spec,
+		SourceURL:         card.SourceURL,
 	})
 	if err != nil {
 		slog.Error("persist chub import", "err", err)

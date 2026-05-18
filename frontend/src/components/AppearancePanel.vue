@@ -8,6 +8,13 @@ import { fromST, toST, type AvatarStyle, type ChatDisplay, type STTheme } from '
 import { uploadBackground } from '@/api/uploads'
 import { auditDangerousSelectors, supportsCSSScope, validateCss } from '@/lib/cssScope'
 
+/** Native color inputs on mobile (especially Android) open an HSV dialog with black hue/saturation tracks when `value` is empty or invalid. */
+function colorPickerValue(current: string, fallback: string): string {
+  const v = current.trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase()
+  return fallback
+}
+
 // Detailed appearance controls. Lives as a section of /settings so users
 // see everything in one place: theme presets, density, custom colors,
 // background image, custom CSS, and SillyTavern theme import/export.
@@ -801,7 +808,7 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
           <input
             type="color"
             class="nest-color-swatch"
-            :value="accent || '#ef4444'"
+            :value="colorPickerValue(accent, '#ef4444')"
             @input="e => accent = (e.target as HTMLInputElement).value"
           />
           <v-text-field
@@ -1425,6 +1432,10 @@ const savingHint = computed(() => saving.value ? t('appearance.savingHint') : ''
   border-radius: var(--nest-radius-sm);
   cursor: pointer;
   background: transparent;
+  // Android/Chrome native HSV picker inherits dark color-scheme from the app
+  // and renders hue/saturation tracks as solid black. Force light scheme for
+  // the system dialog only (swatch chrome stays theme-aware).
+  color-scheme: light;
 }
 
 .nest-mono-textarea :deep(textarea) {

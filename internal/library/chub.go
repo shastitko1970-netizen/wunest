@@ -195,9 +195,12 @@ type ImportedCard struct {
 	Name      string
 	Data      characters.CharacterData
 	Spec      string // "chara_card_v3" after ParsePNGCard normalises
-	AvatarURL string // pass-through CDN URL (we don't re-host for v1)
+	AvatarURL string // CDN fallback when rehost fails; overwritten by handler when storage is enabled
 	SourceURL string // canonical CHUB URL for attribution
 	Tags      []string
+	// CardPNG is the downloaded chara_card PNG (same bytes as a manual import).
+	// Used by the handler to rehost the avatar into MinIO — not serialized.
+	CardPNG []byte `json:"-"`
 }
 
 // ImportChub downloads the V2/V3 PNG at CHUB's max_res_url for the given
@@ -244,9 +247,11 @@ func (c *Client) ImportChub(ctx context.Context, fullPath string) (*ImportedCard
 		Name:      data.Name,
 		Data:      *data,
 		Spec:      spec,
+		// Fallback when MinIO rehost is unavailable; handler overwrites on success.
 		AvatarURL: "https://avatars.charhub.io/avatars/" + fullPath + "/avatar.webp",
 		SourceURL: "https://chub.ai/characters/" + fullPath,
 		Tags:      data.Tags,
+		CardPNG:   body,
 	}, nil
 }
 

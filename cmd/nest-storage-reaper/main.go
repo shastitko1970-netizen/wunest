@@ -11,7 +11,7 @@
 //
 //	nest-avatars      — nest_characters.avatar_url / avatar_original_url
 //	nest-attachments  — URL substrings inside nest_messages.content + swipes
-//	nest-backgrounds  — nest_users.settings.appearance.background_url
+//	nest-backgrounds  — nest_users.settings.appearance.bgImageUrl (and legacy keys)
 //
 // Intended to run as a daily systemd timer:
 //
@@ -222,6 +222,9 @@ func (r *runner) collectRefs(bucket string) (map[string]bool, error) {
 		if err := r.scanAvatars(refs); err != nil {
 			return nil, err
 		}
+		if err := r.scanStagedUploads(refs, "avatar"); err != nil {
+			return nil, err
+		}
 	case storage.BucketAttachments:
 		if err := r.scanAttachments(refs); err != nil {
 			return nil, err
@@ -230,8 +233,40 @@ func (r *runner) collectRefs(bucket string) (map[string]bool, error) {
 		if err := r.scanBackgrounds(refs); err != nil {
 			return nil, err
 		}
+		if err := r.scanStagedUploads(refs, "background"); err != nil {
+			return nil, err
+		}
 	}
 	return refs, nil
+}
+
+// scanStagedUploads keeps object keys for the latest active draft upload per
+// user (uploaded but not yet saved, and not superseded by a newer upload).
+func (r *runner) scanStagedUploads(refs map[string]bool, kind string) error {
+	const q = `
+		SELECT unnest(object_keys)
+		  FROM nest_staged_uploads
+		 WHERE kind = $1
+		   AND is_active
+		   AND claimed_at IS NULL
+		   AND superseded_at IS NULL
+	`
+	rows, err := r.pg.Query(r.ctx, q, kind)
+	if err != nil {
+		// Table may not exist before migration 014 — treat as no staged refs.
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return err
+		}
+		if key != "" {
+			refs[key] = true
+		}
+	}
+	return rows.Err()
 }
 
 // scanAvatars pulls avatar URLs from nest_characters and nest_personas.
@@ -281,6 +316,11 @@ func (r *runner) scanAvatars(refs map[string]bool) error {
 // misconfigured client) still count as references — prevents accidental
 // deletion of in-use assets just because PUBLIC_BASE_URL changed.
 var attachmentURLRegex = regexp.MustCompile(`/images/attachments/[a-f0-9]{24}\.[a-z]{2,5}`)
+
+// backgroundURLRegex matches our nest-backgrounds public paths anywhere in
+// settings JSON — catches bgImageUrl and any future appearance field without
+// needing a schema migration per key name.
+var backgroundURLRegex = regexp.MustCompile(`/images/backgrounds/[a-f0-9]{24}\.[a-z]{2,5}`)
 
 // scanAttachments walks every message row for URLs in content + swipes.
 // A message can carry attachments in either, so we union both.
@@ -336,14 +376,15 @@ func (r *runner) scanAttachments(refs map[string]bool) error {
 	return crows.Err()
 }
 
-// scanBackgrounds walks nest_users.settings and extracts any
-// `appearance.background_url` values. Settings is a JSONB blob with
-// open schema, so we probe with `->>` and tolerate missing keys.
+// scanBackgrounds walks nest_users.settings and extracts any background
+// image URLs. The frontend stores uploads under appearance.bgImageUrl;
+// older blobs may still use background_url / background.
 func (r *runner) scanBackgrounds(refs map[string]bool) error {
 	const q = `
 		SELECT settings
 		  FROM nest_users
-		 WHERE settings->'appearance'->>'background_url' IS NOT NULL
+		 WHERE settings->'appearance'->>'bgImageUrl' IS NOT NULL
+		    OR settings->'appearance'->>'background_url' IS NOT NULL
 		    OR settings->'appearance'->>'background' IS NOT NULL
 	`
 	rows, err := r.pg.Query(r.ctx, q)
@@ -384,11 +425,15 @@ func (r *runner) scanBackgroundsFallback(refs map[string]bool) error {
 }
 
 // extractBackgroundURLs parses a settings JSON blob and harvests any
-// string-typed `background_url` / `background` under `appearance`.
-// Tolerant: missing keys are skipped silently.
+// background URLs under appearance (bgImageUrl is canonical) plus a
+// regex pass over the raw JSON for belt-and-suspenders coverage.
 func (r *runner) extractBackgroundURLs(refs map[string]bool, raw []byte) {
 	if len(raw) == 0 {
 		return
+	}
+	for _, match := range backgroundURLRegex.FindAllString(string(raw), -1) {
+		key := strings.TrimPrefix(match, "/images/backgrounds/")
+		refs[key] = true
 	}
 	var settings struct {
 		Appearance map[string]any `json:"appearance"`
@@ -396,7 +441,7 @@ func (r *runner) extractBackgroundURLs(refs map[string]bool, raw []byte) {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return
 	}
-	for _, key := range []string{"background_url", "background"} {
+	for _, key := range []string{"bgImageUrl", "background_url", "background"} {
 		if v, ok := settings.Appearance[key].(string); ok {
 			r.addRef(refs, v, "/images/backgrounds/")
 		}
